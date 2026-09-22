@@ -6,19 +6,16 @@
   <title>Student Services &amp; ICT Helpdesk | FOCIT UNIOSUN</title>
   <meta name="description" content="Access UNIOSUN FOCIT student services: live CGPA calculator, course registration protocols, digital library repositories, and ICT technical support.">
 
-  <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 
-  <!-- Core Stylesheets -->
   <link rel="stylesheet" href="assets/css/variables.css">
   <link rel="stylesheet" href="assets/css/layout.css">
   <link rel="stylesheet" href="assets/css/components.css">
 </head>
 <body>
 
-  <!-- Site Header -->
   <header class="site-header">
     <div class="top-bar">
       <div class="container top-bar-inner">
@@ -85,7 +82,6 @@
     </div>
   </header>
 
-  <!-- Mobile Drawer -->
   <div class="mobile-nav-drawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
     <div class="mobile-nav-backdrop" id="drawerBackdrop"></div>
     <div class="mobile-nav-panel">
@@ -115,7 +111,6 @@
   </div>
 
   <main id="main-content">
-    <!-- Page Header Banner -->
     <section class="page-banner">
       <div class="container">
         <div class="breadcrumb-bar">
@@ -132,14 +127,12 @@
       </div>
     </section>
 
-    <!-- Services Directory Grid -->
     <section class="u-p-8 u-bg-slate-50">
       <div class="container">
         <span class="section-kicker">INSTITUTIONAL SERVICES</span>
         <h2 class="u-text-2xl u-font-extrabold u-text-blue-950 u-mt-2 u-mb-8">Core Student Portals</h2>
 
         <div class="dept-grid">
-          <!-- Service 1: Course Registration -->
           <div class="dept-card">
             <div class="facility-icon-box facility-icon-blue u-mb-4">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -151,7 +144,6 @@
             <button class="btn btn-primary btn-sm" type="button" data-action="open-login">Access Registration</button>
           </div>
 
-          <!-- Service 2: E-Library -->
           <div class="dept-card">
             <div class="facility-icon-box facility-icon-purple u-mb-4">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -163,7 +155,6 @@
             <button class="btn btn-outline btn-sm" type="button" id="openLibraryBtn">Open Digital Library</button>
           </div>
 
-          <!-- Service 3: Transcripts -->
           <div class="dept-card">
             <div class="facility-icon-box facility-icon-green u-mb-4">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
@@ -176,7 +167,6 @@
           </div>
         </div>
 
-        <!-- Interactive CGPA Calculator -->
         <div id="cgpa" class="calc-container">
           <div class="u-mb-6">
             <span class="badge badge-green u-mb-2">INTERACTIVE TOOL</span>
@@ -187,7 +177,6 @@
           </div>
 
           <div id="calculatorRows" class="u-flex u-flex-col u-gap-3 u-mb-5">
-            <!-- Row 1 -->
             <div class="calc-row">
               <input class="form-control" type="text" placeholder="Course Code (e.g. CSC 201)" value="CSC 201" aria-label="Course code 1">
               <select class="form-control calc-units" aria-label="Course credit units 1">
@@ -207,7 +196,6 @@
               <button class="btn btn-secondary btn-sm remove-row-btn" type="button" aria-label="Remove course" title="Remove course">✕</button>
             </div>
 
-            <!-- Row 2 -->
             <div class="calc-row">
               <input class="form-control" type="text" placeholder="Course Code" value="CYB 301" aria-label="Course code 2">
               <select class="form-control calc-units" aria-label="Course credit units 2">
@@ -227,7 +215,6 @@
               <button class="btn btn-secondary btn-sm remove-row-btn" type="button" aria-label="Remove course" title="Remove course">✕</button>
             </div>
 
-            <!-- Row 3 -->
             <div class="calc-row">
               <input class="form-control" type="text" placeholder="Course Code" value="SWE 301" aria-label="Course code 3">
               <select class="form-control calc-units" aria-label="Course credit units 3">
@@ -264,7 +251,6 @@
           </div>
         </div>
 
-        <!-- ICT Helpdesk Support Card -->
         <div class="helpdesk-panel">
           <span class="section-kicker u-text-blue-400">SUPPORT &amp; TICKETING</span>
           <h2 class="u-text-xl u-font-extrabold u-text-white u-mt-1 u-mb-3">UNIOSUN ICT Support Centre</h2>
@@ -291,7 +277,6 @@
     </section>
   </main>
 
-  <!-- Site Footer -->
   <footer class="site-footer" id="contact">
     <div class="container footer-top-grid">
       <div class="footer-about-col">
@@ -360,7 +345,6 @@
     </div>
   </footer>
 
-  <!-- Login and Activation Dialogs -->
   <dialog class="custom-modal" id="loginModal" aria-labelledby="loginModalTitle">
     <div class="modal-header">
       <div class="modal-title" id="loginModalTitle"><span>Sign In to Learning Portal</span></div>
@@ -419,7 +403,6 @@
   <script src="assets/js/data.js"></script>
   <script src="assets/js/app.js"></script>
 
-  <!-- Interactive CGPA Calculator Logic -->
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       const calcRowsContainer = document.getElementById("calculatorRows");

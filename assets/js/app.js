@@ -1,12 +1,7 @@
-/**
- * FOCIT UNIOSUN Learning Portal — Client Controller & Micro-Interactions
- */
-
 document.addEventListener("DOMContentLoaded", () => {
   const data = window.FOCIT_DATA;
   if (!data) return;
 
-  // DOM Elements
   const coursesContainer = document.getElementById("coursesContainer");
   const filterPills = document.querySelectorAll(".filter-pill");
   const courseSearchInput = document.getElementById("courseSearch");
@@ -16,21 +11,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const closeDrawerBtn = document.getElementById("closeDrawerBtn");
   const drawerBackdrop = document.getElementById("drawerBackdrop");
 
-  // Modals
   const loginModal = document.getElementById("loginModal");
   const courseModal = document.getElementById("courseModal");
   const activationModal = document.getElementById("activationModal");
   const newsModal = document.getElementById("newsModal");
 
-  // Toast Container
   const toastContainer = document.getElementById("toastContainer");
 
   let currentCategory = "all";
   let currentSearch = "";
 
-  // ---------------------------------------------------------------------------
-  // 1. Toast Notification Utility
-  // ---------------------------------------------------------------------------
   function showToast(message, type = "info") {
     if (!toastContainer) return;
 
@@ -62,9 +52,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.FOCIT_APP_TOAST = showToast;
 
-  // ---------------------------------------------------------------------------
-  // 2. Icon Helper for Course Categories
-  // ---------------------------------------------------------------------------
   function getCategoryVisual(category) {
     switch (category) {
       case "computing":
@@ -118,9 +105,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 3. Render Courses
-  // ---------------------------------------------------------------------------
   function renderCourses() {
     if (!coursesContainer) return;
 
@@ -178,7 +162,6 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     }).join("");
 
-    // Attach click listeners to Details buttons
     coursesContainer.querySelectorAll('[data-action="view-course"]').forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-id");
@@ -187,9 +170,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // 4. Course Details Modal
-  // ---------------------------------------------------------------------------
   function openCourseModal(courseId) {
     const course = data.courses.find(c => c.id === courseId);
     if (!course || !courseModal) return;
@@ -249,9 +229,6 @@ document.addEventListener("DOMContentLoaded", () => {
     courseModal.showModal();
   }
 
-  // ---------------------------------------------------------------------------
-  // 5. Filter & Search Event Listeners
-  // ---------------------------------------------------------------------------
   filterPills.forEach(pill => {
     pill.addEventListener("click", () => {
       filterPills.forEach(p => p.classList.remove("active"));
@@ -268,9 +245,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // 6. News & Announcements Modal
-  // ---------------------------------------------------------------------------
   function openNewsModal(newsId) {
     const item = data.news.find(n => n.id === newsId);
     if (!item || !newsModal) return;
@@ -302,7 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
     newsModal.showModal();
   }
 
-  // Attach news card listeners
   document.querySelectorAll(".news-card").forEach(card => {
     card.addEventListener("click", () => {
       const id = card.getAttribute("data-id");
@@ -310,9 +283,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // 7. Student Services Quick Launchers
-  // ---------------------------------------------------------------------------
   document.querySelectorAll(".portal-service-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const action = btn.getAttribute("data-service");
@@ -328,9 +298,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // 8. Authentication & Activation Modal Handling
-  // ---------------------------------------------------------------------------
   document.querySelectorAll('[data-action="open-login"]').forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -345,7 +312,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Modal Close buttons
   document.querySelectorAll(".modal-close-btn, [data-action='close-modal']").forEach(btn => {
     btn.addEventListener("click", () => {
       const dialog = btn.closest("dialog");
@@ -353,7 +319,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Close modals on outside backdrop click
   [loginModal, courseModal, activationModal, newsModal].forEach(dialog => {
     if (!dialog) return;
     dialog.addEventListener("click", (e) => {
@@ -370,7 +335,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Login Form Submission Demonstration
   const loginForm = document.getElementById("loginForm");
   if (loginForm) {
     loginForm.addEventListener("submit", (e) => {
@@ -389,7 +353,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Account Activation Form Demonstration
   const activationForm = document.getElementById("activationForm");
   if (activationForm) {
     activationForm.addEventListener("submit", (e) => {
@@ -406,7 +369,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Login Tabs (Student vs Staff)
   const tabBtns = document.querySelectorAll(".modal-tab-btn");
   tabBtns.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -425,9 +387,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // 9. Mobile Navigation Drawer
-  // ---------------------------------------------------------------------------
   if (mobileToggleBtn && mobileDrawer) {
     mobileToggleBtn.addEventListener("click", () => {
       mobileDrawer.classList.add("open");
@@ -445,6 +404,5 @@ document.addEventListener("DOMContentLoaded", () => {
   if (closeDrawerBtn) closeDrawerBtn.addEventListener("click", closeMobileDrawer);
   if (drawerBackdrop) drawerBackdrop.addEventListener("click", closeMobileDrawer);
 
-  // Initial Course Render
   renderCourses();
 });

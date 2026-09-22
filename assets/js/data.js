@@ -1,8 +1,3 @@
-/**
- * FOCIT UNIOSUN Learning Portal — Structured Data Repository
- * Preserves all official metadata and enriches academic programmes.
- */
-
 window.FOCIT_DATA = {
   institution: {
     university: "University of Osun State",

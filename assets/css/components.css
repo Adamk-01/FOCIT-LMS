@@ -1,10 +1,3 @@
-/* ==========================================================================
-   FOCIT UNIOSUN Learning Portal — Components & UI Micro-Interactions
-   ========================================================================== */
-
-/* ==========================================================================
-   Buttons
-   ========================================================================== */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -86,9 +79,6 @@
   border-radius: var(--radius-md);
 }
 
-/* ==========================================================================
-   Badges, Pills & Status Indicators
-   ========================================================================== */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -137,9 +127,6 @@
   border: 1px solid #fca5a5;
 }
 
-/* ==========================================================================
-   Course Cards
-   ========================================================================== */
 .course-card {
   background-color: var(--white);
   border: 1px solid var(--slate-200);
@@ -287,9 +274,6 @@
   transform: translateX(2px);
 }
 
-/* ==========================================================================
-   News & Announcements Timeline
-   ========================================================================== */
 .news-card {
   background-color: var(--white);
   border: 1px solid var(--slate-200);
@@ -348,9 +332,6 @@
   line-height: 1.6;
 }
 
-/* ==========================================================================
-   Quick Portal Access Services
-   ========================================================================== */
 .portal-service-btn {
   display: flex;
   align-items: center;
@@ -418,9 +399,6 @@
   transform: translateX(3px);
 }
 
-/* ==========================================================================
-   Activation Highlight Callout Box
-   ========================================================================== */
 .activation-panel {
   background: linear-gradient(145deg, var(--blue-900) 0%, var(--blue-950) 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -477,9 +455,6 @@
   margin-bottom: 20px;
 }
 
-/* ==========================================================================
-   Social Icons & Footers
-   ========================================================================== */
 .social-links {
   display: flex;
   align-items: center;
@@ -504,9 +479,6 @@
   transform: translateY(-2px);
 }
 
-/* ==========================================================================
-   Accessible Modals (<dialog>)
-   ========================================================================== */
 dialog.custom-modal {
   margin: auto;
   border: 1px solid var(--slate-200);
@@ -600,7 +572,6 @@ dialog.custom-modal::backdrop {
   background-color: var(--slate-50);
 }
 
-/* Form inputs in Modal */
 .form-group {
   margin-bottom: 18px;
 }
@@ -657,9 +628,6 @@ dialog.custom-modal::backdrop {
   background-color: var(--blue-50);
 }
 
-/* ==========================================================================
-   Toast Notification System
-   ========================================================================== */
 .toast-container {
   position: fixed;
   bottom: 24px;
@@ -721,9 +689,6 @@ dialog.custom-modal::backdrop {
   }
 }
 
-/* ==========================================================================
-   Subpages Global Header Banners & Breadcrumbs
-   ========================================================================== */
 .page-banner {
   background: linear-gradient(135deg, var(--blue-950) 0%, var(--blue-900) 100%);
   color: var(--white);
@@ -769,7 +734,6 @@ dialog.custom-modal::backdrop {
   line-height: 1.6;
 }
 
-/* Subpage Content Section Layouts */
 .content-section {
   padding: 64px 0;
   background-color: var(--bg-page);
@@ -820,7 +784,6 @@ dialog.custom-modal::backdrop {
   line-height: 1.5;
 }
 
-/* Dean Bio Card in About Page */
 .dean-bio-card {
   background: var(--white);
   border: 1px solid var(--slate-200);
@@ -859,7 +822,6 @@ dialog.custom-modal::backdrop {
   align-items: center;
 }
 
-/* Facilities Cards */
 .facilities-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -903,7 +865,6 @@ dialog.custom-modal::backdrop {
   color: var(--orange-600);
 }
 
-/* Programmes Catalog */
 .degree-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -933,7 +894,6 @@ dialog.custom-modal::backdrop {
   margin-top: 18px;
 }
 
-/* Departments & Staff Directory */
 .dept-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1003,7 +963,6 @@ dialog.custom-modal::backdrop {
   flex-shrink: 0;
 }
 
-/* Handbook Grading Table */
 .handbook-table-wrap {
   background: var(--white);
   border: 1px solid var(--slate-200);
@@ -1033,7 +992,6 @@ dialog.custom-modal::backdrop {
   border-bottom: 1px solid var(--slate-100);
 }
 
-/* CGPA Calculator */
 .calc-container {
   background: var(--white);
   border: 1px solid var(--slate-200);
@@ -1092,7 +1050,6 @@ dialog.custom-modal::backdrop {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Contact Page Layout */
 .contact-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1137,9 +1094,6 @@ dialog.custom-modal::backdrop {
   box-shadow: var(--shadow-md);
 }
 
-/* ==========================================================================
-   Utility Helpers (Eliminates all inline styles across pages)
-   ========================================================================== */
 .u-text-center { text-align: center; }
 .u-text-right { text-align: right; }
 .u-text-left { text-align: left; }

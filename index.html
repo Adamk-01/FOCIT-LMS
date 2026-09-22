@@ -6,21 +6,17 @@
   <title>FOCIT UNIOSUN Learning Portal | University of Osun State</title>
   <meta name="description" content="Official Learning Management System of the Faculty of Computing and Information Technology (FOCIT) at the University of Osun State, Osogbo. Gateway to academic resources, courses, and student services.">
 
-  <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 
-  <!-- Core Stylesheets -->
   <link rel="stylesheet" href="assets/css/variables.css">
   <link rel="stylesheet" href="assets/css/layout.css">
   <link rel="stylesheet" href="assets/css/components.css">
 </head>
 <body>
 
-  <!-- Site Header -->
   <header class="site-header">
-    <!-- Top Utility Ribbon -->
     <div class="top-bar">
       <div class="container top-bar-inner">
         <div class="top-bar-contact">
@@ -58,10 +54,8 @@
       </div>
     </div>
 
-    <!-- Main Navigation Bar -->
     <div class="main-nav">
       <div class="container main-nav-inner">
-        <!-- Brand Identity -->
         <a class="brand-wrapper" href="#" aria-label="FOCIT UNIOSUN Home">
           <img src="assets/images/focitsa-logo.png" alt="FOCIT Logo" class="brand-logo-img">
           <div class="brand-title">
@@ -70,7 +64,6 @@
           </div>
         </a>
 
-        <!-- Desktop Navigation Menu -->
         <nav class="nav-desktop-menu" aria-label="Primary navigation">
           <a class="nav-link active" href="index.html">Home</a>
           <a class="nav-link" href="about.html">About</a>
@@ -81,7 +74,6 @@
           <a class="nav-link" href="contact.html">Contact</a>
         </nav>
 
-        <!-- Navbar Actions -->
         <div class="nav-actions">
           <button class="btn btn-secondary btn-sm" type="button" data-action="open-login" id="navLoginBtn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -104,7 +96,6 @@
     </div>
   </header>
 
-  <!-- Mobile Navigation Drawer -->
   <div class="mobile-nav-drawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
     <div class="mobile-nav-backdrop" id="drawerBackdrop"></div>
     <div class="mobile-nav-panel">
@@ -147,10 +138,8 @@
   </div>
 
   <main id="main-content">
-    <!-- Hero Section -->
     <section class="hero-section" id="home" aria-labelledby="hero-title">
       <div class="container hero-grid">
-        <!-- Hero Text & Quote -->
         <div class="hero-content">
           <div class="hero-badge-row">
             <span class="badge badge-blue">
@@ -195,7 +184,6 @@
           </div>
         </div>
 
-        <!-- Hero Visual Showcase Card -->
         <div class="hero-visual-card">
           <div class="dean-showcase-panel">
             <div class="dean-portrait-box">
@@ -209,7 +197,6 @@
               </div>
             </div>
 
-            <!-- Floating Est. Badge -->
             <div class="float-stat-badge">
               <div class="float-stat-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -226,7 +213,6 @@
       </div>
     </section>
 
-    <!-- Academic Programmes & Courses Section -->
     <section class="section-courses" id="programmes" aria-labelledby="courses-heading">
       <div class="container">
         <div class="section-head-flex">
@@ -245,7 +231,6 @@
           </div>
         </div>
 
-        <!-- Filter Pills & Search Control -->
         <div class="catalog-controls">
           <div class="filter-pills-bar" role="tablist" aria-label="Filter courses by faculty">
             <button class="filter-pill active" type="button" data-category="all" role="tab" aria-selected="true">All Programmes</button>
@@ -271,17 +256,13 @@
           Loading programmes...
         </div>
 
-        <!-- Dynamic Course Cards Grid -->
         <div class="courses-grid" id="coursesContainer">
-          <!-- Rendered via JavaScript -->
         </div>
       </div>
     </section>
 
-    <!-- News & Student Services Split Hub -->
     <section class="section-split-hub" id="services" aria-labelledby="hub-heading">
       <div class="container hub-grid">
-        <!-- Left: News & Announcements -->
         <div class="news-column" id="news">
           <div class="hub-column-head">
             <span class="section-kicker">
@@ -296,7 +277,6 @@
           </div>
 
           <div class="news-timeline-stack">
-            <!-- News Item 1 -->
             <article class="news-card" data-id="news-1">
               <div class="news-meta-row">
                 <div class="news-tags">
@@ -311,7 +291,6 @@
               </p>
             </article>
 
-            <!-- News Item 2 -->
             <article class="news-card" data-id="news-2">
               <div class="news-meta-row">
                 <div class="news-tags">
@@ -326,7 +305,6 @@
               </p>
             </article>
 
-            <!-- News Item 3 -->
             <article class="news-card" data-id="news-3">
               <div class="news-meta-row">
                 <div class="news-tags">
@@ -340,7 +318,6 @@
               </p>
             </article>
 
-            <!-- News Item 4 -->
             <article class="news-card" data-id="news-4">
               <div class="news-meta-row">
                 <div class="news-tags">
@@ -356,7 +333,6 @@
           </div>
         </div>
 
-        <!-- Right: Quick Portal Access -->
         <aside class="services-column" aria-label="Student Services Quick Access">
           <div class="hub-column-head">
             <span class="section-kicker">
@@ -475,7 +451,6 @@
             </button>
           </div>
 
-          <!-- Account Activation Callout -->
           <div class="activation-panel">
             <div class="activation-badge-row">
               <div class="activation-icon-ring">
@@ -500,10 +475,8 @@
     </section>
   </main>
 
-  <!-- Site Footer -->
   <footer class="site-footer" id="contact">
     <div class="container footer-top-grid">
-      <!-- Main Brand Info -->
       <div class="footer-about-col">
         <a class="brand-wrapper" href="#">
           <img src="assets/images/focitsa-logo.png" alt="UNIOSUN FOCIT Logo" class="brand-logo-img">
@@ -516,7 +489,6 @@
           Committed to academic excellence, computing research, and human capital development since 2008. Accredited by the National Universities Commission (NUC).
         </p>
 
-        <!-- Social Media Links -->
         <div class="social-links">
           <a class="social-circle-btn" href="#" aria-label="Facebook">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -544,7 +516,6 @@
         </div>
       </div>
 
-      <!-- Column: Academics -->
       <div class="footer-nav-col">
         <h4>ACADEMICS</h4>
         <ul class="footer-links-list">
@@ -557,7 +528,6 @@
         </ul>
       </div>
 
-      <!-- Column: Student Life -->
       <div class="footer-nav-col">
         <h4>STUDENT LIFE</h4>
         <ul class="footer-links-list">
@@ -570,7 +540,6 @@
         </ul>
       </div>
 
-      <!-- Column: Contact & Support -->
       <div class="footer-nav-col">
         <h4>CONTACT &amp; ICT</h4>
         <p class="u-text-sm u-text-slate-400 u-mb-2">
@@ -590,7 +559,6 @@
       </div>
     </div>
 
-    <!-- Bottom Legal Bar -->
     <div class="footer-bottom-bar">
       <div class="container footer-bottom-inner">
         <span>&copy; 2026 University of Osun State (UNIOSUN). All rights reserved.</span>
@@ -605,11 +573,6 @@
     </div>
   </footer>
 
-  <!-- ==========================================================================
-       Modals
-       ========================================================================== -->
-
-  <!-- Student / Staff Portal Sign-In Modal -->
   <dialog class="custom-modal" id="loginModal" aria-labelledby="loginModalTitle">
     <div class="modal-header">
       <div class="modal-title" id="loginModalTitle">
@@ -653,7 +616,6 @@
     </form>
   </dialog>
 
-  <!-- Account Activation Modal -->
   <dialog class="custom-modal" id="activationModal" aria-labelledby="activationModalTitle">
     <div class="modal-header">
       <div class="modal-title" id="activationModalTitle">
@@ -698,11 +660,9 @@
     </form>
   </dialog>
 
-  <!-- Course Syllabus & Details Modal -->
   <dialog class="custom-modal modal-lg" id="courseModal" aria-labelledby="courseModalTitle">
     <div class="modal-header">
       <div class="modal-title u-text-base" id="courseModalTitle">
-        <!-- Injected via JavaScript -->
       </div>
       <button class="modal-close-btn" type="button" data-action="close-modal" aria-label="Close dialog">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -712,7 +672,6 @@
       </button>
     </div>
     <div class="modal-body">
-      <!-- Injected via JavaScript -->
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" type="button" data-action="close-modal">Close</button>
@@ -725,7 +684,6 @@
     </div>
   </dialog>
 
-  <!-- News Item Modal -->
   <dialog class="custom-modal modal-md" id="newsModal" aria-labelledby="newsModalTitle">
     <div class="modal-header">
       <div class="modal-title u-text-base" id="newsModalTitle">
@@ -739,17 +697,14 @@
       </button>
     </div>
     <div class="modal-body">
-      <!-- Injected via JavaScript -->
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" type="button" data-action="close-modal">Dismiss</button>
     </div>
   </dialog>
 
-  <!-- Toast Notification Hub -->
   <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
-  <!-- JavaScript Modules -->
   <script src="assets/js/data.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
