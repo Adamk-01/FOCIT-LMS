@@ -1,0 +1,94 @@
+/* ==========================================================================
+   FOCIT UNIOSUN Learning Portal — Design Tokens & Variables
+   Palette:
+     Main: Deep Institutional Navy Blue & Crisp White
+     Sub / Accents: Emerald Green, Vibrant Orange, Royal Purple
+   ========================================================================== */
+
+:root {
+  /* Primary & Neutral Palette (Main) */
+  --blue-950: #071326;
+  --blue-900: #0a1e3f;
+  --blue-800: #0f2d5c;
+  --blue-700: #154182;
+  --blue-600: #1a56db;
+  --blue-500: #2563eb;
+  --blue-400: #60a5fa;
+  --blue-100: #dbeafe;
+  --blue-50:  #eff6ff;
+
+  --white: #ffffff;
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+
+  /* Sub / Accent: Green (Success, Verified, Academic Health) */
+  --green-700: #047857;
+  --green-600: #059669;
+  --green-500: #10b981;
+  --green-100: #d1fae5;
+  --green-50:  #ecfdf5;
+
+  /* Sub / Accent: Orange (Alerts, Deadlines, Admissions, Hot) */
+  --orange-700: #c2410c;
+  --orange-600: #ea580c;
+  --orange-500: #f97316;
+  --orange-100: #ffedd5;
+  --orange-50:  #fff7ed;
+
+  /* Sub / Accent: Purple (Computing, Research, Library, Postgraduate) */
+  --purple-700: #6d28d9;
+  --purple-600: #7c3aed;
+  --purple-500: #8b5cf6;
+  --purple-100: #ede9fe;
+  --purple-50:  #f5f3ff;
+
+  /* Functional Semantic Mapping */
+  --bg-page: var(--slate-50);
+  --bg-surface: var(--white);
+  --bg-surface-elevated: var(--white);
+  --bg-muted: var(--slate-100);
+
+  --text-main: var(--slate-900);
+  --text-muted: var(--slate-500);
+  --text-light: var(--slate-400);
+  --text-inverse: var(--white);
+
+  --border-subtle: var(--slate-200);
+  --border-hover: var(--blue-400);
+
+  --primary: var(--blue-600);
+  --primary-hover: var(--blue-700);
+  --primary-contrast: var(--white);
+  --primary-subtle: var(--blue-50);
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing */
+  --container-max: 1240px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Elevations & Shadows */
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
+  --shadow-glow-blue: 0 0 20px rgba(26, 86, 219, 0.25);
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}

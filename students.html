@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Students Portal &amp; Academic Life | FOCIT UNIOSUN</title>
+  <meta name="description" content="Student portal handbook, GPA grading system, academic policies, NACOS association, and student welfare services at FOCIT UNIOSUN.">
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="assets/css/variables.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="top-bar">
+      <div class="container top-bar-inner">
+        <div class="top-bar-contact">
+          <a class="contact-meta-item" href="mailto:info@uniosun.edu.ng" title="Email UNIOSUN Support">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+            <span>info@uniosun.edu.ng</span>
+          </a>
+          <span class="top-bar-divider" aria-hidden="true">•</span>
+          <a class="contact-meta-item" href="tel:+2348030000000" title="Call University Registry">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            <span>+234&nbsp;803&nbsp;000&nbsp;0000</span>
+          </a>
+          <span class="top-bar-divider" aria-hidden="true">•</span>
+          <span class="contact-meta-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            <span>Osogbo, Osun State, Nigeria</span>
+          </span>
+        </div>
+
+        <nav class="top-bar-links" aria-label="Auxiliary navigation">
+          <a href="#" data-action="open-login">Staff Portal</a>
+          <span class="top-bar-divider" aria-hidden="true">|</span>
+          <a href="#">Alumni</a>
+          <span class="top-bar-divider" aria-hidden="true">|</span>
+          <a href="#">Library</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="main-nav">
+      <div class="container main-nav-inner">
+        <a class="brand-wrapper" href="index.html" aria-label="FOCIT UNIOSUN Home">
+          <img src="assets/images/focitsa-logo.png" alt="FOCIT Logo" class="brand-logo-img">
+          <div class="brand-title">
+            <span class="brand-name">FOCIT LMS</span>
+            <span class="brand-subtext">UNIVERSITY OF OSUN STATE</span>
+          </div>
+        </a>
+
+        <nav class="nav-desktop-menu" aria-label="Primary navigation">
+          <a class="nav-link" href="index.html">Home</a>
+          <a class="nav-link" href="about.html">About</a>
+          <a class="nav-link" href="programmes.html">Programmes</a>
+          <a class="nav-link" href="faculty.html">Faculty</a>
+          <a class="nav-link active" href="students.html">Students</a>
+          <a class="nav-link" href="services.html">Services</a>
+          <a class="nav-link" href="contact.html">Contact</a>
+        </nav>
+
+        <div class="nav-actions">
+          <button class="btn btn-secondary btn-sm" type="button" data-action="open-login" id="navLoginBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+            <span>Log In</span>
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" data-action="open-activation" id="navApplyBtn">
+            <span>Activate Account</span>
+          </button>
+          <button class="btn-mobile-toggle" type="button" id="mobileToggleBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div class="mobile-nav-drawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <div class="mobile-nav-backdrop" id="drawerBackdrop"></div>
+    <div class="mobile-nav-panel">
+      <div>
+        <div class="mobile-drawer-header">
+          <div class="brand-wrapper">
+            <img src="assets/images/focitsa-logo.png" alt="FOCIT Logo" class="brand-logo-img brand-logo-drawer">
+            <div class="brand-title"><span class="brand-name brand-name-drawer">FOCIT LMS</span></div>
+          </div>
+          <button class="modal-close-btn" type="button" id="closeDrawerBtn" aria-label="Close navigation drawer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+        </div>
+        <nav class="mobile-nav-links" aria-label="Mobile navigation">
+          <a class="mobile-nav-link" href="index.html">Home</a>
+          <a class="mobile-nav-link" href="about.html">About FOCIT</a>
+          <a class="mobile-nav-link" href="programmes.html">Academic Programmes</a>
+          <a class="mobile-nav-link" href="faculty.html">Faculty &amp; Staff</a>
+          <a class="mobile-nav-link active" href="students.html">Students Portal</a>
+          <a class="mobile-nav-link" href="services.html">Student Services</a>
+          <a class="mobile-nav-link" href="contact.html">Contact &amp; Support</a>
+        </nav>
+      </div>
+      <div class="mobile-drawer-footer">
+        <button class="btn btn-secondary u-w-full" type="button" data-action="open-login">Sign In to Portal</button>
+        <button class="btn btn-primary u-w-full" type="button" data-action="open-activation">Activate Account</button>
+      </div>
+    </div>
+  </div>
+
+  <main id="main-content">
+    <!-- Page Header Banner -->
+    <section class="page-banner">
+      <div class="container">
+        <div class="breadcrumb-bar">
+          <a href="index.html" class="breadcrumb-link">Home</a>
+          <span aria-hidden="true">/</span>
+          <span class="breadcrumb-current">Students Handbook</span>
+        </div>
+        <h1 class="page-banner-title">
+          Student Handbook &amp; Academic Life
+        </h1>
+        <p class="page-banner-desc">
+          Everything you need to navigate your academic journey: official UNIOSUN grading scales, credit load rules, student association initiatives, and campus welfare.
+        </p>
+      </div>
+    </section>
+
+    <!-- Quick Action Launchpads -->
+    <section class="u-p-6 u-bg-white u-border-b">
+      <div class="container dept-grid u-mb-0">
+        <button class="portal-service-btn" type="button" data-action="open-login">
+          <span class="portal-service-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          </span>
+          <span class="portal-service-info">
+            <strong>Sign In to Portal</strong>
+            <small>Matric no. &amp; password authentication</small>
+          </span>
+          <svg class="service-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+
+        <button class="portal-service-btn" type="button" data-action="open-activation">
+          <span class="portal-service-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span class="portal-service-info">
+            <strong>Freshman Activation</strong>
+            <small>Initialize your official student email</small>
+          </span>
+          <svg class="service-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+
+        <a class="portal-service-btn" href="services.html#cgpa">
+          <span class="portal-service-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/></svg>
+          </span>
+          <span class="portal-service-info">
+            <strong>CGPA Calculator</strong>
+            <small>Interactive simulator for semester GP</small>
+          </span>
+          <svg class="service-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+      </div>
+    </section>
+
+    <!-- Official UNIOSUN 5-Point Grading System -->
+    <section class="u-p-8 u-bg-slate-50">
+      <div class="container">
+        <span class="section-kicker">ACADEMIC STANDARDS</span>
+        <h2 class="u-text-2xl u-font-extrabold u-text-blue-950 u-mt-2 u-mb-3">Official 5-Point Grading Scale</h2>
+        <p class="u-text-slate-600 u-text-base u-mb-6 u-max-w-2xl">
+          UNIOSUN operates on the standard National Universities Commission approved five-point Cumulative Grade Point Average (CGPA) system.
+        </p>
+
+        <div class="handbook-table-wrap">
+          <table class="handbook-table">
+            <thead>
+              <tr>
+                <th>Score Range (%)</th>
+                <th>Letter Grade</th>
+                <th>Grade Points</th>
+                <th>Degree Classification (CGPA)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="u-font-bold u-text-green-700">70 – 100%</td>
+                <td><span class="badge badge-green">A</span></td>
+                <td class="u-font-bold">5.00</td>
+                <td class="u-font-bold u-text-green-700">First Class Honours (4.50 – 5.00)</td>
+              </tr>
+              <tr>
+                <td class="u-font-bold u-text-blue-700">60 – 69%</td>
+                <td><span class="badge badge-blue">B</span></td>
+                <td class="u-font-bold">4.00</td>
+                <td class="u-text-blue-700">Second Class Upper (3.50 – 4.49)</td>
+              </tr>
+              <tr>
+                <td class="u-font-bold u-text-slate-700">50 – 59%</td>
+                <td><span class="badge badge-slate">C</span></td>
+                <td class="u-font-bold">3.00</td>
+                <td>Second Class Lower (2.40 – 3.49)</td>
+              </tr>
+              <tr>
+                <td class="u-font-bold u-text-orange-700">45 – 49%</td>
+                <td><span class="badge badge-orange">D</span></td>
+                <td class="u-font-bold">2.00</td>
+                <td class="u-text-orange-700">Third Class (1.50 – 2.39)</td>
+              </tr>
+              <tr>
+                <td class="u-font-bold u-text-red-600">0 – 44%</td>
+                <td><span class="badge badge-red">F (Fail)</span></td>
+                <td class="u-font-bold">0.00</td>
+                <td class="u-text-red-600">Probation (CGPA &lt; 1.00)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Academic Regulations -->
+        <div class="dept-grid">
+          <div class="dept-card">
+            <h3 class="u-text-lg u-font-extrabold u-text-blue-950 u-mb-2">Credit Unit Regulations</h3>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed u-mb-3">
+              Full-time students must register for a minimum of <strong>15 credit units</strong> and a maximum of <strong>24 credit units</strong> per semester.
+            </p>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+              Any overload beyond 24 units requires written recommendation from the Course Adviser and explicit approval by the Dean.
+            </p>
+          </div>
+
+          <div class="dept-card">
+            <h3 class="u-text-lg u-font-extrabold u-text-blue-950 u-mb-2">Attendance &amp; Examination Eligibility</h3>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed u-mb-3">
+              A minimum attendance of <strong>75%</strong> in lectures, lab practicals, and tutorials is mandatory to qualify for semester examinations.
+            </p>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+              Biometric attendance records are synchronized directly with examination docket generation.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Student Organizations & Clubs -->
+    <section class="u-p-8 u-bg-white u-border-t">
+      <div class="container">
+        <span class="section-kicker">COMMUNITY &amp; DEVELOPMENT</span>
+        <h2 class="u-text-2xl u-font-extrabold u-text-blue-950 u-mt-2 u-mb-6">Computing Student Societies</h2>
+
+        <div class="dept-grid">
+          <!-- NACOS -->
+          <div class="dept-card u-bg-slate-50">
+            <div class="u-flex u-items-center u-justify-between u-mb-3">
+              <span class="badge badge-green">Official Chapter</span>
+              <span class="u-text-xs u-text-slate-500 u-font-semibold">Est. 2008</span>
+            </div>
+            <h3 class="u-text-xl u-font-extrabold u-text-blue-950 u-mb-1">NACOS UNIOSUN</h3>
+            <p class="u-text-xs u-text-green-700 u-font-semibold u-mb-3">National Association of Computing Students</p>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+              Organizes the annual FOCIT Tech Week, departmental hackathons, industrial mentorship workshops, and student representation.
+            </p>
+          </div>
+
+          <!-- GDSC -->
+          <div class="dept-card u-bg-slate-50">
+            <div class="u-flex u-items-center u-justify-between u-mb-3">
+              <span class="badge badge-blue">Developer Club</span>
+              <span class="u-text-xs u-text-slate-500 u-font-semibold">Active</span>
+            </div>
+            <h3 class="u-text-xl u-font-extrabold u-text-blue-950 u-mb-1">Google Developer Student Club</h3>
+            <p class="u-text-xs u-text-blue-700 u-font-semibold u-mb-3">GDSC UNIOSUN Chapter</p>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+              Student developers building solutions using Google Cloud, Android, Flutter, and TensorFlow, with weekly technical code labs.
+            </p>
+          </div>
+
+          <!-- Cyber Club -->
+          <div class="dept-card u-bg-slate-50">
+            <div class="u-flex u-items-center u-justify-between u-mb-3">
+              <span class="badge badge-orange">Security Chapter</span>
+              <span class="u-text-xs u-text-slate-500 u-font-semibold">Active</span>
+            </div>
+            <h3 class="u-text-xl u-font-extrabold u-text-blue-950 u-mb-1">CyberSecurity Club &amp; CTF Team</h3>
+            <p class="u-text-xs u-text-orange-700 u-font-semibold u-mb-3">Ethical Hacking &amp; Defense</p>
+            <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+              Hosts monthly Capture the Flag (CTF) competitions, reverse engineering workshops, and vulnerability research presentations.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer" id="contact">
+    <div class="container footer-top-grid">
+      <div class="footer-about-col">
+        <a class="brand-wrapper" href="index.html">
+          <img src="assets/images/focitsa-logo.png" alt="UNIOSUN FOCIT Logo" class="brand-logo-img">
+          <div class="brand-title">
+            <span class="brand-name u-text-white">UNIOSUN FOCIT</span>
+            <span class="brand-subtext u-text-blue-400">UNIVERSITY OF OSUN STATE</span>
+          </div>
+        </a>
+        <p class="footer-about-text">
+          Committed to academic excellence, computing research, and human capital development since 2008. Accredited by the National Universities Commission (NUC).
+        </p>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>ACADEMICS</h4>
+        <ul class="footer-links-list">
+          <li><a href="programmes.html">Academic Catalog</a></li>
+          <li><a href="faculty.html">Faculty Departments</a></li>
+          <li><a href="services.html">Academic Calendar</a></li>
+          <li><a href="students.html">Grading System</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>STUDENT PORTAL</h4>
+        <ul class="footer-links-list">
+          <li><a href="#" data-action="open-login">Dashboard Sign-In</a></li>
+          <li><a href="#" data-action="open-activation">Account Activation</a></li>
+          <li><a href="services.html">E-Library Portal</a></li>
+          <li><a href="students.html">NACOS Society</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>CONTACT &amp; ICT</h4>
+        <p class="u-text-sm u-text-slate-400 u-mb-2">
+          UNIOSUN Main Campus, Osogbo, Osun State, Nigeria
+        </p>
+        <p class="u-text-sm u-text-slate-300 u-mb-1">
+          Email: <a href="mailto:info@uniosun.edu.ng" class="u-text-blue-400">info@uniosun.edu.ng</a>
+        </p>
+        <p class="u-text-sm u-text-slate-300">
+          Phone: +234&nbsp;803&nbsp;000&nbsp;0000
+        </p>
+        <div class="footer-contact-box">
+          <strong>ICT Helpdesk</strong>
+          <p>Mon - Fri: 8:00am - 5:00pm</p>
+          <p class="u-text-blue-400">support@ict.uniosun.edu.ng</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom-bar">
+      <div class="container footer-bottom-inner">
+        <span>&copy; 2026 University of Osun State (UNIOSUN). All rights reserved.</span>
+        <nav class="footer-legal-links" aria-label="Legal notices">
+          <a href="#">Privacy Policy</a>
+          <span>•</span>
+          <a href="#">Terms of Use</a>
+          <span>•</span>
+          <a href="#">Accessibility</a>
+        </nav>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Login and Activation Dialogs -->
+  <dialog class="custom-modal" id="loginModal" aria-labelledby="loginModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="loginModalTitle"><span>Sign In to Learning Portal</span></div>
+      <button class="modal-close-btn" type="button" data-action="close-modal" aria-label="Close dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+    </div>
+    <form id="loginForm">
+      <div class="modal-body">
+        <div class="modal-tabs" role="tablist">
+          <button class="modal-tab-btn active" type="button" data-tab="student" role="tab">Student Portal</button>
+          <button class="modal-tab-btn" type="button" data-tab="staff" role="tab">Staff / Faculty</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginMatric">Matriculation Number</label>
+          <input class="form-control" type="text" id="loginMatric" placeholder="e.g. 2023/12345" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginPassword">Portal Password</label>
+          <input class="form-control" type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-action="close-modal">Cancel</button>
+        <button class="btn btn-primary" type="submit">Sign In to Dashboard</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="custom-modal" id="activationModal" aria-labelledby="activationModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="activationModalTitle"><span>Student Account Activation</span></div>
+      <button class="modal-close-btn" type="button" data-action="close-modal" aria-label="Close dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+    </div>
+    <form id="activationForm">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="actMatric">Matriculation Number / JAMB Reg No</label>
+          <input class="form-control" type="text" id="actMatric" placeholder="e.g. 2026/FOCIT/0421" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actDob">Date of Birth</label>
+          <input class="form-control" type="date" id="actDob" required autocomplete="bday">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actEmail">Personal Email Address</label>
+          <input class="form-control" type="email" id="actEmail" placeholder="student@example.com" required autocomplete="email">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-action="close-modal">Cancel</button>
+        <button class="btn btn-orange" type="submit">Verify &amp; Activate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

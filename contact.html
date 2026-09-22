@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact &amp; Location | FOCIT UNIOSUN</title>
+  <meta name="description" content="Get in touch with the Faculty of Computing and Information Technology (FOCIT) at University of Osun State, Osogbo. Campus location, departmental directory, and inquiry form.">
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="assets/css/variables.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="top-bar">
+      <div class="container top-bar-inner">
+        <div class="top-bar-contact">
+          <a class="contact-meta-item" href="mailto:info@uniosun.edu.ng" title="Email UNIOSUN Support">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+            <span>info@uniosun.edu.ng</span>
+          </a>
+          <span class="top-bar-divider" aria-hidden="true">•</span>
+          <a class="contact-meta-item" href="tel:+2348030000000" title="Call University Registry">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            <span>+234&nbsp;803&nbsp;000&nbsp;0000</span>
+          </a>
+          <span class="top-bar-divider" aria-hidden="true">•</span>
+          <span class="contact-meta-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            <span>Osogbo, Osun State, Nigeria</span>
+          </span>
+        </div>
+
+        <nav class="top-bar-links" aria-label="Auxiliary navigation">
+          <a href="#" data-action="open-login">Staff Portal</a>
+          <span class="top-bar-divider" aria-hidden="true">|</span>
+          <a href="#">Alumni</a>
+          <span class="top-bar-divider" aria-hidden="true">|</span>
+          <a href="#">Library</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="main-nav">
+      <div class="container main-nav-inner">
+        <a class="brand-wrapper" href="index.html" aria-label="FOCIT UNIOSUN Home">
+          <img src="assets/images/focitsa-logo.png" alt="FOCIT Logo" class="brand-logo-img">
+          <div class="brand-title">
+            <span class="brand-name">FOCIT LMS</span>
+            <span class="brand-subtext">UNIVERSITY OF OSUN STATE</span>
+          </div>
+        </a>
+
+        <nav class="nav-desktop-menu" aria-label="Primary navigation">
+          <a class="nav-link" href="index.html">Home</a>
+          <a class="nav-link" href="about.html">About</a>
+          <a class="nav-link" href="programmes.html">Programmes</a>
+          <a class="nav-link" href="faculty.html">Faculty</a>
+          <a class="nav-link" href="students.html">Students</a>
+          <a class="nav-link" href="services.html">Services</a>
+          <a class="nav-link active" href="contact.html">Contact</a>
+        </nav>
+
+        <div class="nav-actions">
+          <button class="btn btn-secondary btn-sm" type="button" data-action="open-login" id="navLoginBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+            <span>Log In</span>
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" data-action="open-activation" id="navApplyBtn">
+            <span>Activate Account</span>
+          </button>
+          <button class="btn-mobile-toggle" type="button" id="mobileToggleBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Drawer -->
+  <div class="mobile-nav-drawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
+    <div class="mobile-nav-backdrop" id="drawerBackdrop"></div>
+    <div class="mobile-nav-panel">
+      <div>
+        <div class="mobile-drawer-header">
+          <div class="brand-wrapper">
+            <img src="assets/images/focitsa-logo.png" alt="FOCIT Logo" class="brand-logo-img brand-logo-drawer">
+            <div class="brand-title"><span class="brand-name brand-name-drawer">FOCIT LMS</span></div>
+          </div>
+          <button class="modal-close-btn" type="button" id="closeDrawerBtn" aria-label="Close navigation drawer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+        </div>
+        <nav class="mobile-nav-links" aria-label="Mobile navigation">
+          <a class="mobile-nav-link" href="index.html">Home</a>
+          <a class="mobile-nav-link" href="about.html">About FOCIT</a>
+          <a class="mobile-nav-link" href="programmes.html">Academic Programmes</a>
+          <a class="mobile-nav-link" href="faculty.html">Faculty &amp; Staff</a>
+          <a class="mobile-nav-link" href="students.html">Students Portal</a>
+          <a class="mobile-nav-link" href="services.html">Student Services</a>
+          <a class="mobile-nav-link active" href="contact.html">Contact &amp; Support</a>
+        </nav>
+      </div>
+      <div class="mobile-drawer-footer">
+        <button class="btn btn-secondary u-w-full" type="button" data-action="open-login">Sign In to Portal</button>
+        <button class="btn btn-primary u-w-full" type="button" data-action="open-activation">Activate Account</button>
+      </div>
+    </div>
+  </div>
+
+  <main id="main-content">
+    <!-- Page Header Banner -->
+    <section class="page-banner">
+      <div class="container">
+        <div class="breadcrumb-bar">
+          <a href="index.html" class="breadcrumb-link">Home</a>
+          <span aria-hidden="true">/</span>
+          <span class="breadcrumb-current">Contact Us</span>
+        </div>
+        <h1 class="page-banner-title">
+          Contact &amp; Campus Location
+        </h1>
+        <p class="page-banner-desc">
+          Have questions regarding academic admissions, ICT support, transcript verification, or research collaborations? Contact the faculty secretariat or submit an inquiry below.
+        </p>
+      </div>
+    </section>
+
+    <!-- Main Contact Grid -->
+    <section class="u-p-8 u-bg-slate-50">
+      <div class="container contact-layout">
+        <!-- Left: Physical Address & Secretariats -->
+        <div>
+          <span class="section-kicker">PHYSICAL ADDRESS &amp; DIRECTORIES</span>
+          <h2 class="u-text-2xl u-font-extrabold u-text-blue-950 u-mt-2 u-mb-6">Faculty Secretariat</h2>
+
+          <div class="contact-card">
+            <div class="contact-row">
+              <div class="contact-icon-box facility-icon-blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+              </div>
+              <div>
+                <strong class="u-block u-text-base u-text-blue-950 u-mb-1">Main Campus Location</strong>
+                <p class="u-text-sm u-text-slate-600 u-line-height-relaxed">
+                  Faculty of Computing and Information Technology,<br>
+                  University of Osun State, Main Campus,<br>
+                  P.M.B. 4494, Osogbo, Osun State, Nigeria.
+                </p>
+              </div>
+            </div>
+
+            <div class="contact-row">
+              <div class="contact-icon-box facility-icon-green">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+              </div>
+              <div>
+                <strong class="u-block u-text-base u-text-blue-950 u-mb-1">Email Communication</strong>
+                <p class="u-text-xs u-text-slate-600 u-line-height-relaxed">
+                  Dean's Office: <a href="mailto:dean.focit@uniosun.edu.ng" class="u-text-blue-600">dean.focit@uniosun.edu.ng</a><br>
+                  General Enquiries: <a href="mailto:info@uniosun.edu.ng" class="u-text-blue-600">info@uniosun.edu.ng</a><br>
+                  ICT Technical Desk: <a href="mailto:support@ict.uniosun.edu.ng" class="u-text-blue-600">support@ict.uniosun.edu.ng</a>
+                </p>
+              </div>
+            </div>
+
+            <div class="contact-row">
+              <div class="contact-icon-box facility-icon-orange">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              </div>
+              <div>
+                <strong class="u-block u-text-base u-text-blue-950 u-mb-1">Telephone Hotlines</strong>
+                <p class="u-text-xs u-text-slate-600 u-line-height-relaxed">
+                  University Registry: +234&nbsp;803&nbsp;000&nbsp;0000<br>
+                  ICT Technical Helpdesk: +234&nbsp;802&nbsp;111&nbsp;2222
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Interactive Inquiry Form -->
+        <div class="contact-form-panel">
+          <span class="section-kicker">SEND AN INQUIRY</span>
+          <h2 class="u-text-xl u-font-extrabold u-text-blue-950 u-mt-1 u-mb-5">Faculty Contact Form</h2>
+
+          <form id="facultyContactForm">
+            <div class="form-group">
+              <label class="form-label" for="contactFullName">Full Name *</label>
+              <input class="form-control" type="text" id="contactFullName" placeholder="e.g. Olawale Adeleke" required autocomplete="name">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="contactEmail">Email Address *</label>
+              <input class="form-control" type="email" id="contactEmail" placeholder="e.g. o.adeleke@example.com" required autocomplete="email">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="contactMatric">Matric / JAMB Registration No. (Optional)</label>
+              <input class="form-control" type="text" id="contactMatric" placeholder="e.g. 2024/FOCIT/0123" autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="contactDept">Target Department / Unit *</label>
+              <select class="form-control" id="contactDept" required>
+                <option value="dean">Office of the Executive Dean</option>
+                <option value="cs">Department of Computer Science</option>
+                <option value="cyber">Department of Cybersecurity</option>
+                <option value="se">Department of Software Engineering</option>
+                <option value="ict">ICT Directorate &amp; Helpdesk</option>
+                <option value="admissions">Undergraduate Admissions Desk</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="contactMessage">Message / Specific Request *</label>
+              <textarea class="form-control" id="contactMessage" rows="4" placeholder="Briefly describe your question or issue..." required></textarea>
+            </div>
+
+            <button class="btn btn-primary btn-lg u-w-full" type="submit">
+              <span>Submit Inquiry</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer" id="contact">
+    <div class="container footer-top-grid">
+      <div class="footer-about-col">
+        <a class="brand-wrapper" href="index.html">
+          <img src="assets/images/focitsa-logo.png" alt="UNIOSUN FOCIT Logo" class="brand-logo-img">
+          <div class="brand-title">
+            <span class="brand-name u-text-white">UNIOSUN FOCIT</span>
+            <span class="brand-subtext u-text-blue-400">UNIVERSITY OF OSUN STATE</span>
+          </div>
+        </a>
+        <p class="footer-about-text">
+          Committed to academic excellence, computing research, and human capital development since 2008. Accredited by the National Universities Commission (NUC).
+        </p>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>ACADEMICS</h4>
+        <ul class="footer-links-list">
+          <li><a href="programmes.html">Academic Catalog</a></li>
+          <li><a href="faculty.html">Faculty Departments</a></li>
+          <li><a href="services.html">Academic Calendar</a></li>
+          <li><a href="students.html">Grading System</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>STUDENT PORTAL</h4>
+        <ul class="footer-links-list">
+          <li><a href="#" data-action="open-login">Dashboard Sign-In</a></li>
+          <li><a href="#" data-action="open-activation">Account Activation</a></li>
+          <li><a href="services.html">E-Library Portal</a></li>
+          <li><a href="students.html">NACOS Society</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-nav-col">
+        <h4>CONTACT &amp; ICT</h4>
+        <p class="u-text-sm u-text-slate-400 u-mb-2">
+          UNIOSUN Main Campus, Osogbo, Osun State, Nigeria
+        </p>
+        <p class="u-text-sm u-text-slate-300 u-mb-1">
+          Email: <a href="mailto:info@uniosun.edu.ng" class="u-text-blue-400">info@uniosun.edu.ng</a>
+        </p>
+        <p class="u-text-sm u-text-slate-300">
+          Phone: +234&nbsp;803&nbsp;000&nbsp;0000
+        </p>
+        <div class="footer-contact-box">
+          <strong>ICT Helpdesk</strong>
+          <p>Mon - Fri: 8:00am - 5:00pm</p>
+          <p class="u-text-blue-400">support@ict.uniosun.edu.ng</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom-bar">
+      <div class="container footer-bottom-inner">
+        <span>&copy; 2026 University of Osun State (UNIOSUN). All rights reserved.</span>
+        <nav class="footer-legal-links" aria-label="Legal notices">
+          <a href="#">Privacy Policy</a>
+          <span>•</span>
+          <a href="#">Terms of Use</a>
+          <span>•</span>
+          <a href="#">Accessibility</a>
+        </nav>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Login and Activation Dialogs -->
+  <dialog class="custom-modal" id="loginModal" aria-labelledby="loginModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="loginModalTitle"><span>Sign In to Learning Portal</span></div>
+      <button class="modal-close-btn" type="button" data-action="close-modal" aria-label="Close dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+    </div>
+    <form id="loginForm">
+      <div class="modal-body">
+        <div class="modal-tabs" role="tablist">
+          <button class="modal-tab-btn active" type="button" data-tab="student" role="tab">Student Portal</button>
+          <button class="modal-tab-btn" type="button" data-tab="staff" role="tab">Staff / Faculty</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginMatric">Matriculation Number</label>
+          <input class="form-control" type="text" id="loginMatric" placeholder="e.g. 2023/12345" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginPassword">Portal Password</label>
+          <input class="form-control" type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-action="close-modal">Cancel</button>
+        <button class="btn btn-primary" type="submit">Sign In to Dashboard</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="custom-modal" id="activationModal" aria-labelledby="activationModalTitle">
+    <div class="modal-header">
+      <div class="modal-title" id="activationModalTitle"><span>Student Account Activation</span></div>
+      <button class="modal-close-btn" type="button" data-action="close-modal" aria-label="Close dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+    </div>
+    <form id="activationForm">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="actMatric">Matriculation Number / JAMB Reg No</label>
+          <input class="form-control" type="text" id="actMatric" placeholder="e.g. 2026/FOCIT/0421" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actDob">Date of Birth</label>
+          <input class="form-control" type="date" id="actDob" required autocomplete="bday">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="actEmail">Personal Email Address</label>
+          <input class="form-control" type="email" id="actEmail" placeholder="student@example.com" required autocomplete="email">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" data-action="close-modal">Cancel</button>
+        <button class="btn btn-orange" type="submit">Verify &amp; Activate</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/app.js"></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const contactForm = document.getElementById("facultyContactForm");
+      if (contactForm) {
+        contactForm.addEventListener("submit", (e) => {
+          e.preventDefault();
+          const name = document.getElementById("contactFullName").value.trim();
+          if (window.FOCIT_APP_TOAST) {
+            window.FOCIT_APP_TOAST(`Thank you ${name}. Your message has been routed to the respective secretariat.`, "success");
+          }
+          contactForm.reset();
+        });
+      }
+    });
+  </script>
+</body>
+</html>
