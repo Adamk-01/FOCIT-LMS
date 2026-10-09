@@ -1,0 +1,20 @@
+{
+  "name": "focit-lms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FOCIT LMS — Learning Materials Module with Headless Moodle",
+  "workspaces": [
+    "packages/bff",
+    "packages/mock-moodle",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:bff": "npm run dev -w packages/bff",
+    "dev:mock": "npm run dev -w packages/mock-moodle",
+    "dev:frontend": "npm run dev -w packages/frontend"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: focit_user
+      POSTGRES_PASSWORD: focit_password
+      POSTGRES_DB: focit_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - focit-net
+
+  redis:
+    image: redis:7-alpine
+    # Enable AOF for strict durability (persists state across crashes)
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - focit-net
+
+  moodle-mock:
+    image: node:20-alpine
+    working_dir: /app/packages/mock-moodle
+    # Bind mount the entire monorepo so hoisted node_modules are accessible,
+    # but mask the host's node_modules with anonymous volumes to prevent native binding crashes.
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/bff/node_modules
+      - /app/packages/frontend/node_modules
+      - /app/node_modules
+      - /app/packages/mock-moodle/node_modules
+    command: npm run dev
+    ports:
+      - "4000:4000"
+    networks:
+      - focit-net
+
+  bff:
+    image: node:20-alpine
+    working_dir: /app/packages/bff
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://focit_user:focit_password@postgres:5432/focit_db
+      - REDIS_URL=redis://redis:6379
+      - MOODLE_URL=http://moodle-mock:4000
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/bff/node_modules
+      - /app/packages/frontend/node_modules
+    # Uses node --watch or nodemon via the dev script for hot-reloading
+    command: npm run dev
+    ports:
+      - "3000:3000"
+    networks:
+      - focit-net
+    depends_on:
+      - postgres
+      - redis
+      - moodle-mock
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app/packages/frontend
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/bff/node_modules
+      - /app/packages/frontend/node_modules
+    command: npm run dev
+    ports:
+      - "5173:5173"
+    networks:
+      - focit-net
+    depends_on:
+      - bff
+
+networks:
+  focit-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

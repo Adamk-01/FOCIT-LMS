@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment and sensitive configuration
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# Build artifacts & distribution
+dist/
+build/
+.cache/
+.vite/
+.vite-temp/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Operating system artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+
+# Temporary files & Inspection directories
+temp_remote_check/
+scratch/
+
+# Generated mock placeholders
+packages/mock-moodle/src/data/sample-files/
+
+# Large binary files (course textbook PDFs/PPTs - 86MB)
+packages/mock-moodle/200level first semester/
+DOC-20260629-WA0049.pdf
+faculy-logo.jpg
+ui_template.jpeg
