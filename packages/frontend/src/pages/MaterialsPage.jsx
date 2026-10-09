@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { FileText, Search, Download, Eye } from 'lucide-react';
-import { toast } from 'react-toastify';
 import { PDFViewer } from '../components/PDFViewer';
 import { useMaterials } from '../hooks/useMaterials';
 
@@ -31,14 +30,13 @@ export const MaterialsPage = () => {
     }, 300);
     
     return () => clearTimeout(timer);
-  }, [localSearch, setSearchParams]);
+  }, [localSearch, searchParams, setSearchParams]);
 
   // Consuming the data pipeline using the URL state as the contract
   const { 
     data: materials, 
     isPending, 
     isFetching,
-    isStale,
     error,
     fetchPdfBinary,
     isPdfLoading
