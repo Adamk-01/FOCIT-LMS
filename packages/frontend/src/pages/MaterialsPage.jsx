@@ -37,6 +37,7 @@ export const MaterialsPage = () => {
     data: materials, 
     isPending, 
     isFetching,
+    isRevalidating,
     error,
     fetchPdfBinary,
     isPdfLoading
@@ -66,7 +67,15 @@ export const MaterialsPage = () => {
     <div className="max-w-7xl mx-auto flex flex-col h-full relative">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-[#0a1142]">Course Materials</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-[#0a1142]">Course Materials</h1>
+            {isRevalidating && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                Syncing in background...
+              </span>
+            )}
+          </div>
           <p className="text-gray-500 mt-1">Securely streamed via FOCIT LMS</p>
         </div>
         
@@ -88,7 +97,8 @@ export const MaterialsPage = () => {
       {/* Concurrent Rendering Feedback Matrix */}
       <div className="flex-1 transition-opacity duration-200">
         
-        {(isPending || isFetching) && (
+        {/* Initial Loading Skeleton: Rendered ONLY when cache is completely empty */}
+        {isPending && !materials && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" aria-label="Loading materials">
             {[1, 2, 3, 4, 5, 6].map(i => (
               <div key={i} className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col items-start gap-4">
@@ -104,7 +114,8 @@ export const MaterialsPage = () => {
           </div>
         )}
 
-        {!(isPending || isFetching) && materials?.length === 0 && (
+        {/* Empty State */}
+        {!isPending && materials?.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 text-gray-400">
               <FileText size={32} />
@@ -118,7 +129,8 @@ export const MaterialsPage = () => {
           </div>
         )}
 
-        {!(isPending || isFetching) && materials?.length > 0 && (
+        {/* Populated Grid: Preserved during background SWR revalidation (Zero Layout Shift) */}
+        {materials && materials.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {materials.map((material) => (
               <article key={material.id} className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow group flex flex-col">
