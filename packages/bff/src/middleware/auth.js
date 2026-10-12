@@ -36,6 +36,11 @@ function safeTimingCompare(a, b) {
  * @param {import('express').NextFunction} next
  */
 export async function authMiddleware(req, res, next) {
+  // Public static avatar media bypass for browser <img> tags (defended with nosniff and CSP sandbox)
+  if (req.method === 'GET' && req.path.startsWith('/files/avatars')) {
+    return next();
+  }
+
   // 1. Extract Ambient Cookie Token & Ephemeral Header Nonce
   const token = req.cookies?.focit_token || extractBearerToken(req);
   const clientNonce = req.headers['x-session-nonce'];
@@ -93,10 +98,10 @@ export async function authMiddleware(req, res, next) {
   }
 
   // 3. The Single Redis Lookup Barrier
-  // Simultaneously fetches userId and nonce in a single O(1) command
+  // Simultaneously fetches userId, nonce, and scope in a single O(1) command
   try {
     const sessionKey = `session:${sessionId}`;
-    const [storedUserId, storedNonce] = await redis.hmget(sessionKey, 'userId', 'nonce');
+    const [storedUserId, storedNonce, storedScope] = await redis.hmget(sessionKey, 'userId', 'nonce', 'scope');
 
     // Edge Case: Session revoked, expired, or non-existent in Redis
     if (!storedUserId || !storedNonce) {
@@ -130,13 +135,38 @@ export async function authMiddleware(req, res, next) {
       });
     }
 
-    // 4. Attach verified session & user context
+    // 4. Zero-Trust Scoping: The RESET_ONLY Session Barrier
+    const effectiveScope = storedScope || payload.scope || 'FULL_ACCESS';
+    if (effectiveScope === 'RESET_ONLY') {
+      const fullPath = (req.baseUrl || '') + (req.path || '');
+      const isWhitelistedResetPath =
+        (req.method === 'POST' && fullPath.endsWith('/student/change-password')) ||
+        (req.method === 'GET' && fullPath.endsWith('/auth/status')) ||
+        (req.method === 'POST' && fullPath.endsWith('/auth/logout')) ||
+        (req.method === 'GET' && fullPath.endsWith('/student/profile'));
+
+      if (!isWhitelistedResetPath) {
+        logger.warn(
+          { userId: payload.sub, method: req.method, fullPath },
+          '[AuthBarrier] Quarantined RESET_ONLY session attempted unauthorized resource access'
+        );
+        return res.status(403).json({
+          error: 'Account credential initialization required. All academic access is quarantined.',
+          code: 'MANDATORY_PASSWORD_RESET_REQUIRED',
+          action_required: 'POST /api/student/change-password',
+        });
+      }
+    }
+
+    // 5. Attach verified session & user context
     req.user = {
       id: payload.sub,
       sessionId,
+      scope: effectiveScope,
       moodleUserId: payload.moodleUserId,
       username: payload.username,
       email: payload.email,
+      role: payload.role || 'STUDENT',
       enrolledCourses: payload.enrolledCourses ?? [],
     };
 

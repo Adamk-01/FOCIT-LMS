@@ -62,6 +62,41 @@ export function errorHandler(err, req, res, _next) {
     });
   }
 
+  // === PostgreSQL Concurrency & Constraint Boundaries ===
+  if (err.code === '40P01') {
+    logger.error({ err_code: err.code, err_message: err.message }, 'PostgreSQL Deadlock Detected');
+    return res.status(503).json({
+      error: 'Service temporarily congested by concurrent transactions. Please retry.',
+      code: 'TRANSACTION_DEADLOCK_DETECTED',
+    });
+  }
+
+  if (err.code === '23505') {
+    logger.warn({ err_code: err.code, detail: err.detail }, 'PostgreSQL Unique Constraint Violation');
+    return res.status(409).json({
+      error: 'Conflict: An authoritative record with this identifier or active state already exists.',
+      code: 'UNIQUE_CONSTRAINT_VIOLATION',
+      detail: err.detail,
+    });
+  }
+
+  if (err.code === '23514') {
+    logger.warn({ err_code: err.code, constraint: err.constraint }, 'PostgreSQL Check Constraint Violation');
+    return res.status(422).json({
+      error: 'Referential or capacity bounds constraint violated at database engine level.',
+      code: 'DATABASE_CHECK_VIOLATION',
+      constraint: err.constraint,
+    });
+  }
+
+  if (err.code === '55000') {
+    logger.warn({ err_code: err.code, err_message: err.message }, 'PostgreSQL Immutability Trigger Guard');
+    return res.status(409).json({
+      error: err.message || 'Academic Integrity Violation: Attempted mutation on sealed record.',
+      code: 'OBJECT_IMMUTABILITY_VIOLATION',
+    });
+  }
+
   // === Unknown Errors ===
   logger.error({ 
     err_name: err.name, 

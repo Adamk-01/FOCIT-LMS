@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0', // Bind to all interfaces so Docker port mapping works
-    port: 5173,
+    port: 5180,
     proxy: {
       '/api': {
         // Docker internal DNS resolves 'bff' to the Express container's IP

@@ -48,7 +48,7 @@ export function useMaterials({ courseId, search }) {
   }, [rawData, deferredSearch]);
 
   // 3. Binary PDF Fetcher with AbortController & Stream Isolation
-  const fetchPdfBinary = async (materialId) => {
+  const fetchPdfBinary = async (materialOrId, explicitUrl) => {
     if (activePdfAbortController.current) {
       activePdfAbortController.current.abort(); // Cancel previous active stream
     }
@@ -57,7 +57,9 @@ export function useMaterials({ courseId, search }) {
     setIsPdfLoading(true);
     
     try {
-      const response = await fetch(`/api/files/${materialId}`, {
+      const materialId = typeof materialOrId === 'object' ? materialOrId.id : materialOrId;
+      const url = explicitUrl || (typeof materialOrId === 'object' ? materialOrId.url : null) || `/api/files/${materialId}`;
+      const response = await fetch(url, {
         credentials: 'include',
         headers: {
           'X-Requested-With': 'XMLHttpRequest',

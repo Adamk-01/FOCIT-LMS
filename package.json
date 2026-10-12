@@ -12,7 +12,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "dev:bff": "npm run dev -w packages/bff",
     "dev:mock": "npm run dev -w packages/mock-moodle",
-    "dev:frontend": "npm run dev -w packages/frontend"
+    "dev:frontend": "npm run dev -w packages/frontend",
+    "db:seed": "npm run db:seed -w packages/bff"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -14,6 +14,9 @@ import config from '../config.js';
 import { redis } from '../lib/redis.js';
 import { redisCircuitBreaker } from '../lib/redisCircuitBreaker.js';
 import { logger } from '../lib/logger.js';
+import { pool } from '../db/index.js';
+import { verifyPassword } from '../lib/passwords.js';
+import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -21,11 +24,17 @@ const SESSION_TTL_SECONDS = 3600; // 1 hour session lifetime
 
 /**
  * 1. THE HANDSHAKE: POST /api/auth/login
- * Generates high-entropy ephemeral nonce, writes Redis session hash,
- * issues HttpOnly JWT, and returns nonce solely in the response JSON payload.
+ * Real cryptographic verification:
+ * - Queries students and staff_advisors tables
+ * - Verifies password via async libuv threadpool scrypt (OWASP params)
+ * - Evaluates must_change_password flag for RESET_ONLY vs FULL_ACCESS session scoping
+ * - Appends immutable security audit event into identity_audit_logs
+ * - Returns 256-bit ephemeral nonce exclusively in JSON body
  */
 router.post('/login', async (req, res) => {
   const { studentId, password } = req.body || {};
+  const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const userAgent = req.headers['user-agent'] || 'unknown';
 
   // Input sanitization & defensive validation
   if (!studentId || typeof studentId !== 'string' || !password || typeof password !== 'string') {
@@ -35,28 +44,115 @@ router.post('/login', async (req, res) => {
     });
   }
 
-  // Simulated identity resolution (production binds against Moodle / Active Directory)
-  const resolvedUser = {
-    id: 1,
-    moodleUserId: 1001,
-    username: studentId.trim(),
-    email: `${studentId.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}@focit.uniosun.edu.ng`,
-    enrolledCourses: [1, 2, 3],
-  };
+  const candidateId = studentId.trim();
 
   try {
-    // Generate 256-bit entropy ephemeral nonce & session UUID
+    // 1. Query Authoritative Student Identity
+    let user = null;
+    const studentRes = await pool.query(
+      `
+      SELECT 
+        s.student_id,
+        s.matric_number,
+        s.username,
+        s.full_name,
+        s.email,
+        s.level,
+        sp.password_hash,
+        COALESCE(sp.must_change_password, FALSE) AS must_change_password,
+        'STUDENT' AS role
+      FROM students s
+      LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+      WHERE s.student_id = $1 OR s.username = $1 OR s.matric_number = $1
+      `,
+      [candidateId]
+    );
+
+    if (studentRes.rows.length > 0) {
+      user = studentRes.rows[0];
+    } else {
+      // 2. Query Staff Advisors & Governance Officers
+      const staffRes = await pool.query(
+        `
+        SELECT 
+          advisor_id AS student_id,
+          staff_number AS matric_number,
+          advisor_id AS username,
+          full_name,
+          email,
+          assigned_level AS level,
+          password_hash,
+          COALESCE(must_change_password, FALSE) AS must_change_password,
+          role
+        FROM staff_advisors
+        WHERE advisor_id = $1 OR staff_number = $1 OR email = $1
+        `,
+        [candidateId]
+      );
+
+      if (staffRes.rows.length > 0) {
+        user = staffRes.rows[0];
+      }
+    }
+
+    // Edge Case: Unknown identity
+    if (!user) {
+      await recordIdentityAuditLog(pool, {
+        eventType: 'AUTHENTICATION_FAILURE',
+        actorId: candidateId,
+        actorRole: 'ANONYMOUS',
+        targetId: candidateId,
+        targetType: 'CREDENTIALS',
+        ipAddress,
+        userAgent,
+        metadata: { reason: 'IDENTITY_NOT_FOUND' },
+      }).catch((e) => logger.warn({ e }, '[AuthHandshake] Audit log write failure'));
+
+      return res.status(401).json({
+        error: 'Invalid institutional credentials. Please check your Student ID / Matric Number and password.',
+        code: 'INVALID_CREDENTIALS',
+      });
+    }
+
+    // 3. Cryptographic Password Verification via async scrypt
+    const isPasswordValid = await verifyPassword(password, user.password_hash);
+    if (!isPasswordValid) {
+      await recordIdentityAuditLog(pool, {
+        eventType: 'AUTHENTICATION_FAILURE',
+        actorId: user.student_id,
+        actorRole: user.role,
+        targetId: user.student_id,
+        targetType: 'CREDENTIALS',
+        ipAddress,
+        userAgent,
+        metadata: { reason: 'PASSWORD_MISMATCH' },
+      }).catch((e) => logger.warn({ e }, '[AuthHandshake] Audit log write failure'));
+
+      return res.status(401).json({
+        error: 'Invalid institutional credentials. Please check your Student ID / Matric Number and password.',
+        code: 'INVALID_CREDENTIALS',
+      });
+    }
+
+    // 4. Session Scoping Determination (Zero-Trust Quarantined State Machine)
+    const sessionScope = user.must_change_password ? 'RESET_ONLY' : 'FULL_ACCESS';
+
+    // 5. Generate 256-bit entropy ephemeral nonce & session UUID
     const sessionId = crypto.randomUUID();
     const sessionNonce = crypto.randomBytes(32).toString('hex');
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + SESSION_TTL_SECONDS;
 
-    // Atomic session write into Redis with deterministic TTL, protected by Circuit Breaker
+    // 6. Atomic session write into Redis with deterministic TTL & scope, protected by Circuit Breaker
     const sessionKey = `session:${sessionId}`;
     await redisCircuitBreaker.execute(async () => {
       const pipeline = redis.pipeline();
       pipeline.hset(sessionKey, {
-        userId: String(resolvedUser.id),
+        userId: String(user.student_id),
+        username: user.username,
+        role: user.role,
+        scope: sessionScope,
+        mustChangePassword: user.must_change_password ? '1' : '0',
         nonce: sessionNonce,
         createdAt: String(nowSec),
       });
@@ -70,17 +166,18 @@ router.post('/login', async (req, res) => {
         if (cmdErr) throw cmdErr;
       }
       return results;
-    }, 500); // 500ms hard socket deadline
+    }, 2500);
 
-    // Issue signed JWT carrying the session ID pointer strictly AFTER persistence confirmed
+    // 7. Issue signed JWT carrying the session ID and scope strictly AFTER persistence confirmed
     const token = jwt.sign(
       {
-        sub: resolvedUser.id,
+        sub: user.student_id,
         sid: sessionId,
-        moodleUserId: resolvedUser.moodleUserId,
-        username: resolvedUser.username,
-        email: resolvedUser.email,
-        enrolledCourses: resolvedUser.enrolledCourses,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        scope: sessionScope,
+        mustChangePassword: user.must_change_password,
       },
       config.jwt.secret,
       {
@@ -90,7 +187,7 @@ router.post('/login', async (req, res) => {
       }
     );
 
-    // Bind ambient credential via hardened HttpOnly cookie
+    // 8. Bind ambient credential via hardened HttpOnly cookie
     res.cookie('focit_token', token, {
       httpOnly: true,
       secure: config.nodeEnv === 'production',
@@ -99,21 +196,40 @@ router.post('/login', async (req, res) => {
       maxAge: SESSION_TTL_SECONDS * 1000,
     });
 
-    logger.info({ userId: resolvedUser.id, sessionId }, '[AuthHandshake] Session established');
+    // 9. Append Immutable Security Audit Ledger Entry
+    await recordIdentityAuditLog(pool, {
+      eventType: 'AUTHENTICATION_SUCCESS',
+      actorId: user.student_id,
+      actorRole: user.role,
+      targetId: user.student_id,
+      targetType: 'CREDENTIALS',
+      ipAddress,
+      userAgent,
+      sessionId,
+      metadata: {
+        scope: sessionScope,
+        must_change_password: user.must_change_password,
+      },
+    }).catch((e) => logger.warn({ e }, '[AuthHandshake] Audit log write failure'));
 
-    // Return the ephemeral nonce in the JSON payload — NEVER in a cookie
+    logger.info({ userId: user.student_id, sessionId, scope: sessionScope }, '[AuthHandshake] Session established');
+
+    // 10. Return the ephemeral nonce in the JSON payload — NEVER in a cookie
     return res.status(200).json({
       status: 'authenticated',
+      scope: sessionScope,
+      mustChangePassword: user.must_change_password,
       user: {
-        id: resolvedUser.id,
-        username: resolvedUser.username,
-        email: resolvedUser.email,
-        enrolledCourses: resolvedUser.enrolledCourses,
+        id: user.student_id,
+        username: user.username,
+        email: user.email,
+        fullName: user.full_name,
+        role: user.role,
       },
       sessionNonce, // Strict Zero-Token CSRF proof for client memory
       exp: expSec,
       server_epoch: nowSec,
-      server_epoch_ms: Date.now(), // High-resolution millisecond timestamp for Cristian's Algorithm
+      server_epoch_ms: Date.now(),
     });
   } catch (err) {
     if (err.code === 'CIRCUIT_BREAKER_OPEN' || err.code === 'CIRCUIT_BREAKER_TIMEOUT') {
@@ -127,9 +243,9 @@ router.post('/login', async (req, res) => {
     }
 
     logger.error({ err: err?.message || err }, '[AuthHandshake] Login process failure');
-    return res.status(503).json({
-      error: 'Authentication failed due to backing session store failure',
-      code: 'AUTH_SERVICE_UNAVAILABLE',
+    return res.status(500).json({
+      error: 'Authentication processing failed on security server',
+      code: 'AUTH_PROCESSING_ERROR',
     });
   }
 });

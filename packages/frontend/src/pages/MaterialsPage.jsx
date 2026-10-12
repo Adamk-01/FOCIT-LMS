@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { FileText, Search, Download, Eye } from 'lucide-react';
+import { FileText, Search, Download, Eye, ExternalLink } from 'lucide-react';
+import { toast } from 'react-toastify';
 import { PDFViewer } from '../components/PDFViewer';
 import { useMaterials } from '../hooks/useMaterials';
 
@@ -16,6 +17,7 @@ export const MaterialsPage = () => {
 
   const [activePdfId, setActivePdfId] = useState(null);
   const [activeBuffer, setActiveBuffer] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
 
   // 3. Debounce Flush: Sync local state to URL after 300ms of inactivity
   useEffect(() => {
@@ -36,21 +38,62 @@ export const MaterialsPage = () => {
   const { 
     data: materials, 
     isPending, 
-    isFetching,
     isRevalidating,
     error,
     fetchPdfBinary,
     isPdfLoading
   } = useMaterials({ courseId, search: urlSearchQuery });
   
-  const handleViewPdf = async (materialId) => {
-    setActivePdfId(materialId);
-    const arrayBuffer = await fetchPdfBinary(materialId);
+  const handleViewPdf = async (material) => {
+    if (material.type === 'url') {
+      window.open(material.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setActivePdfId(material.id);
+    const arrayBuffer = await fetchPdfBinary(material, material.url);
     if (arrayBuffer) {
       setActiveBuffer(arrayBuffer);
     } else {
       setActivePdfId(null);
       setActiveBuffer(null);
+    }
+  };
+
+  const handleDownload = async (material) => {
+    if (material.type === 'url') {
+      window.open(material.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setDownloadingId(material.id);
+    try {
+      const url = material.url || `/api/files/${material.id}`;
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(typeof sessionStorage !== 'undefined' && sessionStorage.getItem('session_nonce')
+            ? { 'X-Session-Nonce': sessionStorage.getItem('session_nonce') }
+            : {}),
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      const downloadName = material.filename || `${material.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+      a.download = downloadName.endsWith('.pdf') ? downloadName : `${downloadName}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      toast.error('Failed to download document stream.');
+      console.error('[MaterialsPage] Download error:', err);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -152,7 +195,7 @@ export const MaterialsPage = () => {
 
                 <div className="mt-auto flex gap-3">
                   <button
-                    onClick={() => handleViewPdf(material.id)}
+                    onClick={() => handleViewPdf(material)}
                     disabled={isPdfLoading && activePdfId === material.id}
                     className="flex-1 flex items-center justify-center gap-2 bg-[#0a1142] hover:bg-[#0a1142]/90 text-white px-4 py-2 rounded-lg font-medium transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-70"
                     aria-label={`View ${material.title}`}
@@ -161,18 +204,26 @@ export const MaterialsPage = () => {
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
                       <>
-                        <Eye size={18} />
-                        View Document
+                        {material.type === 'url' ? <ExternalLink size={18} /> : <Eye size={18} />}
+                        {material.type === 'url' ? 'Open Resource' : 'View Document'}
                       </>
                     )}
                   </button>
-                  <button
-                    className="p-2 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg transition-colors focus:ring-2 focus:ring-gray-300 focus:outline-none"
-                    aria-label={`Download ${material.title}`}
-                    title="Encrypted Download"
-                  >
-                    <Download size={18} />
-                  </button>
+                  {material.type !== 'url' && (
+                    <button
+                      onClick={() => handleDownload(material)}
+                      disabled={downloadingId === material.id}
+                      className="p-2 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600 rounded-lg transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-50"
+                      aria-label={`Download ${material.title}`}
+                      title="Download PDF"
+                    >
+                      {downloadingId === material.id ? (
+                        <div className="w-4 h-4 border-2 border-gray-600/30 border-t-gray-600 rounded-full animate-spin" />
+                      ) : (
+                        <Download size={18} />
+                      )}
+                    </button>
+                  )}
                 </div>
               </article>
             ))}

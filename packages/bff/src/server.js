@@ -26,6 +26,13 @@ import authRouter from './routes/auth.js';
 import materialsRouter from './routes/materials.js';
 import filesRouter from './routes/files.js';
 import healthRouter from './routes/health.js';
+import studentDashboardRouter from './routes/studentDashboard.js';
+import registrationRouter from './routes/registration.js';
+import quizzesRouter from './routes/quizzes.js';
+import gradesRouter from './routes/grades.js';
+import forumsRouter from './routes/forums.js';
+import questionBankRouter from './routes/questionBank.js';
+import profileRouter from './routes/profile.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
 
@@ -44,8 +51,21 @@ app.use(pinoHttp({
 }));
 
 // ─── 1. CORS ─────────────────────────────────────────────────
+const allowedOrigins = [
+  config.frontendOrigin,
+  'http://localhost:5173',
+  'http://localhost:5180',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5180'
+];
+
 app.use(cors({
-  origin: config.frontendOrigin,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,  // Required for HttpOnly cookies
   methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: [
@@ -54,6 +74,8 @@ app.use(cors({
     'X-Session-Nonce',
     'X-Requested-With',
     'X-CSRF-Token',
+    'Idempotency-Key',
+    'X-Idempotency-Key',
   ],
   exposedHeaders: [
     'Content-Range',
@@ -89,7 +111,14 @@ app.use('/api', authMiddleware);
 
 // ─── 9. Protected Resource Routes ───────────────────────────
 app.use('/api/courses', materialsRouter);
+app.use('/api/courses', gradesRouter);
+app.use('/api/courses', forumsRouter);
+app.use('/api/courses', questionBankRouter);
+app.use('/api/quizzes', quizzesRouter);
 app.use('/api/files', filesRouter);
+app.use('/api/student', studentDashboardRouter);
+app.use('/api/student', profileRouter);
+app.use('/api/registration', registrationRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {

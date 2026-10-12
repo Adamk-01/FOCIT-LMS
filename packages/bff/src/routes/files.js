@@ -26,10 +26,12 @@ const router = Router();
 /**
  * Helper to serve a sliced file honoring HTTP Range from the local disk cache
  */
-async function serveLocalSlice(req, res, localPath, contentType = 'application/pdf') {
+async function serveLocalSlice(req, res, localPath, contentType = 'application/pdf', filename = 'document.pdf') {
   const stat = await fs.stat(localPath);
   const fileSize = stat.size;
   const range = req.headers.range;
+  const isDownload = req.query?.download === '1' || req.query?.download === 'true';
+  res.setHeader('Content-Disposition', isDownload ? `attachment; filename="${filename}"` : `inline; filename="${filename}"`);
 
   if (range) {
     const match = /^bytes=(\d+)-(\d*)$/.exec(range);
@@ -66,26 +68,62 @@ async function serveLocalSlice(req, res, localPath, contentType = 'application/p
 }
 
 /**
- * GET /api/files/:moduleId/:filename
+ * GET /api/files/avatars/:filename
+ * Serves processed student avatars with Cache-Control headers
+ */
+router.get('/avatars/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const sanitized = path.basename(filename);
+  const avatarPath = path.join(CACHE_DIR, 'avatars', sanitized);
+  try {
+    await fs.stat(avatarPath);
+    const ext = path.extname(sanitized).toLowerCase();
+    const mime = ext === '.webp' ? 'image/webp' : ext === '.png' ? 'image/png' : 'image/jpeg';
+    
+    // Strict Stored XSS & Polyglot File Execution Mitigations
+    res.setHeader('Content-Type', mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    createReadStream(avatarPath).pipe(res);
+  } catch (err) {
+    return res.status(404).json({ error: 'Avatar image not found', code: 'AVATAR_NOT_FOUND' });
+  }
+});
+
+/**
+ * GET /api/files/:moduleId/:filename OR /api/files/:fileId
  *
  * Middleware chain: auth (global) → enrollment → rate limit → handler
  */
 router.get(
-  '/:moduleId/:filename',
+  ['/:moduleId/:filename', '/:fileId'],
   // In a full production implementation, we would resolve the course ID
   // from the moduleId to run a strict enrollment check.
   // enrollmentCheck('moduleId'),
   listRateLimit,
   async (req, res, next) => {
     try {
-      const { moduleId, filename } = req.params;
+      let { moduleId, filename, fileId } = req.params;
+      if (!filename && fileId) {
+        const hyphenIndex = fileId.indexOf('-');
+        if (hyphenIndex !== -1) {
+          moduleId = fileId.slice(0, hyphenIndex);
+          filename = fileId.slice(hyphenIndex + 1);
+        } else {
+          moduleId = fileId;
+          filename = 'document.pdf';
+        }
+      }
+
       const cacheKey = `${moduleId}-${filename}`;
       const range = req.headers.range;
 
       // 1. Check if fully cached or currently downloading (The Promise Lock)
       if (cache.has(cacheKey) || cache.isInflight(cacheKey)) {
         const localPath = await cache.getOrWait(cacheKey);
-        return serveLocalSlice(req, res, localPath);
+        return serveLocalSlice(req, res, localPath, 'application/pdf', filename);
       }
 
       // 2. Not in cache. Fetch from Moodle, passing the Range header
@@ -133,7 +171,7 @@ router.get(
       const localPath = await cache.writeToCache(cacheKey, body, contentLength);
 
       // 6. Serve the local slice to satisfy the client's original Range request
-      return serveLocalSlice(req, res, localPath, contentType);
+      return serveLocalSlice(req, res, localPath, contentType, filename);
 
     } catch (err) {
       if (err.code === 'ERR_STREAM_PREMATURE_CLOSE') return; // Client disconnected

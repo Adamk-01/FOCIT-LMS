@@ -2,11 +2,17 @@ import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ProtectedLayout } from './layouts/ProtectedLayout';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { CourseDetailPage } from './pages/CourseDetailPage';
 import { MaterialsPage } from './pages/MaterialsPage';
-
+import { QuizAttemptPage } from './pages/QuizAttemptPage';
+import { GradebookPage } from './pages/GradebookPage';
+import { ForumPage } from './pages/ForumPage';
+import { QuestionBankPage } from './pages/QuestionBankPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
+import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
+import { StudentProfilePage } from './pages/StudentProfilePage';
 import { LoginPage } from './pages/LoginPage';
-
-const DashboardView = () => <div className="p-8">Dashboard Content (Mock)</div>;
 
 export const router = createBrowserRouter([
   {
@@ -28,12 +34,57 @@ export const router = createBrowserRouter([
       },
       {
         path: 'dashboard',
-        element: <DashboardView />,
+        element: <DashboardPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'registration',
+        element: <CourseRegistrationPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'advisor/registrations',
+        element: <LevelAdvisorDashboardPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'profile',
+        element: <StudentProfilePage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId',
+        element: <CourseDetailPage />,
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'courses/:courseId/materials',
-        element: <MaterialsPage />,
+        element: <CourseDetailPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId/quizzes/:quizId',
+        element: <QuizAttemptPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId/quizzes',
+        element: <QuizAttemptPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId/grades',
+        element: <GradebookPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId/forum',
+        element: <ForumPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'courses/:courseId/question-bank',
+        element: <QuestionBankPage />,
         errorElement: <RouteErrorBoundary />,
       }
     ]
