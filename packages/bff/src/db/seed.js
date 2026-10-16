@@ -22,6 +22,13 @@ async function runSeed() {
 
   const client = await pool.connect();
   try {
+    const phase1Path = path.resolve(__dirname, 'migrations', '001_phase1_schema.sql');
+    logger.info({ path: phase1Path }, '[DB Seed] Reading Phase 1 SQL migration file...');
+    const phase1Sql = await fs.readFile(phase1Path, 'utf8');
+    logger.info('[DB Seed] Executing Phase 1 schema transaction...');
+    await client.query(phase1Sql);
+    logger.info('[DB Seed] Phase 1 schema committed successfully.');
+
     logger.info('[DB Seed] Executing academic catalog seed transaction...');
     await client.query(sqlContent);
     const phase4Path = path.resolve(__dirname, 'migrations', '003_phase4_assessments_and_social.sql');
@@ -63,6 +70,14 @@ async function runSeed() {
     logger.info('[DB Seed] Executing Migration 007 Identity & Security Audit Ledger transaction...');
     await client.query(auditLedgerSql);
     logger.info('[DB Seed] Migration 007 transaction committed successfully.');
+
+    const adminGovPath = path.resolve(__dirname, 'migrations', '008_admin_governance_and_accounts.sql');
+    logger.info({ path: adminGovPath }, '[DB Seed] Reading Migration 008 Admin Governance & Accounts SQL file...');
+    const adminGovSql = await fs.readFile(adminGovPath, 'utf8');
+
+    logger.info('[DB Seed] Executing Migration 008 Admin Governance & Accounts transaction...');
+    await client.query(adminGovSql);
+    logger.info('[DB Seed] Migration 008 transaction committed successfully.');
 
     // Audit and verify seeded table records
     const deptsCount = await client.query('SELECT COUNT(*) FROM departments');

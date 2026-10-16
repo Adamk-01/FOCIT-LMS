@@ -230,3 +230,41 @@ function extractBearerToken(req) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   return authHeader.slice(7);
 }
+
+/**
+ * Role-Based Access Control (RBAC) Guard Factory
+ * Enforces strict role whitelist against authenticated req.user context.
+ *
+ * @param {string|string[]} allowedRoles - Role or array of permitted roles (e.g. 'ADMIN', ['ADMIN', 'SYSTEM_ADMIN'])
+ * @returns {import('express').RequestHandler}
+ */
+export function requireRole(allowedRoles) {
+  const normalized = (Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles])
+    .map((r) => String(r).toUpperCase());
+
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(401).json({
+        error: 'Authentication session required for privileged access',
+        code: 'AUTH_REQUIRED',
+      });
+    }
+
+    const userRole = String(req.user.role).toUpperCase();
+
+    if (!normalized.includes(userRole)) {
+      logger.warn(
+        { userId: req.user.id, userRole, requiredRoles: normalized, path: req.originalUrl },
+        '[RBAC] Unauthorized role access attempt blocked'
+      );
+
+      return res.status(403).json({
+        error: 'Access denied: insufficient administrative privileges',
+        code: 'FORBIDDEN_INSUFFICIENT_ROLE',
+        requiredRoles: normalized,
+      });
+    }
+
+    return next();
+  };
+}

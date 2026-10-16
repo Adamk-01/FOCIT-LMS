@@ -58,6 +58,7 @@ router.post('/login', async (req, res) => {
         s.full_name,
         s.email,
         s.level,
+        s.account_status,
         sp.password_hash,
         COALESCE(sp.must_change_password, FALSE) AS must_change_password,
         'STUDENT' AS role
@@ -81,6 +82,7 @@ router.post('/login', async (req, res) => {
           full_name,
           email,
           assigned_level AS level,
+          account_status,
           password_hash,
           COALESCE(must_change_password, FALSE) AS must_change_password,
           role
@@ -134,6 +136,45 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // 4. Edge Case: Suspended or locked account enforcement AFTER credential verification
+    // (Prevents Account State Oracle / User Enumeration attacks: OWASP ASVS 4.0.3)
+    const userStatus = String(user.account_status || 'ACTIVE').toUpperCase();
+    if (userStatus === 'SUSPENDED') {
+      await recordIdentityAuditLog(pool, {
+        eventType: 'AUTHENTICATION_BLOCKED_SUSPENDED',
+        actorId: user.student_id,
+        actorRole: user.role,
+        targetId: user.student_id,
+        targetType: 'ACCOUNT_STATUS',
+        ipAddress,
+        userAgent,
+        metadata: { reason: 'ACCOUNT_SUSPENDED' },
+      }).catch((e) => logger.warn({ e }, '[AuthHandshake] Audit log write failure'));
+
+      return res.status(403).json({
+        error: 'Your account has been suspended. Please contact the Faculty Administrator.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
+
+    if (userStatus === 'LOCKED') {
+      await recordIdentityAuditLog(pool, {
+        eventType: 'AUTHENTICATION_BLOCKED_LOCKED',
+        actorId: user.student_id,
+        actorRole: user.role,
+        targetId: user.student_id,
+        targetType: 'ACCOUNT_STATUS',
+        ipAddress,
+        userAgent,
+        metadata: { reason: 'ACCOUNT_LOCKED' },
+      }).catch((e) => logger.warn({ e }, '[AuthHandshake] Audit log write failure'));
+
+      return res.status(403).json({
+        error: 'Your account has been locked due to security policy. Please contact the Faculty Administrator.',
+        code: 'ACCOUNT_LOCKED',
+      });
+    }
+
     // 4. Session Scoping Determination (Zero-Trust Quarantined State Machine)
     const sessionScope = user.must_change_password ? 'RESET_ONLY' : 'FULL_ACCESS';
 
@@ -157,6 +198,8 @@ router.post('/login', async (req, res) => {
         createdAt: String(nowSec),
       });
       pipeline.expire(sessionKey, SESSION_TTL_SECONDS);
+      pipeline.sadd(`user_sessions:${String(user.student_id)}`, sessionId);
+      pipeline.expire(`user_sessions:${String(user.student_id)}`, SESSION_TTL_SECONDS);
 
       const results = await pipeline.exec();
       if (!results) {
@@ -260,6 +303,9 @@ router.post('/logout', authMiddleware, async (req, res) => {
   try {
     if (sessionId) {
       await redis.del(`session:${sessionId}`);
+      if (req.user?.id) {
+        await redis.srem(`user_sessions:${req.user.id}`, sessionId).catch(() => {});
+      }
       logger.info({ sessionId, userId: req.user?.id }, '[AuthLogout] Session revoked in Redis');
     }
 
