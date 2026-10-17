@@ -6,13 +6,17 @@
  * a server that starts with bad config is worse than one that refuses to start.
  */
 
-import { config as loadDotenv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-// Load .env relative to the bff package root
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-loadDotenv({ path: path.resolve(__dirname, '..', '.env') });
+// Load .env relative to the bff package root if present (local development)
+try {
+  const { config: loadDotenv } = await import('dotenv');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  loadDotenv({ path: path.resolve(__dirname, '..', '.env') });
+} catch {
+  // In production, environment variables are injected directly by cloud environment (Render/Container)
+}
 
 /**
  * Read an env var, throw if missing and no default provided.
