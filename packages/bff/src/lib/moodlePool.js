@@ -14,7 +14,16 @@
 import { Pool } from 'undici';
 import config from '../config.js';
 
-const moodlePool = new Pool(config.moodle.baseUrl, {
+function getValidOrigin(url) {
+  if (!url || typeof url !== 'string') return 'http://127.0.0.1:3001';
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  return trimmed;
+}
+
+const moodlePool = new Pool(getValidOrigin(config.moodle.baseUrl), {
   connections: config.pool.maxConnections,  // Hard ceiling on concurrent TCP sockets
   pipelining: 1,                             // No HTTP pipelining (safer for binary streams)
   connect: {

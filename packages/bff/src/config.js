@@ -53,6 +53,21 @@ function int(key, fallback) {
   return parsed;
 }
 
+/**
+ * Normalizes an HTTP/HTTPS URL, prepending http:// if protocol is omitted.
+ * Critical for cloud platforms (e.g., Render) where internal discovery passes bare hostnames.
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+function normalizeUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  const trimmed = rawUrl.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  return trimmed;
+}
+
 const config = Object.freeze({
   // --- Server ---
   port: int('PORT', 3000),
@@ -61,8 +76,8 @@ const config = Object.freeze({
 
   // --- Moodle ---
   moodle: Object.freeze({
-    baseUrl: required('MOODLE_BASE_URL'),
-    wsToken: required('MOODLE_WS_TOKEN'),
+    baseUrl: normalizeUrl(required('MOODLE_BASE_URL', 'http://localhost:3001')),
+    wsToken: required('MOODLE_WS_TOKEN', 'mock_dev_token_do_not_use_in_production'),
   }),
 
   // --- Undici Connection Pool ---
