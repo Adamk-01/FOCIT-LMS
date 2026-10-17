@@ -1,0 +1,443 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model academic_semesters {
+  id                          String                        @id @db.VarChar(32)
+  session_id                  String                        @db.VarChar(32)
+  semester_number             Int
+  name                        String                        @db.VarChar(64)
+  is_registration_open        Boolean                       @default(true)
+  created_at                  DateTime?                     @default(now()) @db.Timestamptz(6)
+  academic_sessions           academic_sessions             @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  course_registration_batches course_registration_batches[]
+  enrollments                 enrollments[]
+}
+
+model academic_sessions {
+  id                 String               @id @db.VarChar(32)
+  name               String               @db.VarChar(64)
+  is_current         Boolean              @default(false)
+  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  academic_semesters academic_semesters[]
+}
+
+model academic_timetable {
+  id                     Int                    @id @default(autoincrement())
+  course_id              Int
+  lecturer_id            Int
+  room_id                Int?
+  first_occurrence_start DateTime               @db.Timestamptz(6)
+  duration_minutes       Int
+  rrule                  String                 @db.VarChar(255)
+  exclusion_dates        DateTime[]             @default([]) @db.Date
+  created_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  timetable_exceptions   timetable_exceptions[]
+
+  @@index([course_id], map: "idx_timetable_course_id")
+}
+
+model announcements {
+  id          BigInt    @id @default(autoincrement())
+  course_id   Int
+  lecturer_id Int
+  title       String    @db.VarChar(255)
+  body        String
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([course_id], map: "idx_announcements_course_id")
+  @@index([id], map: "idx_announcements_id_ordered")
+}
+
+model bff_idempotency_records {
+  key              String    @id @db.VarChar(128)
+  student_id       String    @db.VarChar(64)
+  endpoint         String    @db.VarChar(64)
+  status_code      Int
+  response_payload Json
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  students         students  @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([student_id, created_at(sort: Desc)], map: "idx_bff_idempotency_student_time")
+}
+
+model course_registration_audit_logs {
+  id                          BigInt                      @id @default(autoincrement())
+  batch_id                    String                      @db.Uuid
+  student_id                  String                      @db.VarChar(64)
+  actor_id                    String                      @db.VarChar(64)
+  action                      String                      @db.VarChar(32)
+  previous_status             registration_batch_status?
+  new_status                  registration_batch_status
+  remarks                     String?
+  metadata                    Json                        @default("{}")
+  ip_address                  String?                     @db.VarChar(45)
+  created_at                  DateTime?                   @default(now()) @db.Timestamptz(6)
+  course_registration_batches course_registration_batches @relation(fields: [batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([batch_id, created_at], map: "idx_reg_audit_batch")
+  @@index([student_id, created_at(sort: Desc)], map: "idx_reg_audit_student")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_registration_batches {
+  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  student_id                     String                           @db.VarChar(64)
+  semester_id                    String                           @db.VarChar(32)
+  status                         registration_batch_status        @default(DRAFT)
+  total_units                    Int                              @default(0)
+  dean_waiver                    Boolean                          @default(false)
+  dean_waiver_reason             String?
+  submitted_at                   DateTime?                        @db.Timestamptz(6)
+  advisor_id                     String?                          @db.VarChar(64)
+  advisor_approved_at            DateTime?                        @db.Timestamptz(6)
+  hod_id                         String?                          @db.VarChar(64)
+  hod_cleared_at                 DateTime?                        @db.Timestamptz(6)
+  senate_id                      String?                          @db.VarChar(64)
+  senate_confirmed_at            DateTime?                        @db.Timestamptz(6)
+  rejection_remarks              String?
+  rejected_by                    String?                          @db.VarChar(64)
+  rejected_at                    DateTime?                        @db.Timestamptz(6)
+  version                        Int                              @default(1)
+  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  course_registration_audit_logs course_registration_audit_logs[]
+  academic_semesters             academic_semesters               @relation(fields: [semester_id], references: [id], onUpdate: NoAction)
+  students                       students                         @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+  course_registration_items      course_registration_items[]
+
+  @@unique([student_id, semester_id], map: "uq_student_semester_batch")
+  @@index([status, semester_id, updated_at(sort: Desc)], map: "idx_reg_batches_advisor_lookup")
+  @@index([student_id, semester_id], map: "idx_reg_batches_student_term")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_registration_items {
+  id                          String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batch_id                    String                      @db.Uuid
+  course_id                   String                      @db.VarChar(32)
+  units                       Int
+  category                    String                      @db.VarChar(16)
+  created_at                  DateTime?                   @default(now()) @db.Timestamptz(6)
+  course_registration_batches course_registration_batches @relation(fields: [batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  courses                     courses                     @relation(fields: [course_id], references: [course_id], onUpdate: NoAction)
+
+  @@unique([batch_id, course_id], map: "uq_batch_course")
+  @@index([batch_id], map: "idx_reg_items_batch")
+  @@index([course_id], map: "idx_reg_items_course")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model courses {
+  course_id                 String                      @id @db.VarChar(32)
+  code                      String                      @unique @db.VarChar(16)
+  title                     String                      @db.VarChar(128)
+  department_id             String                      @db.VarChar(32)
+  level                     Int
+  semester_number           Int
+  units                     Int
+  category                  String                      @db.VarChar(16)
+  max_capacity              Int
+  enrolled_count            Int                         @default(0)
+  moodle_course_id          Int?
+  description               String?
+  is_active                 Boolean                     @default(true)
+  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
+  course_registration_items course_registration_items[]
+  departments               departments                 @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+  enrollments               enrollments[]
+  forum_threads             forum_threads[]
+  grade_items               grade_items[]
+  quizzes                   quizzes[]
+
+  @@index([department_id], map: "idx_courses_dept")
+  @@index([level, semester_number, is_active], map: "idx_courses_filter")
+}
+
+model departments {
+  id             String           @id @db.VarChar(32)
+  code           String           @unique @db.VarChar(10)
+  name           String           @db.VarChar(128)
+  description    String?
+  created_at     DateTime?        @default(now()) @db.Timestamptz(6)
+  courses        courses[]
+  programmes     programmes[]
+  staff_advisors staff_advisors[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model enrollments {
+  enrollment_id      String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  student_id         String             @db.VarChar(64)
+  course_id          String             @db.VarChar(32)
+  semester_id        String             @db.VarChar(32)
+  status             String             @default("ENROLLED") @db.VarChar(20)
+  progress_percent   Int                @default(0)
+  grade              Decimal?           @db.Decimal(5, 2)
+  enrolled_at        DateTime?          @default(now()) @db.Timestamptz(6)
+  courses            courses            @relation(fields: [course_id], references: [course_id], onUpdate: NoAction)
+  academic_semesters academic_semesters @relation(fields: [semester_id], references: [id], onUpdate: NoAction)
+  students           students           @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([student_id, course_id, semester_id], map: "uq_student_course_semester")
+  @@index([course_id], map: "idx_enrollments_course")
+  @@index([student_id, semester_id], map: "idx_enrollments_student")
+}
+
+model forum_threads {
+  thread_id     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id     String    @db.VarChar(32)
+  student_id    String    @db.VarChar(64)
+  author_name   String    @db.VarChar(128)
+  author_role   String    @default("STUDENT") @db.VarChar(32)
+  title         String    @db.VarChar(255)
+  body          String
+  replies_count Int       @default(0)
+  last_post_at  DateTime? @default(now()) @db.Timestamptz(6)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  courses       courses   @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction)
+  students      students  @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([course_id, last_post_at(sort: Desc)], map: "idx_forum_threads_course")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model grade_items {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id      String    @db.VarChar(32)
+  student_id     String    @db.VarChar(64)
+  item_name      String    @db.VarChar(128)
+  category       String    @db.VarChar(32)
+  weight_percent Int
+  grade          Decimal   @db.Decimal(5, 2)
+  max_grade      Decimal   @db.Decimal(5, 2)
+  percentage     Int
+  letter_grade   String    @db.VarChar(4)
+  feedback       String?
+  status         String    @default("GRADED") @db.VarChar(20)
+  graded_at      DateTime? @default(now()) @db.Timestamptz(6)
+  courses        courses   @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction)
+  students       students  @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([course_id, student_id], map: "idx_grade_items_student")
+}
+
+model identity_audit_logs {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  event_type      String   @db.VarChar(64)
+  actor_id        String   @db.VarChar(64)
+  actor_role      String   @default("STUDENT") @db.VarChar(32)
+  target_id       String   @db.VarChar(64)
+  target_type     String   @default("CREDENTIALS") @db.VarChar(32)
+  ip_address      String?  @db.Inet
+  user_agent      String?
+  session_id      String?  @db.VarChar(64)
+  prev_state_hash String?  @db.VarChar(64)
+  new_state_hash  String?  @db.VarChar(64)
+  prev_entry_hash String?  @db.VarChar(64)
+  entry_hash      String   @db.VarChar(64)
+  metadata        Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([actor_id, event_type, created_at(sort: Desc)], map: "idx_audit_logs_actor_action_ts")
+  @@index([target_id, event_type, created_at(sort: Desc)], map: "idx_identity_audit_target")
+  @@index([created_at(sort: Desc)], map: "idx_identity_audit_temporal")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model moodle_outbox {
+  id               Int       @id @default(autoincrement())
+  event_type       String    @default("ENROLLMENT_SYNC") @db.VarChar(50)
+  student_focit_id String    @db.VarChar(64)
+  moodle_course_id Int?
+  status           String    @default("PENDING") @db.VarChar(20)
+  payload          Json
+  retry_count      Int?      @default(0)
+  idempotency_key  String?   @unique @db.VarChar(128)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model outbox_events {
+  event_id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aggregate_type    String    @db.VarChar(64)
+  aggregate_id      String    @db.VarChar(64)
+  event_type        String    @db.VarChar(64)
+  payload           Json
+  status            String    @default("PENDING") @db.VarChar(20)
+  delivery_attempts Int       @default(0)
+  locked_until      DateTime? @db.Timestamptz(6)
+  worker_id         String?   @db.VarChar(64)
+  idempotency_key   String?   @db.VarChar(128)
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime? @db.Timestamptz(6)
+}
+
+model programmes {
+  id             String      @id @db.VarChar(32)
+  department_id  String      @db.VarChar(32)
+  code           String      @unique @db.VarChar(16)
+  name           String      @db.VarChar(128)
+  duration_years Int         @default(4)
+  created_at     DateTime?   @default(now()) @db.Timestamptz(6)
+  departments    departments @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+  students       students[]
+}
+
+model quiz_attempt_answers {
+  attempt_id         String         @db.VarChar(32)
+  question_id        String         @db.VarChar(32)
+  selected_option_id String         @db.VarChar(32)
+  updated_at         DateTime?      @default(now()) @db.Timestamptz(6)
+  quiz_attempts      quiz_attempts  @relation(fields: [attempt_id], references: [attempt_id], onDelete: Cascade, onUpdate: NoAction)
+  quiz_questions     quiz_questions @relation(fields: [question_id], references: [question_id], onUpdate: NoAction)
+
+  @@id([attempt_id, question_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model quiz_attempts {
+  attempt_id           String                 @id @db.VarChar(32)
+  quiz_id              String                 @db.VarChar(32)
+  student_id           String                 @db.VarChar(64)
+  status               String                 @default("IN_PROGRESS") @db.VarChar(20)
+  score                Decimal                @default(0.00) @db.Decimal(5, 2)
+  total_points         Decimal                @default(10.00) @db.Decimal(5, 2)
+  started_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  due_at               DateTime               @db.Timestamptz(6)
+  submitted_at         DateTime?              @db.Timestamptz(6)
+  submission_mode      String                 @default("STANDARD") @db.VarChar(32)
+  created_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  quiz_attempt_answers quiz_attempt_answers[]
+  quizzes              quizzes                @relation(fields: [quiz_id], references: [quiz_id], onUpdate: NoAction)
+  students             students               @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([student_id, quiz_id], map: "uq_attempt_student_quiz")
+  @@index([student_id, quiz_id], map: "idx_quiz_attempts_student")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model quiz_questions {
+  question_id          String                 @id @db.VarChar(32)
+  quiz_id              String                 @db.VarChar(32)
+  question_number      Int
+  prompt               String
+  options              Json
+  correct_option_id    String                 @db.VarChar(32)
+  points               Decimal                @default(1.00) @db.Decimal(5, 2)
+  created_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  type                 String                 @default("MULTIPLE_CHOICE") @db.VarChar(32)
+  explanation          String?
+  quiz_attempt_answers quiz_attempt_answers[]
+  quizzes              quizzes                @relation(fields: [quiz_id], references: [quiz_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([quiz_id, question_number], map: "uq_quiz_question_num")
+  @@index([quiz_id], map: "idx_quiz_questions_quiz")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model quizzes {
+  quiz_id                    String           @id @db.VarChar(32)
+  course_id                  String           @db.VarChar(32)
+  title                      String           @db.VarChar(128)
+  description                String?
+  duration_minutes           Int              @default(45)
+  total_points               Decimal          @default(10.00) @db.Decimal(5, 2)
+  status                     String           @default("ACTIVE") @db.VarChar(20)
+  due_date                   DateTime?        @db.Timestamptz(6)
+  created_at                 DateTime?        @default(now()) @db.Timestamptz(6)
+  version                    Int              @default(1)
+  is_active_for_new_attempts Boolean          @default(true)
+  published_at               DateTime?        @default(now()) @db.Timestamptz(6)
+  quiz_attempts              quiz_attempts[]
+  quiz_questions             quiz_questions[]
+  courses                    courses          @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_advisors {
+  advisor_id           String      @id @db.VarChar(64)
+  staff_number         String      @unique @db.VarChar(32)
+  full_name            String      @db.VarChar(128)
+  email                String      @unique @db.VarChar(128)
+  department_id        String      @db.VarChar(32)
+  assigned_level       Int
+  role                 String      @default("LEVEL_ADVISOR") @db.VarChar(32)
+  created_at           DateTime?   @default(now()) @db.Timestamptz(6)
+  password_hash        String?     @db.VarChar(256)
+  must_change_password Boolean     @default(false)
+  account_status       String      @default("ACTIVE") @db.VarChar(16)
+  departments          departments @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+
+  @@index([department_id, assigned_level, role], map: "idx_staff_advisors_lookup")
+  @@index([role, account_status], map: "idx_staff_advisors_role")
+}
+
+model student_profiles {
+  student_id           String    @id @db.VarChar(64)
+  phone_number         String?   @db.VarChar(32)
+  alternate_email      String?   @db.VarChar(128)
+  avatar_url           String?   @db.VarChar(512)
+  bio                  String?
+  residential_address  String?
+  password_hash        String?   @db.VarChar(256)
+  preferences          Json      @default("{\"theme\": \"system\", \"sms_alerts\": false, \"forum_digest\": \"daily\", \"compact_tables\": false, \"quiz_reminders\": true, \"email_notifications\": true}")
+  version              Int       @default(1)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+  must_change_password Boolean   @default(false)
+  students             students  @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model students {
+  student_id                  String                        @id @db.VarChar(64)
+  matric_number               String                        @unique @db.VarChar(32)
+  username                    String                        @unique @db.VarChar(64)
+  full_name                   String                        @db.VarChar(128)
+  email                       String                        @unique @db.VarChar(128)
+  programme_id                String                        @db.VarChar(32)
+  level                       Int                           @default(200)
+  current_gpa                 Decimal                       @default(0.00) @db.Decimal(3, 2)
+  completed_units             Int                           @default(0)
+  created_at                  DateTime?                     @default(now()) @db.Timestamptz(6)
+  account_status              String                        @default("ACTIVE") @db.VarChar(16)
+  bff_idempotency_records     bff_idempotency_records[]
+  course_registration_batches course_registration_batches[]
+  enrollments                 enrollments[]
+  forum_threads               forum_threads[]
+  grade_items                 grade_items[]
+  quiz_attempts               quiz_attempts[]
+  student_profiles            student_profiles?
+  programmes                  programmes                    @relation(fields: [programme_id], references: [id], onUpdate: NoAction)
+}
+
+model timetable_exceptions {
+  id                       Int                @id @default(autoincrement())
+  parent_series_id         Int
+  original_occurrence_date DateTime           @db.Date
+  new_start_time           DateTime           @db.Timestamptz(6)
+  new_duration_minutes     Int
+  new_room_id              Int?
+  created_at               DateTime?          @default(now()) @db.Timestamptz(6)
+  academic_timetable       academic_timetable @relation(fields: [parent_series_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([parent_series_id, original_occurrence_date], map: "unique_exception_per_occurrence")
+}
+
+enum registration_batch_status {
+  DRAFT
+  SUBMITTED
+  ADVISOR_APPROVED
+  HOD_CLEARED
+  SENATE_CONFIRMED
+  REJECTED
+}

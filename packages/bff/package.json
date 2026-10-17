@@ -9,7 +9,10 @@
     "dev": "node --watch-path=src src/server.js",
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "db:pull": "prisma db pull",
+    "db:studio": "prisma studio",
+    "test:connections": "node src/scripts/testConnections.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",
@@ -24,6 +27,14 @@
     "undici": "^7.0.0"
   },
   "devDependencies": {
-    "dotenv": "^16.4.5"
-  }
+    "@prisma/client": "^6.4.0",
+    "dotenv": "^16.4.5",
+    "prisma": "^6.4.0"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

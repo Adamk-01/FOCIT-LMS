@@ -33,6 +33,7 @@ import gradesRouter from './routes/grades.js';
 import forumsRouter from './routes/forums.js';
 import questionBankRouter from './routes/questionBank.js';
 import profileRouter from './routes/profile.js';
+import adminRouter from './routes/admin.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
 
@@ -119,6 +120,7 @@ app.use('/api/files', filesRouter);
 app.use('/api/student', studentDashboardRouter);
 app.use('/api/student', profileRouter);
 app.use('/api/registration', registrationRouter);
+app.use('/api/admin', adminRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {
