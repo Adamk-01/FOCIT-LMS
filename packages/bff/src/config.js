@@ -68,6 +68,18 @@ function normalizeUrl(rawUrl) {
   return trimmed;
 }
 
+function normalizeRedisUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return 'redis://localhost:6379';
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith('//')) {
+    return `rediss:${trimmed}`;
+  }
+  if (!/^rediss?:\/\//i.test(trimmed)) {
+    return `rediss://${trimmed}`;
+  }
+  return trimmed;
+}
+
 const config = Object.freeze({
   // --- Server ---
   port: int('PORT', 3000),
@@ -110,7 +122,7 @@ const config = Object.freeze({
 
   // --- Redis Connection ---
   redis: Object.freeze({
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
+    url: normalizeRedisUrl(process.env.REDIS_URL),
   }),
 });
 
