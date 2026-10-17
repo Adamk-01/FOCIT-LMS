@@ -1,11 +1,10 @@
 /**
- * FOCIT LMS - Transactional Outbox Sweeper Worker
+ * FOCIT LMS - Transactional Outbox Sweeper Worker [DEPRECATED]
  *
- * Implements the 8-8-8 Architectural Doctrine:
- * 1. Non-Blocking Row Acquisition via SELECT ... FOR UPDATE SKIP LOCKED
- * 2. Dead-Worker Lease Recovery (locked_until < NOW())
- * 3. Poison Pill Quarantine (delivery_attempts >= 5 marked as FAILED)
- * 4. At-Least-Once Delivery with Upstream Idempotency Keys
+ * @deprecated SUPERSEDED BY `unifiedOutboxWorker.js` in Phase 11.
+ * DO NOT MOUNT OR RUN THIS WORKER IN PRODUCTION.
+ * Polling has been consolidated into `unifiedOutboxWorker` operating
+ * on the unified `integration_outbox_events` table under the 8-8-8 Doctrine.
  */
 
 import { pool } from '../db/index.js';

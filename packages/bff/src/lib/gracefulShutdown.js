@@ -81,7 +81,7 @@ function delay(ms) {
  * @param {object} params
  * @param {import('http').Server} params.server - Active HTTP server instance
  * @param {import('pg').Pool} [params.pool] - PostgreSQL pool instance
- * @param {import('ioredis').Redis} [params.redis] - Redis client instance
+ * @param {Array<object>} [params.workers] - Background worker instances with .stop()
  * @param {object} [params.options]
  * @param {number} [params.options.ingressDrainDelayMs=5000] - Time to fail health checks before server.close
  * @param {number} [params.options.maxDrainWaitMs=15000] - Maximum time to wait for in-flight requests
@@ -91,6 +91,7 @@ export function setupGracefulShutdown({
   server,
   pool,
   redis,
+  workers = [],
   options = {},
 }) {
   const {
@@ -234,7 +235,19 @@ export function setupGracefulShutdown({
       // =====================================================================
       // PHASE 5: Ordered Database and Infrastructure Teardown
       // =====================================================================
-      // Now that NO HTTP requests or database operations can execute:
+      // 0. Stop Background Workers
+      if (Array.isArray(workers)) {
+        for (const worker of workers) {
+          if (worker && typeof worker.stop === 'function') {
+            try {
+              worker.stop();
+              logger.info({ workerId: worker.workerId }, '[Shutdown] Background worker stopped cleanly');
+            } catch (wErr) {
+              logger.warn({ err: wErr }, '[Shutdown] Error stopping background worker');
+            }
+          }
+        }
+      }
 
       // 1. PostgreSQL Connection Pool
       if (pool && typeof pool.end === 'function') {

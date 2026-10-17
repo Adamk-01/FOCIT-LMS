@@ -34,6 +34,9 @@ import forumsRouter from './routes/forums.js';
 import questionBankRouter from './routes/questionBank.js';
 import profileRouter from './routes/profile.js';
 import adminRouter from './routes/admin.js';
+import notificationsRouter from './routes/notifications.js';
+import assignmentsRouter from './routes/assignments.js';
+import studentCoursesRouter from './routes/studentCourses.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
 
@@ -115,10 +118,13 @@ app.use('/api/courses', materialsRouter);
 app.use('/api/courses', gradesRouter);
 app.use('/api/courses', forumsRouter);
 app.use('/api/courses', questionBankRouter);
+app.use('/api/courses', assignmentsRouter);
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/student', studentDashboardRouter);
 app.use('/api/student', profileRouter);
+app.use('/api/student/courses', studentCoursesRouter);
+app.use('/api/student/notifications', notificationsRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
 
@@ -134,6 +140,8 @@ app.use((req, res) => {
 // ─── 9. Global Error Handler (must be last) ──────────────────
 app.use(errorHandler);
 
+import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
+
 // ─── Start Server ────────────────────────────────────────────
 const server = app.listen(config.port, () => {
   console.log(`\n  ┌──────────────────────────────────────────┐`);
@@ -144,12 +152,16 @@ const server = app.listen(config.port, () => {
   console.log(`  └──────────────────────────────────────────┘\n`);
   
   logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
+  
+  // Start Unified Transactional Outbox Worker
+  unifiedOutboxWorker.start();
 });
 
 // ─── Zero-Downtime Graceful Shutdown Lifecycle ───────────────
 setupGracefulShutdown({
   server,
   redis,
+  workers: [unifiedOutboxWorker],
   options: {
     ingressDrainDelayMs: config.nodeEnv === 'production' ? 5000 : 500,
     maxDrainWaitMs: 15000,

@@ -1,0 +1,47 @@
+services:
+  # 1. FOCIT BFF Proxy (Express API + Transactional Outbox Worker)
+  - type: web
+    name: focit-bff
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start -w packages/bff
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: focit-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false # Connect to Upstash Redis or Render Redis
+      - key: MOODLE_BASE_URL
+        fromService:
+          type: web
+          name: focit-mock-moodle
+          property: host
+      - key: MOODLE_WS_TOKEN
+        value: mock_dev_token_do_not_use_in_production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: focit-lms
+      - key: JWT_AUDIENCE
+        value: focit-materials
+      - key: FRONTEND_ORIGIN
+        sync: false # Set to your Vercel URL (e.g. https://focit-lms.vercel.app)
+
+  # 2. Mock Moodle Web Services Server
+  - type: web
+    name: focit-mock-moodle
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run start -w packages/mock-moodle
+
+databases:
+  # Managed PostgreSQL Database
+  - name: focit-db
+    plan: free
+    databaseName: focit_db
+    user: focit_user

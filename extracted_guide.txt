@@ -1,0 +1,257 @@
+FOCIT LMS
+Backend Architecture &Moodle Integration Guide
+Implementation handoff for the backend development team
+PurposeExplain the overall Node.js backend structure, the boundary between FOCIT and Moodle, the official course-registration workflow, data ownership, integration reliability, security responsibilities, and the implementation sequence.
+Target stack: Node.js (TypeScript recommended), Express.js, PostgreSQL, Redis, a background worker, and Moodle Web Services.
+Status: Proposed architecture for implementation. Endpoint names, exact Moodle functions, eligibility rules, and role permissions must be confirmed during development.
+1. Executive summary
+FOCIT LMS is a connected system with two distinct responsibilities. FOCIT is the academic and administrative control layer. Moodle is the learning delivery engine. The Node.js backend connects the two through a dedicated Moodle integration adapter.
+Core ruleFOCIT is the source of truth for identity, academic structure, eligibility, and official course registration. Moodle is the source of truth for learning activities, course materials, quizzes, forums, submissions, and learning grades.
+Build this initially as a modular monolith: one Node.js API codebase divided into clear modules, plus a separate worker process for background integration jobs. This is simpler to operate than microservices while leaving room to split modules later.
+2. System architecture at a glance
+Component
+Responsibilities
+Owns / stores
+React frontend
+Role-specific screens and user interactions; calls the FOCIT API.
+No authoritative business records.
+Node.js + Express API
+Authentication, authorization, validation, academic rules, APIs, orchestration.
+Business logic and API contracts.
+PostgreSQL
+Permanent FOCIT data and integration state.
+Users, students, academic catalogue, registrations, mappings, audit logs, outbox events.
+Redis
+Cache and queue support; optional short-lived coordination.
+Non-authoritative cache/queue data; not the only copy of critical work.
+Background worker
+Processes durable jobs, retries Moodle calls, syncs selected grades and reconciles mappings.
+Job execution state, backed by durable outbox records.
+Moodle
+Learning delivery and activities.
+Moodle users/courses, materials, quizzes, question bank, forums, submissions, Gradebook.
+High-level flow:
+React UI  →  HTTPS /api/v1  →  Express routes  →  controllers  →  services  →  repositories / PostgreSQL                                                   ↓                                         Moodle integration adapter                                                   ↓                                         Moodle Web ServicesPostgreSQL outbox  →  background worker  →  Moodle enrolment / grade sync
+3. Data ownership and system boundaries
+Data / capability
+System of record
+FOCIT backend behaviour
+User and student identity
+FOCIT PostgreSQL
+Creates and manages users; stores Moodle user ID mapping.
+Faculty, department, programme, level
+FOCIT PostgreSQL
+Maintains the official academic hierarchy.
+Academic session, semester, course catalogue
+FOCIT PostgreSQL
+Maintains course codes, credit units, offerings and assignments.
+Eligibility and official course registration
+FOCIT PostgreSQL
+Validates policy, records approvals and registration history.
+Moodle enrolment
+Moodle, initiated by FOCIT
+Requests enrolment after approval and tracks sync status.
+Learning materials and activities
+Moodle
+Provides authorized links/data; does not build a parallel materials store for MVP.
+Quizzes and question bank
+Moodle
+Use Moodle-native Quiz and Question Bank; lecturer approval remains required for official content.
+Forums/discussions
+Moodle
+Use Moodle Forums; no custom messaging or WhatsApp replacement in MVP.
+Learning grades
+Moodle Gradebook
+Reads/synchronizes permitted grades for dashboards; does not create a duplicate gradebook.
+Avoid duplicate ownershipDo not store a second authoritative copy of Moodle quiz questions, materials, forums, submissions, or Gradebook records in FOCIT. FOCIT may cache selected data for performance, but Moodle remains authoritative for those learning records.
+4. Recommended Node.js project structure
+focit-backend/├── src/│   ├── app.ts                     # Express app, middleware and routes│   ├── server.ts                  # Starts API process│   ├── config/                    # env, database, Redis, Moodle, logger│   ├── routes/                    # /api/v1 route registration│   ├── modules/│   │   ├── auth/│   │   ├── users/│   │   ├── students/│   │   ├── academics/│   │   ├── courses/│   │   ├── registrations/│   │   ├── timetable/│   │   ├── announcements/│   │   ├── lecturer/│   │   ├── course-rep/│   │   ├── hod/│   │   ├── dean/│   │   ├── admin/│   │   └── learning/│   │   # Each module can contain controller, service, repository, validation│   ├── integrations/moodle/│   │   ├── moodle.client.ts│   │   ├── moodle.users.ts│   │   ├── moodle.courses.ts│   │   ├── moodle.enrolments.ts│   │   ├── moodle.grades.ts│   │   └── moodle.types.ts│   ├── workers/                   # outbox, Moodle sync, retries│   ├── middleware/                # authn, authz, validation, errors│   ├── database/│   │   ├── migrations/│   │   └── seeds/│   └── shared/                    # common types, errors, constants├── tests/                         # unit, integration, end-to-end├── .env.example├── Dockerfile├── docker-compose.yml├── package.json├── tsconfig.json└── README.md
+How a request should move through the code
+HTTP route → authentication/authorization middleware → controller → service → repository → PostgreSQL
+A controller should handle HTTP concerns and response formatting. The service enforces business rules. The repository owns database queries. The Moodle adapter owns Moodle API calls. Avoid placing SQL and Moodle calls directly in controllers.
+5. Core database entities
+Entity/table
+Purpose / important fields
+users
+FOCIT user ID, email/username, password hash or identity-provider reference, status, timestamps.
+user_roles / role_assignments
+User, role, and scope (for example department or assigned course); avoid trusting frontend role claims alone.
+students
+Student profile, user_id, matriculation number, programme, level and status.
+faculties / departments
+Official institutional hierarchy.
+programmes
+Programme and owning department/faculty.
+academic_sessions / semesters / levels
+Academic periods and progression structure.
+courses
+FOCIT course ID, code, title, credit units, prerequisites and active status.
+course_offerings
+A course offered for a particular semester/session/programme, with lecturer assignments as needed.
+course_registrations
+Student, offering, status, submitted/approved timestamps, approver and withdrawal history.
+moodle_user_mappings
+FOCIT user ID ↔ Moodle user ID; unique constraints on both sides where policy requires one-to-one mapping.
+moodle_course_mappings
+FOCIT course offering ID ↔ Moodle course ID; record mapping status and verification.
+moodle_outbox
+Durable event ID, event type, aggregate ID, payload, status, attempts, next retry time, last error and timestamps.
+grade_sync_records
+Source Moodle item/grade reference, sync timestamp, result/status and safe metadata needed for reconciliation.
+audit_logs
+Actor, action, target record, timestamp, request/correlation ID and relevant before/after metadata.
+Use UUIDs or another consistent internal key strategy. Add foreign keys, indexes, unique constraints and migrations. Example: a unique constraint on (student_id, course_offering_id) prevents duplicate active registrations; the precise rule should account for withdrawal and re-registration policy.
+6. Moodle integration adapter
+All Moodle communication should go through src/integrations/moodle/. This isolates Moodle-specific function names, request parameters, response formats, timeouts and error handling from the rest of the application.
+Adapter responsibilities
+Read Moodle base URL and service credentials from environment/secret management; never expose them to React.
+Make authenticated Moodle Web Services requests over HTTPS.
+Resolve FOCIT user/course mappings before attempting enrolment or grade reads.
+Translate Moodle responses into stable internal types so controllers do not depend on raw Moodle payloads.
+Apply request timeouts, safe logging, error classification and retry rules.
+Keep an allowlist of the Moodle functions the integration needs; enable only necessary capabilities for the service account.
+Make writes idempotent where possible and record enough state to reconcile uncertain outcomes.
+Moodle setup prerequisiteAn administrator must enable the appropriate Moodle Web Services protocol, create a restricted integration service account/token, and confirm the exact Moodle API functions available in the installed Moodle version. Do not assume every function is enabled by default.
+7. Critical workflow: official registration → Moodle enrolment
+This is the most important integration path because FOCIT must remain authoritative even when Moodle is temporarily unavailable.
+Student authenticates and submits a registration request to FOCIT.
+The API validates the student, offering, semester, prerequisites, registration window, unit limits and any approval requirements defined by the institution.
+Within one PostgreSQL transaction, FOCIT writes the registration state and a durable outbox event. If either write fails, the transaction rolls back.
+After commit, a worker picks up the outbox event. The API does not wait for Moodle to be available before preserving the official registration.
+The worker resolves the student's Moodle user ID and the offering's Moodle course ID. Missing mappings are reported as actionable integration failures.
+The worker invokes the appropriate Moodle enrolment function and confirms the result.
+On success, the event is marked complete and the registration's Moodle sync status is updated. On a retryable error, the job is rescheduled with backoff. Permanent errors are surfaced for administrator action.
+A reconciliation job periodically compares expected FOCIT registrations with Moodle enrolments and repairs or flags drift.
+Example state model:FOCIT registration: draft → submitted → approved → withdrawn (policy-dependent)Moodle sync:         pending → processing → synced                                      └────→ retrying / failed
+Important distinctionOfficial registration status and Moodle synchronization status are separate. A registration can be approved while Moodle sync is pending. The UI should communicate that state accurately rather than falsely claiming the student is already enrolled in Moodle.
+8. Reliability: transactional outbox, retries and idempotency
+Do not rely on an in-memory promise or a fire-and-forget request after saving a registration. A process crash could lose the Moodle enrolment action.
+Write the registration change and outbox event in the same PostgreSQL transaction.
+Give each event a stable ID and use safe deduplication/idempotency rules.
+Retry transient network errors, timeouts, rate limits and temporary Moodle server errors with exponential backoff and jitter.
+Do not endlessly retry invalid mappings, permission errors or malformed requests; mark them for operator review.
+Track attempts, timestamps, last error and next retry time.
+Make worker processing safe if a job is delivered more than once.
+Provide admin visibility into pending, retrying and failed events.
+Redis/BullMQ can distribute and schedule work, but the PostgreSQL outbox should remain the durable record that the integration action is required. If the queue is lost or Redis restarts, the worker must be able to republish pending outbox events.
+9. Grade synchronization
+Moodle Gradebook remains the source of truth for learning grades.
+FOCIT reads only the grade data it is authorized to show and only for mapped courses and users.
+Store sync metadata and, if required for dashboard performance, a clearly identified read model/cache—not a separate editable gradebook.
+Record the Moodle source reference and last synchronization time so stale data can be detected.
+Define policy for hidden grades, unpublished grades, missing grades, resits, overrides and grade changes before exposing results.
+Use scheduled sync plus targeted refresh where appropriate; handle pagination, API limits and temporary failures.
+Exact Moodle grade API functions and field mappings must be verified against the institution's Moodle version and permissions before implementation.
+10. API boundaries and proposed endpoints
+Area
+Example route
+Notes
+Auth
+POST /api/v1/auth/login
+Use the agreed authentication strategy; return minimal identity and role/scope data.
+Current user
+GET /api/v1/auth/me
+Frontend uses this to load the signed-in user's permitted context.
+Academic catalogue
+GET /api/v1/courses
+FOCIT catalogue; filters should be scope-checked.
+Registration
+POST /api/v1/registrations
+Validates and creates the request; must not accept arbitrary Moodle IDs from the client.
+My registrations
+GET /api/v1/registrations/me
+Returns official registration status and Moodle sync status separately.
+Approvals
+POST /api/v1/registrations/:id/approve
+Restricted to authorized approvers and correct academic scope.
+Learning courses
+GET /api/v1/learning/courses
+Returns permitted Moodle links/summary based on FOCIT registration and mappings.
+Learning grades
+GET /api/v1/learning/courses/:id/grades
+Returns only authorized and policy-visible Moodle grade data.
+Integration health
+GET /api/v1/admin/integrations/moodle
+Admin-only: connectivity, pending jobs, failures and last successful sync.
+These are suggested contracts. Confirm request/response schemas with the frontend team and document them in OpenAPI. Never accept a student ID, role, course mapping or approval identity from the client without verifying it against the authenticated principal and database.
+11. Authorization model
+Role
+Typical permitted scope (confirm with faculty policy)
+Student
+Own profile, own registrations, own timetable, announcements and permitted learning data.
+Lecturer
+Assigned course offerings, enrolled student lists and authorized course-level reports.
+Course representative
+Only explicitly approved course-level information and actions; scope requires confirmation.
+HOD
+Department-level courses, registrations and oversight actions permitted by policy.
+Dean
+Faculty-level oversight and reports permitted by policy.
+Administrator
+Academic configuration, user administration, Moodle mappings, integration monitoring and audit access as authorized.
+Authorization must combine role with resource scope. A lecturer role alone must not grant access to every course. Check course assignment, department/faculty ownership, student ownership and record status in the service layer or a centralized policy service.
+12. Security and operations checklist
+Validate environment variables at startup; commit only .env.example, never real credentials.
+Use TLS/HTTPS in deployed environments and secure cookies or appropriately protected tokens.
+Hash passwords with a current password-hashing algorithm if FOCIT manages passwords itself.
+Use request validation, parameterized database access, rate limiting and centralized error handling.
+Restrict CORS to known frontend origins in production.
+Keep Moodle service tokens server-side and grant only the required Moodle capabilities.
+Redact passwords, tokens, session IDs and sensitive student information from logs.
+Record audit trails for approvals, withdrawals, role changes and course mapping changes.
+Back up PostgreSQL and test restore procedures; monitor database, Redis, worker and Moodle availability.
+Add health/readiness checks and alert on sustained outbox backlog or failed synchronization.
+13. Testing and acceptance criteria
+Test area
+Minimum acceptance criteria
+Academic rules
+Ineligible students are rejected; valid students can register; duplicates are prevented.
+Authorization
+Users cannot access other students' records or courses outside their permitted scope.
+Transaction/outbox
+Registration and outbox event either both commit or both roll back.
+Moodle unavailable
+Official registration remains recorded; event is retried; UI shows sync pending/failed accurately.
+Idempotency
+Repeated worker delivery does not create duplicate enrolments or corrupt state.
+Mapping errors
+Missing Moodle user/course mappings produce visible actionable errors.
+Grade sync
+Only authorized, policy-visible grades are returned; sync timestamps and stale states are tracked.
+Auditability
+Approvals, withdrawals, mapping changes and admin actions are traceable.
+Reconciliation
+A test can detect a missing Moodle enrolment and repair or flag it.
+14. Recommended implementation sequence
+Bootstrap TypeScript/Express, configuration validation, logging, database connection, migrations, error handling and API docs.
+Implement users, student profiles, role assignments, authentication and scope-aware authorization.
+Implement the academic catalogue, offerings, semesters and lecturer assignments.
+Implement registration eligibility, approval rules, transaction handling, audit records and outbox events.
+Build the Moodle adapter and verify connectivity, user lookup/create strategy, course mappings and enrolment functions.
+Build the worker, retry policy, integration status endpoints and reconciliation process.
+Implement timetable, announcements and role-specific dashboard APIs.
+Implement grade synchronization and learning links, then harden with end-to-end tests, backups and monitoring.
+15. Decisions to confirm before coding
+Exact Moodle version, base URL, Web Services protocol, enabled functions and service-account permissions.
+Whether authentication is local to FOCIT or uses an institutional identity provider/SSO.
+Official registration approval workflow and who may approve, amend or withdraw registrations.
+Eligibility rules: prerequisites, carryovers, unit limits, registration windows and add/drop periods.
+Whether one course offering maps to one Moodle course or whether multiple offerings share a Moodle course.
+Grade visibility rules, sync frequency, handling of hidden/unpublished grades and official-result policy.
+Course Representative permissions and the authoritative timetable/announcement publishing workflow.
+Deployment environment, secret management, backup/restore ownership and monitoring/alert destinations.
+16. Developer's definition of done
+The integration is ready for an MVP release when:
+FOCIT is the authoritative store for users, academic structure, eligibility and official registrations.
+FOCIT IDs map reliably to Moodle user and course IDs; mapping changes are audited.
+An approved registration creates a durable outbox event and results in Moodle enrolment after successful processing.
+Moodle downtime does not lose approved registrations or silently lose integration work.
+Retries, idempotency, failure visibility and reconciliation are tested.
+Learning materials, quizzes, forums, submissions, question bank and Gradebook remain Moodle-owned.
+Role and scope authorization, grade visibility, logging, migrations, tests and operational monitoring are in place.
+Appendix A. Environment variables (names are illustrative)
+NODE_ENV=developmentPORT=3000DATABASE_URL=postgresql://...REDIS_URL=redis://...JWT_SECRET=...MOODLE_BASE_URL=https://moodle.example.eduMOODLE_SERVICE_TOKEN=...FRONTEND_ORIGIN=http://localhost:5173
+Do not use these example values as production secrets. Use a secret manager or deployment-provided environment variables for real credentials. Never expose MOODLE_SERVICE_TOKEN to the frontend.
+Appendix B. Reference flow in pseudocode
+// Registration service — illustrative pseudocode, not production-ready codeasync function approveRegistration(registrationId, approver) {  return db.transaction(async (tx) => {    const registration = await tx.registrations.getForUpdate(registrationId);    assertApproverCanApprove(approver, registration);    assertRegistrationCanBeApproved(registration);    await tx.registrations.markApproved(registration.id, approver.userId);    await tx.outbox.insert({      eventType: "registration.approved",      aggregateId: registration.id,      status: "pending"    });    return { registrationId: registration.id, status: "approved",             moodleSyncStatus: "pending" };  });}// Worker, outside the request transaction:// 1. Claim a pending outbox event.// 2. Resolve FOCIT user/course mappings.// 3. Call the verified Moodle enrolment function.// 4. Mark synced, or schedule retry / flag permanent failure.// 5. Make processing safe to repeat.
+This guide is an architecture and implementation handoff, not a claim that all listed endpoints, schema objects or Moodle functions already exist. Verify the installed Moodle API and align contracts with the existing repository before implementing.

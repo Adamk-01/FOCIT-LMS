@@ -1,3 +1,11 @@
+/**
+ * FOCIT LMS - Moodle Activity Completion Worker [DEPRECATED]
+ *
+ * @deprecated SUPERSEDED BY `unifiedOutboxWorker.js` in Phase 11.
+ * DO NOT MOUNT OR RUN THIS WORKER IN PRODUCTION.
+ * Handled deterministically via `ACTIVITY_COMPLETED` events in `unifiedOutboxWorker`.
+ */
+
 import { Worker, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import moodlePool from '../lib/moodlePool.js';

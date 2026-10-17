@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { pool } from '../db/index.js';
 
 /**
  * Constant-time string comparison preventing side-channel timing analysis attacks.
@@ -41,9 +42,9 @@ export async function authMiddleware(req, res, next) {
     return next();
   }
 
-  // 1. Extract Ambient Cookie Token & Ephemeral Header Nonce
+  // 1. Extract Ambient Cookie Token & Ephemeral Header/Query Nonce (EventSource transport support)
   const token = req.cookies?.focit_token || extractBearerToken(req);
-  const clientNonce = req.headers['x-session-nonce'];
+  const clientNonce = req.headers['x-session-nonce'] || req.query?.nonce || req.query?.sessionNonce;
 
   // Fail-fast barrier: Missing credential components
   if (!token) {
@@ -161,6 +162,7 @@ export async function authMiddleware(req, res, next) {
     // 5. Attach verified session & user context
     req.user = {
       id: payload.sub,
+      student_id: payload.sub, // Canonical student_id accessor
       sessionId,
       scope: effectiveScope,
       moodleUserId: payload.moodleUserId,
@@ -192,31 +194,67 @@ export async function authMiddleware(req, res, next) {
  * @returns {import('express').RequestHandler}
  */
 export function enrollmentCheck(courseIdParam = 'courseId') {
-  return (req, res, next) => {
-    const courseIdParamValue = req.params[courseIdParam];
-    if (!courseIdParamValue) {
+  return async (req, res, next) => {
+    const rawCourseId = req.params[courseIdParam];
+    if (!rawCourseId) {
       return res.status(400).json({
         error: 'Missing course ID parameter',
         code: 'ENROLLMENT_MISSING_COURSE_ID',
       });
     }
 
-    let checkId;
-    if (/^\d+$/.test(courseIdParamValue)) {
-      checkId = parseInt(courseIdParamValue, 10);
-    } else {
-      const mockDb = { 'CSC204': 1, 'CSC202': 2, 'MTH101': 3 };
-      checkId = mockDb[courseIdParamValue.toUpperCase()];
-    }
-
-    if (!checkId || !req.user?.enrolledCourses?.includes(checkId)) {
-      return res.status(403).json({
-        error: 'You are not enrolled in this course',
-        code: 'ENROLLMENT_NOT_ENROLLED',
+    const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+    if (!studentId) {
+      return res.status(401).json({
+        error: 'Authentication required for course enrollment verification',
+        code: 'AUTH_REQUIRED',
       });
     }
 
-    next();
+    // Staff/Lecturers/Admins bypass student enrollment checks
+    if (req.user?.role && req.user.role !== 'STUDENT') {
+      return next();
+    }
+
+    // Fast-path: If user object has enrolledCourses array populated (e.g. in test stubs)
+    const normalizedKey = String(rawCourseId).trim().toUpperCase().replace(/\s+/g, '');
+    const isNumeric = /^\d+$/.test(rawCourseId);
+    const numericId = isNumeric ? parseInt(rawCourseId, 10) : null;
+
+    if (Array.isArray(req.user?.enrolledCourses) && req.user.enrolledCourses.length > 0) {
+      if (numericId && req.user.enrolledCourses.includes(numericId)) {
+        return next();
+      }
+    }
+
+    // Authoritative PostgreSQL Ledger Verification
+    try {
+      const query = `
+        SELECT 1
+        FROM enrollments e
+        JOIN courses c ON c.course_id = e.course_id
+        WHERE e.student_id = $1
+          AND (
+            UPPER(REPLACE(c.course_id, ' ', '')) = $2
+            OR UPPER(REPLACE(c.code, ' ', '')) = $2
+            OR c.moodle_course_id::text = $3
+          )
+          AND e.status IN ('ENROLLED', 'IN_PROGRESS', 'COMPLETED')
+        LIMIT 1;
+      `;
+      const { rows } = await pool.query(query, [studentId, normalizedKey, String(rawCourseId).trim()]);
+      if (rows.length === 0) {
+        return res.status(403).json({
+          error: 'You are not enrolled in this course',
+          code: 'ENROLLMENT_NOT_ENROLLED',
+        });
+      }
+
+      next();
+    } catch (err) {
+      logger.error({ err: err?.message || err, studentId, rawCourseId }, '[EnrollmentCheck] Database query error');
+      return next(err);
+    }
   };
 }
 

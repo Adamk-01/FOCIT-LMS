@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS enrollments (
     enrollment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     student_id VARCHAR(64) NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
     course_id VARCHAR(32) NOT NULL REFERENCES courses(course_id) ON DELETE RESTRICT,
+    course_code VARCHAR(16),
     semester_id VARCHAR(32) NOT NULL REFERENCES academic_semesters(id) ON DELETE RESTRICT,
     status VARCHAR(20) NOT NULL DEFAULT 'ENROLLED' CHECK (status IN ('ENROLLED', 'IN_PROGRESS', 'COMPLETED', 'DROPPED')),
     progress_percent INT NOT NULL DEFAULT 0 CHECK (progress_percent >= 0 AND progress_percent <= 100),
@@ -241,14 +242,15 @@ ON CONFLICT (student_id) DO UPDATE SET
 --     MTH 101 (Completed, 100%)
 --     GST 202 (In Progress, 60%)
 --     CSC 206 (In Progress, 25%)
-INSERT INTO enrollments (student_id, course_id, semester_id, status, progress_percent, grade)
+INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status, progress_percent, grade)
 VALUES 
-    ('student1', 'CSC204', '2026_RAIN', 'IN_PROGRESS', 45, NULL),
-    ('student1', 'CSC202', '2026_RAIN', 'IN_PROGRESS', 30, NULL),
-    ('student1', 'MTH101', '2026_HARMATTAN', 'COMPLETED', 100, 86.00),
-    ('student1', 'GST202', '2026_RAIN', 'IN_PROGRESS', 60, NULL),
-    ('student1', 'CSC206', '2026_RAIN', 'IN_PROGRESS', 25, NULL)
+    ('student1', 'CSC204', 'CSC 204', '2026_RAIN', 'IN_PROGRESS', 45, NULL),
+    ('student1', 'CSC202', 'CSC 202', '2026_RAIN', 'IN_PROGRESS', 30, NULL),
+    ('student1', 'MTH101', 'MTH 101', '2026_HARMATTAN', 'COMPLETED', 100, 86.00),
+    ('student1', 'GST202', 'GST 202', '2026_RAIN', 'IN_PROGRESS', 60, NULL),
+    ('student1', 'CSC206', 'CSC 206', '2026_RAIN', 'IN_PROGRESS', 25, NULL)
 ON CONFLICT (student_id, course_id, semester_id) DO UPDATE SET 
+    course_code = EXCLUDED.course_code,
     status = EXCLUDED.status,
     progress_percent = EXCLUDED.progress_percent,
     grade = EXCLUDED.grade;

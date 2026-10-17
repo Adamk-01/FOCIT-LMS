@@ -180,6 +180,14 @@ describe('Phase 7: Cryptographic Identity & Security Audit Doctrine', () => {
   test('Privilege Escalation Barrier: Quarantines student2 with RESET_ONLY and blocks academic API escapement', async () => {
     const BASE_URL = 'http://localhost:3000';
 
+    // 0. Reset student2 credentials to guarantee test idempotency
+    await pool.query(
+      `UPDATE student_profiles 
+       SET password_hash = 'f0c17a9b0123456789abcdef01234567:52669d26faf75c9cdd896ede664f8d288e17ab129fb1979fc425b0604a6c801063873ff8a8e2ee3ce5f6da3b774d07e4b3410a7288c443d7121784eb467d3590',
+           must_change_password = TRUE 
+       WHERE student_id = 'student2'`
+    );
+
     // 1. Login with student2 (seeded with must_change_password = TRUE)
     const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',

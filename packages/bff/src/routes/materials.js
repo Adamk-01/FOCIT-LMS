@@ -24,25 +24,68 @@ const CLIENT_INGRESS_TIMEOUT_MS = 3000;
 const UPSTREAM_FETCH_TIMEOUT_MS = 10000;
 
 /**
- * Resolves FOCIT course code to Moodle course ID
+ * Resolves a canonical course code or ID (e.g., 'CSC204', 'CSC 204', '1') 
+ * to its authoritative { course_id, moodle_course_id, code, title } record.
+ * Enforces Invariant 1 (Authoritative Database Catalog) & Invariant 7 (Single-Flight + L1 Cache).
  */
-async function resolveMoodleCourseId(focitCourseCode) {
-  if (/^\d+$/.test(focitCourseCode)) {
+export async function resolveCourseRecord(rawIdentifier) {
+  if (!rawIdentifier || typeof rawIdentifier !== 'string') {
+    return null;
+  }
+
+  const normalizedKey = rawIdentifier.trim().toUpperCase().replace(/\s+/g, '');
+  const cacheKey = `course_resolve:${normalizedKey}`;
+
+  // 1. Fast-Path: Bounded L1 SWR Cache Lookup
+  const cached = materialsCache.get(cacheKey);
+  if (cached && cached.status !== 'MISS' && cached.data) {
+    return cached.data;
+  }
+
+  // 2. Coalesced Miss: Single-Flight PostgreSQL Lookup
+  return singleFlight.do(cacheKey, async () => {
+    const query = `
+      SELECT 
+        course_id, 
+        code, 
+        title, 
+        department_id, 
+        level, 
+        units, 
+        COALESCE(moodle_course_id, 1) AS moodle_course_id
+      FROM courses
+      WHERE UPPER(REPLACE(course_id, ' ', '')) = $1
+         OR UPPER(REPLACE(code, ' ', '')) = $1
+         OR moodle_course_id::text = $2
+      LIMIT 1;
+    `;
+    const { rows } = await pool.query(query, [normalizedKey, rawIdentifier.trim()]);
+    const record = rows[0] || null;
+
+    if (record) {
+      materialsCache.set(cacheKey, record);
+    }
+    return record;
+  });
+}
+
+/**
+ * Resolves FOCIT course code to Moodle course ID with authoritative DB fallback
+ */
+export async function resolveMoodleCourseId(focitCourseCode) {
+  if (/^\d+$/.test(String(focitCourseCode))) {
     return parseInt(focitCourseCode, 10);
   }
 
-  const mockDb = {
-    'CSC204': 1,
-    'CSC202': 2,
-    'MTH101': 3,
-  };
-
-  const moodleId = mockDb[focitCourseCode.toUpperCase()];
-  if (!moodleId) {
-    throw new Error(`Course not mapped: ${focitCourseCode}`);
+  const record = await resolveCourseRecord(focitCourseCode);
+  if (!record) {
+    const err = new Error(`Course '${focitCourseCode}' not found in authoritative catalog.`);
+    err.status = 404;
+    err.code = 'COURSE_NOT_FOUND';
+    throw err;
   }
 
-  return moodleId;
+  return record.moodle_course_id;
 }
 
 /**
@@ -67,59 +110,76 @@ async function fetchAndTransformMaterials(moodleCourseId, signal) {
 
 /**
  * GET /api/courses
- * Returns the enrolled courses for the authenticated student
+ * Returns the authenticated student's authoritative enrolled courses for the active semester.
  */
-router.get('/', listRateLimit, (req, res) => {
-  const allCourses = [
-    {
-      id: 1,
-      code: 'CSC 204',
-      title: 'Data Structures and Algorithms',
-      department: 'Computer Science',
-      lecturer: 'Prof. O. B. Alade',
-      units: 3,
-      semester: 'Harmattan',
-      level: '200L',
-      materialsCount: 6,
-      color: '#0a1142',
-    },
-    {
-      id: 2,
-      code: 'CSC 202',
-      title: 'Object Oriented Programming',
-      department: 'Computer Science',
-      lecturer: 'Dr. K. A. Adebayo',
-      units: 3,
-      semester: 'Harmattan',
-      level: '200L',
-      materialsCount: 2,
-      color: '#0d5c3a',
-    },
-    {
-      id: 3,
-      code: 'MTH 101',
-      title: 'Calculus I',
-      department: 'Mathematical Sciences',
-      lecturer: 'Dr. T. S. Olatunji',
-      units: 3,
-      semester: 'Harmattan',
-      level: '100L',
-      materialsCount: 1,
-      color: '#7c2d12',
-    },
-  ];
+router.get('/', listRateLimit, async (req, res, next) => {
+  try {
+    const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+    if (!studentId) {
+      return res.status(401).json({
+        error: 'Unauthenticated: Valid student credentials required',
+        code: 'AUTH_REQUIRED',
+      });
+    }
 
-  const enrolled = req.user?.enrolledCourses || [1, 2, 3];
-  const courses = allCourses.filter((c) => enrolled.includes(c.id));
+    const studentQuery = `
+      SELECT s.student_id, s.level, p.department_id, d.name AS department_name
+      FROM students s
+      LEFT JOIN programmes p ON p.id = s.programme_id
+      LEFT JOIN departments d ON d.id = p.department_id
+      WHERE s.student_id = $1
+      LIMIT 1;
+    `;
 
-  res.json({
-    data: courses,
-    total: courses.length,
-    student: {
-      username: req.user?.username,
-      email: req.user?.email,
-    },
-  });
+    const enrollmentsQuery = `
+      SELECT 
+        COALESCE(c.moodle_course_id, 1) AS id,
+        c.course_id,
+        c.code,
+        c.title,
+        COALESCE(d.name, 'Faculty of Computing & Information Technology') AS department,
+        c.department_id,
+        c.level,
+        c.units,
+        c.category,
+        COALESCE(e.progress_percent, 0) AS progress_percent,
+        e.status AS enrollment_status,
+        COALESCE(c.moodle_course_id, 1) AS moodle_course_id
+      FROM enrollments e
+      JOIN courses c ON c.course_id = e.course_id
+      LEFT JOIN departments d ON d.id = c.department_id
+      WHERE e.student_id = $1
+        AND e.status IN ('ENROLLED', 'IN_PROGRESS', 'COMPLETED')
+      ORDER BY c.category = 'CORE' DESC, c.code ASC;
+    `;
+
+    const [studentRes, enrollmentsRes] = await Promise.all([
+      pool.query(studentQuery, [studentId]),
+      pool.query(enrollmentsQuery, [studentId]),
+    ]);
+
+    const student = studentRes.rows[0] || {
+      student_id: studentId,
+      level: 200,
+      department_name: 'Department of Computer Science',
+      department_id: 'CSC',
+    };
+
+    return res.status(200).json({
+      data: enrollmentsRes.rows,
+      total: enrollmentsRes.rowCount,
+      student: {
+        student_id: student.student_id,
+        level: Number(student.level),
+        department: student.department_name || 'Department of Computer Science',
+        department_id: student.department_id || 'CSC',
+        username: req.user?.username,
+        email: req.user?.email,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 /**
@@ -132,7 +192,13 @@ router.get(
   '/:courseId/shell',
   async (req, res, next) => {
     const { courseId } = req.params;
-    const studentId = req.user?.username || req.user?.id || 'student1';
+    const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+    if (!studentId) {
+      return res.status(401).json({
+        error: 'Unauthenticated: Valid student credentials required',
+        code: 'AUTH_REQUIRED',
+      });
+    }
 
     try {
       const moodleCourseId = await resolveMoodleCourseId(courseId);
@@ -155,7 +221,11 @@ router.get(
           FROM courses c
           LEFT JOIN departments d ON d.id = c.department_id
           LEFT JOIN enrollments e ON e.course_id = c.course_id AND e.student_id = $2
-          WHERE c.course_id = $1 OR c.moodle_course_id = $3
+          WHERE c.course_id = $1 
+             OR c.code = $1
+             OR UPPER(REPLACE(c.course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+             OR UPPER(REPLACE(c.code, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+             OR c.moodle_course_id = $3
           LIMIT 1
         `, [courseId, studentId, moodleCourseId]),
 
@@ -183,18 +253,14 @@ router.get(
       const courseRow = pgResult.status === 'fulfilled' && pgResult.value.rows[0];
       const upcomingActivities = activitiesResult.status === 'fulfilled' ? activitiesResult.value : [];
 
-      const courseData = courseRow || {
-        course_id: 'CSC204',
-        code: 'CSC 204',
-        title: 'Data Structures and Algorithms',
-        units: 3,
-        level: 200,
-        category: 'CORE',
-        description: 'This course covers fundamental data structures and algorithms including arrays, linked lists, trees, graphs, and algorithmic complexity.',
-        department_name: 'Department of Computer Science',
-        progress_percent: 45,
-        enrollment_status: 'IN_PROGRESS',
-      };
+      if (!courseRow) {
+        return res.status(404).json({
+          error: `Course '${courseId}' not found in academic catalog`,
+          code: 'COURSE_NOT_FOUND',
+        });
+      }
+
+      const courseData = courseRow;
 
       return res.status(200).json({
         course: {

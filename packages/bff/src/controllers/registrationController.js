@@ -21,7 +21,13 @@ import { logger } from '../lib/logger.js';
  * Retrieves active semester, current student batch, candidate courses, and items.
  */
 export async function getCurrentRegistrationState(req, res) {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  if (!studentId) {
+    return res.status(401).json({
+      error: 'Unauthenticated: Valid student credentials required',
+      code: 'AUTH_REQUIRED',
+    });
+  }
 
   try {
     // 1. Fetch Student Context
@@ -149,7 +155,13 @@ export async function getCurrentRegistrationState(req, res) {
  * - Zero seat capacity locks
  */
 export async function saveRegistrationDraft(req, res) {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  if (!studentId) {
+    return res.status(401).json({
+      error: 'Unauthenticated: Valid student credentials required',
+      code: 'AUTH_REQUIRED',
+    });
+  }
   const { course_ids: rawCourseIds } = req.body || {};
 
   if (!Array.isArray(rawCourseIds)) {
@@ -294,7 +306,13 @@ export async function saveRegistrationDraft(req, res) {
  * - Physical seat capacity reservations
  */
 export async function submitRegistration(req, res) {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  if (!studentId) {
+    return res.status(401).json({
+      error: 'Unauthenticated: Valid student credentials required',
+      code: 'AUTH_REQUIRED',
+    });
+  }
   const { course_ids: rawCourseIds } = req.body || {};
   const idempotencyKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
 
@@ -418,7 +436,10 @@ export async function submitRegistration(req, res) {
     if (cteRes.rows.length > 0) {
       await client.query('ROLLBACK');
       return res.status(422).json({
+        type: 'https://focit.uniosun.edu.ng/errors/eligibility-violation',
+        title: 'Course Eligibility Restriction',
         error: 'Registration payload contains ineligible courses',
+        detail: `The registration payload contains ${cteRes.rows.length} course(s) that fail departmental curriculum or prerequisite requirements.`,
         code: 'ELIGIBILITY_VIOLATION',
         violations: cteRes.rows,
       });
@@ -445,7 +466,10 @@ export async function submitRegistration(req, res) {
     if (projectedUnits < 15) {
       await client.query('ROLLBACK');
       return res.status(422).json({
+        type: 'https://focit.uniosun.edu.ng/errors/min-credit-floor-violation',
+        title: 'Minimum Credit Floor Required',
         error: `Senate credit floor violation: Minimum 15 units required (selected: ${projectedUnits})`,
+        detail: `A minimum of 15 registered units is required to submit your semester registration. Your current selection totals ${projectedUnits} units.`,
         code: 'MIN_CREDIT_FLOOR_VIOLATION',
         projectedUnits,
         minimumRequired: 15,
@@ -455,10 +479,14 @@ export async function submitRegistration(req, res) {
     if (projectedUnits > maxCeiling) {
       await client.query('ROLLBACK');
       return res.status(422).json({
+        type: 'https://focit.uniosun.edu.ng/errors/max-credit-ceiling-exceeded',
+        title: 'Maximum Credit Ceiling Exceeded',
         error: `Credit ceiling violation: Maximum ${maxCeiling} units exceeded (selected: ${projectedUnits})`,
+        detail: `The proposed semester registration exceeds the ${maxCeiling}-unit ceiling approved by the University Senate. Your current selection totals ${projectedUnits} units.`,
         code: 'MAX_CREDIT_CEILING_EXCEEDED',
         projectedUnits,
         maxCeiling,
+        excessUnits: projectedUnits - maxCeiling,
       });
     }
 
@@ -476,7 +504,10 @@ export async function submitRegistration(req, res) {
       if (c.enrolled_count >= c.max_capacity) {
         await client.query('ROLLBACK');
         return res.status(409).json({
+          type: 'https://focit.uniosun.edu.ng/errors/course-capacity-exceeded',
+          title: 'Course Enrollment Capacity Full',
           error: `Course ${c.course_id} has reached maximum seat capacity (${c.max_capacity})`,
+          detail: `Course ${c.course_id} has reached its approved enrollment ceiling of ${c.max_capacity} students.`,
           code: 'COURSE_CAPACITY_EXCEEDED',
           course_id: c.course_id,
         });
@@ -700,30 +731,40 @@ export async function batchApproveRegistrations(req, res) {
     // 4. Commit Authoritative Enrollments in Bulk
     await client.query(
       `
-      INSERT INTO enrollments (student_id, course_id, semester_id, status)
+      INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status)
       SELECT 
         b.student_id,
         cri.course_id,
+        c.code,
         b.semester_id,
         'ENROLLED'
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id
+      JOIN courses c ON c.course_id = cri.course_id
       WHERE b.id = ANY($1::uuid[])
       ON CONFLICT (student_id, course_id, semester_id) 
-      DO UPDATE SET status = 'ENROLLED', enrolled_at = NOW();
+      DO UPDATE SET course_code = EXCLUDED.course_code, status = 'ENROLLED', enrolled_at = NOW();
       `,
       [validBatchIds]
     );
 
-    // 5. Enqueue Moodle Outbox Events for Upstream Background Sync (Doctrine 8)
+    // 5. Enqueue Integration Outbox Events for Upstream Background Sync (Doctrine 8)
     await client.query(
       `
-      INSERT INTO moodle_outbox (event_type, student_focit_id, moodle_course_id, payload, idempotency_key)
+      INSERT INTO integration_outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, idempotency_key
+      )
       SELECT 
+        'COURSE_REGISTRATION',
+        b.id::text,
         'ENROLLMENT_SYNC',
-        b.student_id,
-        COALESCE(c.moodle_course_id, 0),
-        jsonb_build_object('student_id', b.student_id, 'course_code', c.code, 'semester_id', b.semester_id),
+        jsonb_build_object(
+          'batch_id', b.id, 
+          'student_id', b.student_id, 
+          'course_id', cri.course_id, 
+          'course_code', c.code, 
+          'semester_id', b.semester_id
+        ),
         'moodle_sync:' || b.student_id || ':' || cri.course_id || ':' || b.semester_id
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id

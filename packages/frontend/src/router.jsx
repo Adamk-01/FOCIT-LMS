@@ -12,6 +12,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
 import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
 import { StudentProfilePage } from './pages/StudentProfilePage';
+import { CoursesPage } from './pages/CoursesPage';
 import { LoginPage } from './pages/LoginPage';
 
 export const router = createBrowserRouter([
@@ -53,6 +54,11 @@ export const router = createBrowserRouter([
         errorElement: <RouteErrorBoundary />,
       },
       {
+        path: 'courses',
+        element: <CoursesPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
         path: 'courses/:courseId',
         element: <CourseDetailPage />,
         errorElement: <RouteErrorBoundary />,
@@ -84,6 +90,16 @@ export const router = createBrowserRouter([
       },
       {
         path: 'courses/:courseId/question-bank',
+        element: <QuestionBankPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'question-bank',
+        element: <QuestionBankPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'lecturer/question-bank',
         element: <QuestionBankPage />,
         errorElement: <RouteErrorBoundary />,
       }

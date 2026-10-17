@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useIsFetching } from '@tanstack/react-query';
 import { 
@@ -8,6 +8,8 @@ import {
   ChevronRight, 
   User 
 } from 'lucide-react';
+import { useNotifications } from '../../hooks/useNotifications';
+import { NotificationDrawer } from '../NotificationDrawer';
 
 const ROUTE_NAME_MAP = {
   dashboard: 'Dashboard',
@@ -25,15 +27,17 @@ const ROUTE_NAME_MAP = {
 export const Topbar = ({ onOpenMobileDrawer, user }) => {
   const location = useLocation();
   const isFetching = useIsFetching();
+  const { unreadCount, totalCount } = useNotifications();
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
-  // Parse path segments to generate dynamic breadcrumbs
-  const pathSegments = location.pathname.split('/').filter(Boolean);
+  // Parse path segments to generate dynamic breadcrumbs without duplicate dashboard roots
+  const pathSegments = location.pathname.split('/').filter(Boolean).filter(s => s !== 'dashboard');
   const breadcrumbs = [
-    { name: 'Portal', path: '/dashboard' },
+    { id: 'root-portal', name: 'Portal', path: '/dashboard' },
     ...pathSegments.map((segment, index) => {
       const url = `/${pathSegments.slice(0, index + 1).join('/')}`;
       const displayName = ROUTE_NAME_MAP[segment] || (segment === '1' ? 'CSC 204' : segment);
-      return { name: displayName, path: url };
+      return { id: `${segment}-${index}`, name: displayName, path: url };
     }),
   ];
 
@@ -55,7 +59,7 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
             {breadcrumbs.map((crumb, idx) => {
               const isLast = idx === breadcrumbs.length - 1;
               return (
-                <li key={crumb.path} className="flex items-center gap-1.5 truncate">
+                <li key={crumb.id} className="flex items-center gap-1.5 truncate">
                   {idx > 0 && <ChevronRight size={12} className="text-gray-400 shrink-0" />}
                   {isLast ? (
                     <span className="text-[#0a1142] font-semibold truncate" aria-current="page">
@@ -90,14 +94,28 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
           </div>
         )}
 
-        {/* Notification Bell */}
+        {/* Accessible Notification Bell Trigger */}
         <button
           type="button"
-          aria-label="View notifications (2 unread)"
+          id="notification-trigger"
+          onClick={() => setIsNotificationOpen(true)}
+          aria-expanded={isNotificationOpen}
+          aria-haspopup="dialog"
+          aria-controls="notification-panel"
+          aria-label={`View notifications (${unreadCount} unread, ${totalCount || 0} total)`}
+          title={`Notifications: ${unreadCount} unread, ${totalCount || 0} total`}
           className="relative p-2 rounded-full text-gray-500 hover:text-[#0a1142] hover:bg-gray-100 transition-colors"
         >
           <Bell size={20} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
+          {unreadCount > 0 ? (
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[20px] h-[20px] px-1 text-[10px] font-extrabold text-white bg-red-500 rounded-full ring-2 ring-white shadow-sm animate-pulse">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          ) : (totalCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[9px] font-bold text-gray-700 bg-gray-200 rounded-full ring-2 ring-white shadow-xs">
+              {totalCount > 99 ? '99+' : totalCount}
+            </span>
+          ))}
         </button>
 
         {/* Student Profile Chip (matching template header) */}
@@ -123,6 +141,12 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
           </div>
         </Link>
       </div>
+
+      {/* Accessible Off-Canvas Notification Drawer */}
+      <NotificationDrawer 
+        isOpen={isNotificationOpen} 
+        onClose={() => setIsNotificationOpen(false)} 
+      />
     </header>
   );
 };

@@ -117,7 +117,13 @@ async function fetchCourseGrades(courseId, studentId) {
  */
 router.get('/:courseId/grades', async (req, res, next) => {
   const { courseId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  if (!studentId) {
+    return res.status(401).json({
+      error: 'Unauthenticated: Valid student credentials required',
+      code: 'AUTH_REQUIRED',
+    });
+  }
   const cacheKey = `${courseId}:${studentId}`;
 
   // 1. SWR Cache Check

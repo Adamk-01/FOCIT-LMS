@@ -11,15 +11,35 @@
  * NOTE: document.cookie parsing has been completely eliminated.
  */
 
-import { sessionLifecycle } from './sessionLifecycle';
+import { sessionLifecycle } from './sessionLifecycle.js';
 
 export class ApiError extends Error {
   constructor(message, status, data, response) {
     super(message);
     this.name = 'ApiError';
-    this.status = status;
-    this.data = data;
-    this.response = response;
+    this.status = typeof status === 'number' ? status : 0;
+    this.data = data || null;
+    this.response = response || null;
+
+    // RFC 7807 Standard Fields
+    this.code = data?.code || (this.status === 0 ? 'NETWORK_ERROR' : (this.status === 408 || this.status === 504 ? 'GATEWAY_TIMEOUT' : 'UNKNOWN_ERROR'));
+    this.title = data?.title || 'System Notification';
+    this.detail = data?.detail || data?.message || data?.error || message || 'An unexpected error occurred.';
+    this.instance = data?.instance || null;
+    this.correlationId = data?.correlationId || response?.headers?.get('x-correlation-id') || null;
+
+    // Server Telemetry Extensions (Normalized casing and guarded types)
+    this.projectedUnits = Number.isFinite(data?.projectedUnits) ? data.projectedUnits : null;
+    this.maxCeiling = Number.isFinite(data?.maxCeiling) ? data.maxCeiling : null;
+    this.minimumRequired = Number.isFinite(data?.minimumRequired) ? data.minimumRequired : null;
+    this.excessUnits = Number.isFinite(data?.excessUnits) 
+      ? data.excessUnits 
+      : (Number.isFinite(data?.projectedUnits) && Number.isFinite(data?.maxCeiling) && data.projectedUnits > data.maxCeiling
+          ? data.projectedUnits - data.maxCeiling 
+          : null);
+    this.courseId = (data?.courseId ?? data?.course_id ?? null) != null ? String(data?.courseId ?? data?.course_id).trim() : null;
+    this.violations = Array.isArray(data?.violations) ? data.violations : null;
+    this.extensions = data?.extensions || null;
   }
 }
 
@@ -132,8 +152,29 @@ async function request(endpoint, options = {}) {
         signal,
       });
     } catch (err) {
-      if (err.name === 'AbortError') throw err;
-      throw new ApiError(err.message || 'Network request failed', 0, null, null);
+      if (err instanceof ApiError) throw err;
+      if (err?.name === 'AbortError') {
+        throw new ApiError(
+          'Request was aborted or timed out',
+          408,
+          {
+            code: 'GATEWAY_TIMEOUT',
+            title: 'Campus Gateway Timeout',
+            detail: 'The network request took too long or was aborted by the connection boundary.',
+          },
+          null
+        );
+      }
+      throw new ApiError(
+        err?.message || 'Network request failed',
+        0,
+        {
+          code: 'NETWORK_ERROR',
+          title: 'Campus Gateway Unreachable',
+          detail: 'Unable to reach the campus server. Please verify your connection or try again shortly.',
+        },
+        null
+      );
     }
 
     // ─── 503 LOAD-SHEDDING INTERCEPTOR: Transparent Jittered Re-Drive ────────
@@ -191,7 +232,7 @@ async function request(endpoint, options = {}) {
         }
       }
 
-      const message = errorData?.message || errorData?.error || `HTTP ${response.status} ${response.statusText}`;
+      const message = errorData?.detail || errorData?.message || errorData?.error || `HTTP ${response.status} ${response.statusText}`;
       throw new ApiError(message, response.status, errorData, response);
     }
 

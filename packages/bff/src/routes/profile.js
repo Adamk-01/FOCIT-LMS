@@ -23,6 +23,7 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { hashPassword, verifyPassword } from '../lib/passwords.js';
 import { recordIdentityAuditLog } from '../lib/auditLogger.js';
+import { evaluateGpaStanding } from '../lib/academicStanding.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,7 +96,16 @@ router.get('/profile', async (req, res) => {
       ).catch((err) => logger.warn({ err }, '[Profile] Lazy profile init collision ignored'));
     }
 
-    return res.status(200).json(studentProfile);
+    const gpaTelemetry = evaluateGpaStanding(studentProfile);
+    const enrichedProfile = {
+      ...studentProfile,
+      current_gpa: gpaTelemetry.current_gpa,
+      gpa_exempt: gpaTelemetry.gpa_exempt,
+      standing_label: gpaTelemetry.standing_label,
+      exemption_reason: gpaTelemetry.exemption_reason,
+    };
+
+    return res.status(200).json(enrichedProfile);
   } catch (err) {
     logger.error({ err, studentId }, '[Profile] Failed to fetch student profile');
     return res.status(500).json({ error: 'Failed to retrieve profile data', code: 'INTERNAL_ERROR' });

@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { courses } from './data/courses.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.MOCK_MOODLE_PORT || 3001;
+const PORT = process.env.PORT || process.env.MOCK_MOODLE_PORT || 3001;
 
 const app = express();
 
