@@ -5,7 +5,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: npm run start -w packages/bff
+    startCommand: npm run db:seed -w packages/bff && npm run start -w packages/bff
     envVars:
       - key: NODE_ENV
         value: production
