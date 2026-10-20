@@ -13,6 +13,7 @@ import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
 import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
 import { StudentProfilePage } from './pages/StudentProfilePage';
 import { CoursesPage } from './pages/CoursesPage';
+import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { LoginPage } from './pages/LoginPage';
 
 export const router = createBrowserRouter([
@@ -36,6 +37,11 @@ export const router = createBrowserRouter([
       {
         path: 'dashboard',
         element: <DashboardPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'admin',
+        element: <AdminDashboardPage />,
         errorElement: <RouteErrorBoundary />,
       },
       {

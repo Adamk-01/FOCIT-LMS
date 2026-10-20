@@ -80,6 +80,15 @@ export const NAV_ITEMS = [
     icon: ShieldCheck,
     badge: 'Advisor',
     screenNumber: '8A',
+    advisorOnly: true,
+  },
+  {
+    name: 'Admin Portal',
+    to: '/admin',
+    icon: ShieldCheck,
+    badge: 'Admin',
+    screenNumber: 'ADM',
+    adminOnly: true,
   },
   {
     name: 'Profile & Settings',
@@ -195,6 +204,14 @@ export const Sidebar = ({
       advisorOnly: true,
     },
     {
+      name: 'Admin Portal',
+      to: '/admin',
+      icon: ShieldCheck,
+      badge: 'Admin',
+      screenNumber: 'ADM',
+      adminOnly: true,
+    },
+    {
       name: 'Profile & Settings',
       to: '/profile',
       icon: UserCog,
@@ -203,11 +220,16 @@ export const Sidebar = ({
     },
   ];
 
-  // Role defense: Hide advisor menu for regular student sessions
+  // Role defense: Hide advisor & admin menu for unauthorized sessions
   const visibleNavItems = navItems.filter((item) => {
-    if (!item.advisorOnly) return true;
     const role = String(user?.role || '').toUpperCase();
-    return ['ADVISOR', 'ADMIN', 'LECTURER', 'STAFF'].includes(role);
+    if (item.adminOnly) {
+      return ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
+    }
+    if (item.advisorOnly) {
+      return ['ADVISOR', 'LEVEL_ADVISOR', 'ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'STAFF', 'HOD', 'DEAN'].includes(role);
+    }
+    return true;
   });
 
   const isItemActive = (itemTo) => {
@@ -342,9 +364,15 @@ export const Sidebar = ({
           <div className="px-2 py-2 mb-2 flex items-center justify-between text-xs text-gray-300 bg-white/5 rounded-lg border border-white/5">
             <div className="flex items-center gap-2 truncate">
               <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-              <span className="truncate">{user?.username || 'student1'}</span>
+              <span className="truncate">{user?.username || user?.matric_number || 'student1'}</span>
             </div>
-            <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">Level 200</span>
+            <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
+              {['ADMIN', 'SYSTEM_ADMIN'].includes(String(user?.role || '').toUpperCase())
+                ? (user?.role === 'SYSTEM_ADMIN' ? 'SysAdmin' : 'Admin')
+                : user?.level
+                  ? `Level ${user.level}`
+                  : (user?.role || 'Level 200')}
+            </span>
           </div>
         )}
 

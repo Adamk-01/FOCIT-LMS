@@ -66,8 +66,21 @@ export const LoginPage = () => {
     activeAbortRef.current = controller;
 
     try {
-      await login({ studentId: trimmedId, password }, { signal: controller.signal });
-      const destination = location.state?.from?.pathname || '/dashboard';
+      const shadowUser = await login({ studentId: trimmedId, password }, { signal: controller.signal });
+      const userRole = String(shadowUser?.role || '').toUpperCase();
+      let destination = '/dashboard';
+      if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+        destination = '/admin';
+      } else if (['LEVEL_ADVISOR', 'HOD', 'DEAN'].includes(userRole)) {
+        destination = '/advisor/registrations';
+      }
+
+      const redirectPath = location.state?.from?.pathname;
+      if (redirectPath && redirectPath !== '/login') {
+        if (!['ADMIN', 'SYSTEM_ADMIN'].includes(userRole) || redirectPath !== '/dashboard') {
+          destination = redirectPath;
+        }
+      }
       navigate(destination, { replace: true });
     } catch (err) {
       if (controller.signal.aborted && err?.name === 'AbortError') return;
@@ -106,10 +119,10 @@ export const LoginPage = () => {
 
             <form className="space-y-5" onSubmit={handleSubmit} noValidate>
               <fieldset disabled={isAuthenticating} className="space-y-4">
-                <legend className="sr-only">Student Login Credentials</legend>
+                <legend className="sr-only">University Portal Credentials</legend>
                 <div>
                   <label htmlFor="studentId" className="block text-xs sm:text-sm font-bold text-gray-800 mb-1 font-sans">
-                    Student ID / Matric Number
+                    Matric Number / Staff or Admin ID
                   </label>
                   <input
                     id="studentId"
@@ -122,7 +135,7 @@ export const LoginPage = () => {
                       setStudentId(e.target.value);
                       if (authError) setAuthError(null);
                     }}
-                    placeholder="e.g. student1 or FOCIT/2024/0042"
+                    placeholder="e.g. FOCIT/2024/0042 or ADM/2026/001"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] text-sm font-sans transition-all"
                   />
                 </div>

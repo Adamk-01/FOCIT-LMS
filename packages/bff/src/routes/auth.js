@@ -209,7 +209,7 @@ router.post('/login', async (req, res) => {
         if (cmdErr) throw cmdErr;
       }
       return results;
-    }, 2500);
+    }, 5000);
 
     // 7. Issue signed JWT carrying the session ID and scope strictly AFTER persistence confirmed
     const token = jwt.sign(
