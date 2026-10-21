@@ -2,6 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
+  Users, 
+  RefreshCw, 
   BookOpen, 
   FileText, 
   HelpCircle, 
@@ -130,131 +132,160 @@ export const Sidebar = ({
     return null;
   }, [location.pathname]);
 
-  const navItems = [
-    {
-      name: 'Dashboard',
-      to: '/dashboard',
-      icon: LayoutDashboard,
-      badge: null,
-      screenNumber: '1',
-    },
-    {
-      name: 'My Courses',
-      to: '/courses',
-      icon: BookOpen,
-      badge: null,
-      screenNumber: '2',
-    },
-    {
-      name: 'Learning Materials',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=materials`
-        : '/courses?focus=materials',
-      icon: FileText,
-      badge: contextualCourseId || 'Moodle',
-      screenNumber: '3',
-    },
-    {
-      name: 'Quiz Assessment',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=quizzes`
-        : '/courses?focus=quizzes',
-      icon: HelpCircle,
-      badge: 'Active',
-      screenNumber: '4',
-    },
-    {
-      name: 'Question Bank & AI',
-      to: '/question-bank',
-      icon: Sparkles,
-      badge: 'AI',
-      screenNumber: '5',
-    },
-    {
-      name: 'Gradebook',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=grades`
-        : '/courses?focus=grades',
-      icon: Award,
-      badge: null,
-      screenNumber: '6',
-    },
-    {
-      name: 'Discussion Forum',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=forum`
-        : '/courses?focus=forum',
-      icon: MessagesSquare,
-      badge: null,
-      screenNumber: '7',
-    },
-    {
-      name: 'Course Registration',
-      to: '/registration',
-      icon: ClipboardCheck,
-      badge: 'FOCIT',
-      screenNumber: '8',
-    },
-    {
-      name: 'Level Advisor Review',
-      to: '/advisor/registrations',
-      icon: ShieldCheck,
-      badge: 'Advisor',
-      screenNumber: '8A',
-      advisorOnly: true,
-    },
-    {
-      name: 'Admin Portal',
-      to: '/admin',
-      icon: ShieldCheck,
-      badge: 'Admin',
-      screenNumber: 'ADM',
-      adminOnly: true,
-    },
-    {
-      name: 'Profile & Settings',
-      to: '/profile',
-      icon: UserCog,
-      badge: null,
-      screenNumber: '9',
-    },
-  ];
+  const role = String(user?.role || 'STUDENT').toUpperCase();
+  const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
+  const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'STAFF', 'LECTURER'].includes(role);
 
-  // Role defense: Hide advisor & admin menu for unauthorized sessions
-  const visibleNavItems = navItems.filter((item) => {
-    const role = String(user?.role || '').toUpperCase();
-    if (item.adminOnly) {
-      return ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
-    }
-    if (item.advisorOnly) {
-      return ['ADVISOR', 'LEVEL_ADVISOR', 'ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'STAFF', 'HOD', 'DEAN'].includes(role);
-    }
-    return true;
-  });
+  let navItems = [];
+  if (isAdmin) {
+    navItems = [
+      {
+        name: 'Admin Control Plane',
+        to: '/admin',
+        icon: LayoutDashboard,
+        badge: 'Admin',
+        screenNumber: 'ADM',
+      },
+      {
+        name: 'Registration Clearance',
+        to: '/advisor/registrations',
+        icon: ShieldCheck,
+        badge: 'Senate',
+        screenNumber: '8A',
+      },
+      {
+        name: 'User Directory',
+        to: '/admin/users',
+        icon: Users,
+        badge: null,
+        screenNumber: 'USR',
+      },
+      {
+        name: 'Moodle Outbox Sync',
+        to: '/admin/outbox',
+        icon: RefreshCw,
+        badge: 'Sync',
+        screenNumber: 'OUT',
+      },
+      {
+        name: 'Security Audit Ledger',
+        to: '/admin/audit',
+        icon: FileText,
+        badge: null,
+        screenNumber: 'AUD',
+      },
+      {
+        name: 'Profile & Security',
+        to: '/admin/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: 'PRF',
+      },
+    ];
+  } else if (isAdvisor) {
+    navItems = [
+      {
+        name: 'Advisor Review',
+        to: '/advisor/registrations',
+        icon: ShieldCheck,
+        badge: 'Advisor',
+        screenNumber: '8A',
+      },
+      {
+        name: 'Course Catalog',
+        to: '/courses',
+        icon: BookOpen,
+        badge: null,
+        screenNumber: '2',
+      },
+      {
+        name: 'Question Bank & AI',
+        to: '/question-bank',
+        icon: Sparkles,
+        badge: 'AI',
+        screenNumber: '5',
+      },
+    ];
+  } else {
+    navItems = [
+      {
+        name: 'Dashboard',
+        to: '/dashboard',
+        icon: LayoutDashboard,
+        badge: null,
+        screenNumber: '1',
+      },
+      {
+        name: 'My Courses',
+        to: '/courses',
+        icon: BookOpen,
+        badge: null,
+        screenNumber: '2',
+      },
+      {
+        name: 'Learning Materials',
+        to: contextualCourseId 
+          ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=materials`
+          : '/courses?focus=materials',
+        icon: FileText,
+        badge: contextualCourseId || 'Moodle',
+        screenNumber: '3',
+      },
+      {
+        name: 'Quiz Assessment',
+        to: contextualCourseId 
+          ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=quizzes`
+          : '/courses?focus=quizzes',
+        icon: HelpCircle,
+        badge: 'Active',
+        screenNumber: '4',
+      },
+      {
+        name: 'Question Bank & AI',
+        to: '/question-bank',
+        icon: Sparkles,
+        badge: 'AI',
+        screenNumber: '5',
+      },
+      {
+        name: 'Gradebook',
+        to: contextualCourseId 
+          ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=grades`
+          : '/courses?focus=grades',
+        icon: Award,
+        badge: null,
+        screenNumber: '6',
+      },
+      {
+        name: 'Discussion Forum',
+        to: contextualCourseId 
+          ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=forum`
+          : '/courses?focus=forum',
+        icon: MessagesSquare,
+        badge: null,
+        screenNumber: '7',
+      },
+      {
+        name: 'Course Registration',
+        to: '/registration',
+        icon: ClipboardCheck,
+        badge: 'FOCIT',
+        screenNumber: '8',
+      },
+      {
+        name: 'Profile & Settings',
+        to: '/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: '9',
+      },
+    ];
+  }
+
+  const visibleNavItems = navItems;
 
   const isItemActive = (itemTo) => {
-    const [targetPath, targetQuery] = itemTo.split('?');
-    if (targetQuery) {
-      const targetParams = new URLSearchParams(targetQuery);
-      const currentParams = new URLSearchParams(location.search);
-      const targetTab = targetParams.get('tab');
-      const currentTab = currentParams.get('tab');
-      if (targetTab) {
-        return location.pathname === targetPath && currentTab === targetTab;
-      }
-      const targetFocus = targetParams.get('focus');
-      const currentFocus = currentParams.get('focus');
-      if (targetFocus) {
-        return location.pathname === targetPath && currentFocus === targetFocus;
-      }
-    }
-    if (targetPath === '/courses') {
-      return location.pathname === '/courses' && !location.search;
-    }
-    if (targetPath === '/dashboard') {
-      return location.pathname === '/dashboard' || location.pathname === '/';
-    }
-    return location.pathname === targetPath;
+    return location.pathname === itemTo;
   };
 
   return (

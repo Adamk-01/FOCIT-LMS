@@ -447,7 +447,7 @@ router.post('/avatar', async (req, res) => {
  * Credential Mutation with Session Invalidation Pipeline.
  */
 router.post('/change-password', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const callerId = req.user?.id || req.user?.username || req.user?.student_id;
   const sessionId = req.user?.sessionId || req.user?.sid;
   const { currentPassword, newPassword } = req.body || {};
 
@@ -458,14 +458,53 @@ router.post('/change-password', async (req, res) => {
     });
   }
 
-  try {
-    // 1. Check existing stored password hash
-    const { rows } = await pool.query(
-      `SELECT password_hash, must_change_password FROM student_profiles WHERE student_id = $1`,
-      [studentId]
-    );
+  const userRole = String(req.user?.role || 'STUDENT').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole);
 
-    const storedHash = rows[0]?.password_hash;
+  try {
+    let storedHash = null;
+    let canonicalActorId = null;
+
+    if (isStaffRole) {
+      // 1A. Authoritative staff lookup by canonical identifier
+      const staffRes = await pool.query(
+        'SELECT advisor_id, password_hash FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 LIMIT 1',
+        [callerId]
+      );
+
+      if (staffRes.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Staff account not found in academic registry',
+          code: 'ACCOUNT_NOT_FOUND',
+        });
+      }
+
+      canonicalActorId = staffRes.rows[0].advisor_id;
+      storedHash = staffRes.rows[0].password_hash;
+    } else {
+      // 1B. Authoritative student lookup: verify existence in students registry to prevent orphan profiles
+      const studentRes = await pool.query(
+        `
+        SELECT s.student_id, sp.password_hash 
+        FROM students s
+        LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+        WHERE s.student_id = $1 OR s.username = $1 OR s.matric_number = $1
+        LIMIT 1
+        `,
+        [callerId]
+      );
+
+      if (studentRes.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Student record not found in academic registry',
+          code: 'ACCOUNT_NOT_FOUND',
+        });
+      }
+
+      canonicalActorId = studentRes.rows[0].student_id;
+      storedHash = studentRes.rows[0].password_hash;
+    }
+
     if (storedHash) {
       const isValid = await verifyPassword(currentPassword, storedHash);
       if (!isValid) {
@@ -479,26 +518,27 @@ router.post('/change-password', async (req, res) => {
     // 2. Hash new password asynchronously using libuv threadpool scrypt
     const newHash = await hashPassword(newPassword);
 
-    // 3. Persist new hash in student_profiles and clear must_change_password flag
-    await pool.query(
-      `
-      INSERT INTO student_profiles (student_id, password_hash, must_change_password, version)
-      VALUES ($1, $2, FALSE, 1)
-      ON CONFLICT (student_id)
-      DO UPDATE SET 
-        password_hash = $2, 
-        must_change_password = FALSE, 
-        version = student_profiles.version + 1, 
-        updated_at = NOW();
-      `,
-      [studentId, newHash]
-    );
-
-    // Also update staff_advisors if this user is a staff member
-    await pool.query(
-      `UPDATE staff_advisors SET password_hash = $1, must_change_password = FALSE WHERE advisor_id = $2`,
-      [newHash, studentId]
-    );
+    // 3. Persist new hash in respective table using resolved canonical identifier
+    if (isStaffRole) {
+      await pool.query(
+        `UPDATE staff_advisors SET password_hash = $1, must_change_password = FALSE WHERE advisor_id = $2`,
+        [newHash, canonicalActorId]
+      );
+    } else {
+      await pool.query(
+        `
+        INSERT INTO student_profiles (student_id, password_hash, must_change_password, version)
+        VALUES ($1, $2, FALSE, 1)
+        ON CONFLICT (student_id)
+        DO UPDATE SET 
+          password_hash = $2, 
+          must_change_password = FALSE, 
+          version = student_profiles.version + 1, 
+          updated_at = NOW();
+        `,
+        [canonicalActorId, newHash]
+      );
+    }
 
     // 4. Record Immutable Security Audit Event
     const eventType = req.user?.scope === 'RESET_ONLY' 
@@ -507,9 +547,9 @@ router.post('/change-password', async (req, res) => {
 
     await recordIdentityAuditLog(pool, {
       eventType,
-      actorId: studentId,
-      actorRole: req.user?.role || 'STUDENT',
-      targetId: studentId,
+      actorId: canonicalActorId,
+      actorRole: req.user?.role || (isStaffRole ? 'STAFF' : 'STUDENT'),
+      targetId: canonicalActorId,
       targetType: 'CREDENTIALS',
       ipAddress: req.ip || req.headers['x-forwarded-for'],
       userAgent: req.headers['user-agent'],
