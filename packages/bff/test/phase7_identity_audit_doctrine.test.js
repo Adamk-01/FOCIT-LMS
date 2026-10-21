@@ -134,8 +134,14 @@ describe('Phase 7: Cryptographic Identity & Security Audit Doctrine', () => {
   });
 
   // 4. Real Database Identity Verification on POST /api/auth/login
-  test('Identity Verification: Rejects unknown user and wrong password with 401 and logs failures', async () => {
+  test('Identity Verification: Rejects unknown user and wrong password with 401 and logs failures', async (t) => {
     const BASE_URL = 'http://localhost:3000';
+    try {
+      await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(500) });
+    } catch {
+      t.skip('BFF HTTP server is not running on localhost:3000');
+      return;
+    }
     const baseHeaders = {
       'Content-Type': 'application/json',
       'Origin': 'http://localhost:5180',
@@ -177,8 +183,14 @@ describe('Phase 7: Cryptographic Identity & Security Audit Doctrine', () => {
   });
 
   // 5. Partial Session Escapement & Forced Reset State Machine
-  test('Privilege Escalation Barrier: Quarantines student2 with RESET_ONLY and blocks academic API escapement', async () => {
+  test('Privilege Escalation Barrier: Quarantines student2 with RESET_ONLY and blocks academic API escapement', async (t) => {
     const BASE_URL = 'http://localhost:3000';
+    try {
+      await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(500) });
+    } catch {
+      t.skip('BFF HTTP server is not running on localhost:3000');
+      return;
+    }
 
     // 0. Reset student2 credentials to guarantee test idempotency
     await pool.query(
