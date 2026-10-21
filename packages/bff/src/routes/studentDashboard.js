@@ -16,8 +16,16 @@ const router = express.Router();
 // ============================================================================
 // We establish a SINGLE Redis subscriber for the entire Node.js process to 
 // prevent connection exhaustion, regardless of how many students are streaming.
-const redisSubscriber = new IORedis(config.redis.url);
-const redisCache = new IORedis(config.redis.url);
+const redisSubscriber = new IORedis(config.redis.url, { family: 4, connectTimeout: 10000, enableOfflineQueue: true });
+const redisCache = new IORedis(config.redis.url, { family: 4, connectTimeout: 10000, enableOfflineQueue: true });
+
+redisSubscriber.on('error', (err) => {
+  console.warn('[Redis-Dashboard] Subscriber connection offline:', err?.message || err);
+});
+
+redisCache.on('error', (err) => {
+  console.warn('[Redis-Dashboard] Cache connection offline:', err?.message || err);
+});
 
 export const announcementEmitter = new EventEmitter();
 announcementEmitter.setMaxListeners(5000); // Scale up for concurrent university traffic

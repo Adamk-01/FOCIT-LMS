@@ -94,6 +94,7 @@ export async function getDashboardOverview(req, res, next) {
       pendingBatchesRes,
       roleDistributionRes,
       departmentsRes,
+      semesterRes,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM students'),
       pool.query('SELECT COUNT(*)::int AS count FROM staff_advisors'),
@@ -105,7 +106,21 @@ export async function getDashboardOverview(req, res, next) {
         GROUP BY role
       `),
       pool.query('SELECT COUNT(*)::int AS count FROM departments'),
+      pool.query(`
+        SELECT id, name, is_registration_open
+        FROM academic_semesters
+        ORDER BY id DESC LIMIT 1
+      `),
     ]);
+
+    const semesterRow = semesterRes.rows[0];
+    const activeSemester = semesterRow
+      ? {
+          id: semesterRow.id,
+          name: semesterRow.name,
+          isRegistrationOpen: Boolean(semesterRow.is_registration_open),
+        }
+      : null;
 
     // 3. Redis Health
     const redisStatus = redis.status === 'ready' || redis.status === 'connect' ? 'UP' : 'DEGRADED';
@@ -178,6 +193,7 @@ export async function getDashboardOverview(req, res, next) {
           totalDepartments: departmentsRes.rows[0]?.count || 0,
           pendingRegistrationBatches: pendingBatchesRes.rows[0]?.count || 0,
         },
+        activeSemester,
         roleDistribution: roles,
         systemHealth: {
           database: { status: 'UP', latencyMs: dbLatencyMs },
@@ -876,7 +892,7 @@ export async function getOutboxEvents(req, res, next) {
 
     query += ` ORDER BY b.updated_at DESC LIMIT 50`;
 
-    const [batchResult, moodleResult] = await Promise.all([
+    const [batchResult, moodleResult, integrationResult] = await Promise.all([
       pool.query(query, params),
       pool.query(`
         SELECT 
@@ -897,7 +913,48 @@ export async function getOutboxEvents(req, res, next) {
         LEFT JOIN courses c ON c.moodle_course_id = o.moodle_course_id
         ORDER BY o.updated_at DESC LIMIT 50
       `),
+      pool.query(`
+        SELECT 
+          event_id,
+          aggregate_type,
+          aggregate_id,
+          event_type,
+          payload,
+          status,
+          delivery_attempts,
+          last_error,
+          created_at,
+          updated_at
+        FROM integration_outbox_events
+        ORDER BY updated_at DESC LIMIT 50
+      `).catch(() => ({ rows: [], rowCount: 0 })),
     ]);
+
+    const formattedMoodleQueue = [
+      ...moodleResult.rows.map((m) => ({
+        id: String(m.id),
+        eventType: m.event_type,
+        studentId: m.student_focit_id,
+        matricNumber: m.matric_number,
+        studentName: m.student_name,
+        courseCode: m.course_code,
+        status: m.status,
+        retryCount: m.retry_count,
+        updatedAt: m.updated_at,
+      })),
+      ...integrationResult.rows.map((io) => ({
+        id: String(io.event_id),
+        eventType: io.event_type,
+        studentId: io.aggregate_id,
+        matricNumber: io.payload?.matric_number || io.aggregate_id,
+        studentName: io.payload?.full_name || io.payload?.name || io.aggregate_type,
+        courseCode: io.payload?.course_code || io.aggregate_type,
+        status: io.status === 'PROCESSING' ? 'RETRYING' : io.status,
+        retryCount: io.delivery_attempts,
+        lastError: io.last_error,
+        updatedAt: io.updated_at,
+      })),
+    ];
 
     return res.status(200).json({
       success: true,
@@ -912,18 +969,9 @@ export async function getOutboxEvents(req, res, next) {
           totalUnits: row.total_units,
           updatedAt: row.updated_at,
         })),
-        moodleSyncQueue: moodleResult.rows.map((m) => ({
-          id: m.id,
-          eventType: m.event_type,
-          studentId: m.student_focit_id,
-          matricNumber: m.matric_number,
-          studentName: m.student_name,
-          courseCode: m.course_code,
-          status: m.status,
-          retryCount: m.retry_count,
-          updatedAt: m.updated_at,
-        })),
-        total: batchResult.rowCount,
+        moodleSyncQueue: formattedMoodleQueue,
+        integrationEvents: integrationResult.rows,
+        total: formattedMoodleQueue.length,
       },
     });
   } catch (err) {
@@ -1013,7 +1061,74 @@ export async function retryOutboxEvent(req, res, next) {
       });
     }
 
-    // 2. Otherwise, retry registration batch (UUID)
+    // 2. If UUID, check integration_outbox_events first
+    const existingIntegrationRes = await pool.query(
+      `SELECT event_id, event_type, aggregate_id, status, locked_until FROM integration_outbox_events WHERE event_id = $1`,
+      [cleanId]
+    ).catch(() => ({ rowCount: 0, rows: [] }));
+
+    if (existingIntegrationRes.rowCount > 0) {
+      const existing = existingIntegrationRes.rows[0];
+      const previousIntegrationStatus = existing.status;
+      const isLeaseActive = previousIntegrationStatus === 'PROCESSING' && existing.locked_until && new Date(existing.locked_until) > new Date();
+
+      if (isLeaseActive) {
+        return res.status(409).json({
+          error: 'Cannot retry integration event while an active worker lease is currently processing it.',
+          code: 'OUTBOX_LEASE_ACTIVE',
+          lockedUntil: existing.locked_until,
+        });
+      }
+
+      if (!['FAILED', 'DEAD_LETTER', 'PROCESSING'].includes(previousIntegrationStatus)) {
+        return res.status(400).json({
+          error: `Cannot retry integration event with status '${previousIntegrationStatus}'. Only FAILED, DEAD_LETTER, or expired PROCESSING events can be retried.`,
+          code: 'OUTBOX_STATUS_NOT_RETRYABLE',
+          currentStatus: previousIntegrationStatus,
+        });
+      }
+
+      const integrationRes = await pool.query(
+        `
+        UPDATE integration_outbox_events
+        SET status = 'PENDING', delivery_attempts = 0, locked_until = NULL, last_error = NULL, updated_at = NOW()
+        WHERE event_id = $1
+          AND (
+            status IN ('FAILED', 'DEAD_LETTER')
+            OR (status = 'PROCESSING' AND (locked_until IS NULL OR locked_until <= NOW()))
+          )
+        RETURNING event_id, event_type, aggregate_id, status
+        `,
+        [cleanId]
+      );
+
+      if (integrationRes.rowCount === 0) {
+        return res.status(409).json({
+          error: 'Could not retry integration event: an active worker claimed the lease concurrently.',
+          code: 'OUTBOX_CONCURRENT_MUTATION',
+        });
+      }
+
+      await recordIdentityAuditLog(pool, {
+        eventType: 'ADMIN_OUTBOX_RETRY_TRIGGERED',
+        actorId: req.user?.id || 'admin1',
+        actorRole: req.user?.role || 'ADMIN',
+        targetId: cleanId,
+        targetType: 'INTEGRATION_OUTBOX',
+        ipAddress: req.ip,
+        metadata: { newStatus: 'PENDING', previousStatus: previousIntegrationStatus },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          message: 'Integration outbox event reset to PENDING for worker reprocessing',
+          event: integrationRes.rows[0],
+        },
+      });
+    }
+
+    // 3. Otherwise, retry registration batch (UUID)
     const existingBatchRes = await pool.query(
       `SELECT id, status, student_id FROM course_registration_batches WHERE id = $1`,
       [cleanId]

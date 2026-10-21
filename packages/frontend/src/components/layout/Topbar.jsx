@@ -12,14 +12,20 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationDrawer } from '../NotificationDrawer';
 
 const ROUTE_NAME_MAP = {
+  admin: 'Admin Portal',
+  users: 'User Directory',
+  outbox: 'Moodle Outbox Sync',
+  audit: 'Security Audit Ledger',
+  profile: 'Profile & Security',
   dashboard: 'Dashboard',
-  courses: 'My Courses',
+  courses: 'Course Catalog',
   materials: 'Learning Materials',
   quizzes: 'Quiz Assessment',
   grades: 'Gradebook',
   forum: 'Discussion Forum',
   registration: 'Course Registration',
-  profile: 'Student Profile & Settings',
+  advisor: 'Advisor Portal',
+  registrations: 'Senate Review Queue',
   lecturer: 'Lecturer Portal',
   'question-bank': 'Question Bank & AI',
 };
@@ -30,14 +36,28 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
   const { unreadCount, totalCount } = useNotifications();
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
-  // Parse path segments to generate dynamic breadcrumbs without duplicate dashboard roots
-  const pathSegments = location.pathname.split('/').filter(Boolean).filter(s => s !== 'dashboard');
+  const role = String(user?.role || '').toUpperCase();
+  const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
+  const isAdvisor = ['LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role);
+
+  const rootCrumb = isAdmin
+    ? { id: 'root-portal', name: 'Admin Portal', path: '/admin' }
+    : isAdvisor
+    ? { id: 'root-portal', name: 'Advisor Portal', path: '/advisor/registrations' }
+    : { id: 'root-portal', name: 'Portal', path: '/dashboard' };
+
+  // For admin routes like /admin/users, skip repeating the root "admin" segment in breadcrumbs
+  const pathSegments = location.pathname
+    .split('/')
+    .filter(Boolean)
+    .filter((s, idx) => !(idx === 0 && (s === 'admin' || s === 'dashboard' || s === 'advisor')));
+
   const breadcrumbs = [
-    { id: 'root-portal', name: 'Portal', path: '/dashboard' },
+    rootCrumb,
     ...pathSegments.map((segment, index) => {
-      const url = `/${pathSegments.slice(0, index + 1).join('/')}`;
+      const fullSubPath = location.pathname.split('/').slice(0, index + 2).join('/');
       const displayName = ROUTE_NAME_MAP[segment] || (segment === '1' ? 'CSC 204' : segment);
-      return { id: `${segment}-${index}`, name: displayName, path: url };
+      return { id: `${segment}-${index}`, name: displayName, path: fullSubPath };
     }),
   ];
 
@@ -118,18 +138,18 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
           ))}
         </button>
 
-        {/* Student Profile Chip (matching template header) */}
+        {/* Identity & Profile Chip */}
         <Link 
-          to="/profile" 
-          aria-label="View Student Profile & Settings"
+          to={isAdmin ? '/admin/profile' : isAdvisor ? '/advisor/registrations' : '/profile'} 
+          aria-label={isAdmin ? 'View Admin Profile' : isAdvisor ? 'View Advisor Review' : 'View Student Profile'}
           className="flex items-center gap-3 pl-2 sm:pl-3 border-l border-gray-200 group hover:opacity-90 transition-opacity"
         >
           <div className="hidden lg:flex flex-col text-right">
             <span className="text-xs font-bold text-[#0a1142] group-hover:text-[#16258f] leading-tight transition-colors">
-              {user?.username ? `Welcome, ${user.username}` : 'Welcome, John Doe'}
+              {user?.username ? `Welcome, ${user.username}` : 'Welcome, User'}
             </span>
             <span className="text-[11px] text-gray-500 font-medium leading-tight">
-              Computer Science • Level 200
+              {isAdmin ? 'Faculty Administration • System Control Plane' : isAdvisor ? 'Academic Staff • Faculty Registry' : 'Computer Science • Level 200'}
             </span>
           </div>
 

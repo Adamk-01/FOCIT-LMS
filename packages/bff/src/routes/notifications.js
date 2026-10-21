@@ -26,16 +26,20 @@ const router = express.Router();
 export const activeStudentSockets = new Map();
 
 const redisSubscriber = new IORedis(config.redis.url, {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: 1,
   lazyConnect: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
   retryStrategy: (times) => (times > 3 ? null : Math.min(times * 100, 2000)),
 });
 
 const redisPublisher = new IORedis(config.redis.url, {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: 1,
   lazyConnect: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
   retryStrategy: (times) => (times > 3 ? null : Math.min(times * 100, 2000)),
 });
 
