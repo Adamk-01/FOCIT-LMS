@@ -26,10 +26,15 @@ export function AdminProfilePage() {
     setIsSubmitting(true);
     try {
       const res = await apiClient.post('/student/change-password', { currentPassword, newPassword });
-      setFeedback(res.data?.message || 'Administrator password updated successfully.');
+      setFeedback(res.data?.message || 'Credentials updated successfully. Redirecting to login...');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setTimeout(() => {
+        sessionStorage.removeItem('shadow_auth');
+        localStorage.removeItem('shadow_auth');
+        window.location.href = '/login?reason=password_changed';
+      }, 1500);
     } catch (err) {
       setErrorMsg(err.response?.data?.error || err.message || 'Failed to update administrator credentials.');
     } finally {

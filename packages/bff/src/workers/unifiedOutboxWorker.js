@@ -127,8 +127,21 @@ export class UnifiedOutboxWorker {
     try {
       switch (event_type) {
         case 'USER_PROVISION_REQUESTED': {
+          const studentId = payload.student_id || aggregate_id;
+
+          // Guard against orphaned events where the student record was deleted from FOCIT
+          const studentCheck = await pool.query(
+            `SELECT student_id FROM students WHERE student_id = $1`,
+            [studentId]
+          );
+          if (studentCheck.rows.length === 0) {
+            const orphanError = new Error(`Student ${studentId} does not exist in FOCIT database (orphaned event)`);
+            orphanError.isRetryable = false;
+            throw orphanError;
+          }
+
           const { matric_number, full_name, email } = payload;
-          const canonicalUsername = (matric_number || aggregate_id).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+          const canonicalUsername = (matric_number || studentId).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
           
           let moodleUserId;
           const existingUser = await getMoodleUserByField('username', canonicalUsername);
@@ -211,6 +224,33 @@ export class UnifiedOutboxWorker {
           if (userid) query.userid = userid;
 
           await callMoodleAPI('core_completion_override_activity_completion_status', query, 'POST');
+          break;
+        }
+
+        case 'UPDATE_USER_PROFILE': {
+          const studentId = payload.student_id || aggregate_id;
+          const userMapRes = await pool.query(
+            `SELECT moodle_user_id FROM moodle_user_mappings WHERE focit_user_id = $1`,
+            [studentId]
+          );
+          if (userMapRes.rows.length > 0) {
+            const moodleUserId = userMapRes.rows[0].moodle_user_id;
+            const updatePayload = {
+              users: [
+                {
+                  id: moodleUserId,
+                  email: payload.email,
+                  description: payload.description,
+                  phone1: payload.phone1,
+                },
+              ],
+            };
+            try {
+              await callMoodleAPI('core_user_update_users', updatePayload, 'POST');
+            } catch (err) {
+              logger.warn({ studentId, moodleUserId, err: err?.message }, '[UnifiedOutbox] Moodle profile update warning');
+            }
+          }
           break;
         }
 

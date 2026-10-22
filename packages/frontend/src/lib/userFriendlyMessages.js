@@ -85,10 +85,18 @@ export const REMEDIATION_REGISTRY = {
 
   RESET_ONLY: () => ({
     title: 'Password Update Required',
-    problem: 'A security password update is required before accessing your academic modules.',
-    remediation: 'Please update your temporary password to continue.',
+    problem: 'Your account was initialized with a temporary password. All academic modules are quarantined until updated.',
+    remediation: 'Please change your temporary password in your Profile to unlock your dashboard and courses.',
     severity: 'warning',
-    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/reset-password' },
+    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/profile?tab=security' },
+  }),
+
+  MANDATORY_PASSWORD_RESET_REQUIRED: () => ({
+    title: 'Password Update Required',
+    problem: 'Your account was initialized with a temporary password. All academic modules are quarantined until updated.',
+    remediation: 'Please change your temporary password in your Profile to unlock your dashboard and courses.',
+    severity: 'warning',
+    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/profile?tab=security' },
   }),
 
   // ── Registration & Academic Invariants (Dynamic Telemetry Guarded) ──

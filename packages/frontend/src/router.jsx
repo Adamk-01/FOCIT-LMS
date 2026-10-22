@@ -26,8 +26,13 @@ import { LoginPage } from './pages/LoginPage';
 function RootIndexRedirect() {
   const { user } = useAuth();
   const role = String(user?.role || 'STUDENT').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role);
+
+  if (user?.mustChangePassword || user?.scope === 'RESET_ONLY') {
+    return <Navigate to={isStaffRole ? '/admin/profile' : '/profile?tab=security'} replace />;
+  }
   if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
-  if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
+  if (isStaffRole) {
     return <Navigate to="/advisor/registrations" replace />;
   }
   return <Navigate to="/dashboard" replace />;
@@ -93,7 +98,11 @@ export const router = createBrowserRouter([
       },
       {
         path: 'admin/profile',
-        element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminProfilePage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER']}>
+            <AdminProfilePage />
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
@@ -104,7 +113,7 @@ export const router = createBrowserRouter([
       {
         path: 'advisor/registrations',
         element: (
-          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER']}>
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER']}>
             <LevelAdvisorDashboardPage />
           </RoleRouteGuard>
         ),

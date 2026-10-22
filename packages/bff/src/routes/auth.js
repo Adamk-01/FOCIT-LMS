@@ -64,7 +64,11 @@ router.post('/login', async (req, res) => {
         'STUDENT' AS role
       FROM students s
       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
-      WHERE s.student_id = $1 OR s.username = $1 OR s.matric_number = $1
+      WHERE s.student_id = $1 
+         OR s.username = $1 
+         OR s.matric_number = $1
+         OR UPPER(s.matric_number) = UPPER($1)
+         OR UPPER(s.matric_number) = UPPER(CASE WHEN $1 LIKE 'FOCIT/%' THEN $1 ELSE 'FOCIT/' || $1 END)
       `,
       [candidateId]
     );
@@ -87,7 +91,7 @@ router.post('/login', async (req, res) => {
           COALESCE(must_change_password, FALSE) AS must_change_password,
           role
         FROM staff_advisors
-        WHERE advisor_id = $1 OR staff_number = $1 OR email = $1
+        WHERE advisor_id = $1 OR staff_number = $1 OR UPPER(staff_number) = UPPER($1) OR email = $1
         `,
         [candidateId]
       );

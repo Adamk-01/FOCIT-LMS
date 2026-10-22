@@ -116,6 +116,8 @@ export const AuthProvider = ({ children }) => {
               if (!prev.user) return prev;
               const updated = {
                 ...prev.user,
+                scope: res.data?.user?.scope || prev.user?.scope,
+                mustChangePassword: res.data?.user?.mustChangePassword ?? prev.user?.mustChangePassword,
                 skewDeltaSec: sync.skewDeltaSec,
                 rttMs: sync.rttMs,
                 uncertaintyMs: sync.uncertaintyMs,
@@ -185,6 +187,8 @@ export const AuthProvider = ({ children }) => {
 
     const shadowPayload = {
       ...(data.user || {}),
+      scope: data.scope,
+      mustChangePassword: data.mustChangePassword,
       exp: data.exp || effectiveServerEpoch + 3600,
       skewDeltaSec: sync.skewDeltaSec,
       rttMs: sync.rttMs,

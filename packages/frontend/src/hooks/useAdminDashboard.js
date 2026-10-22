@@ -187,6 +187,18 @@ export function useAdminDashboard() {
     },
   });
 
+  // 9b. Mutation: Reset User Temporary Password
+  const resetUserPasswordMutation = useMutation({
+    mutationFn: async ({ userId, password }) => {
+      const res = await apiClient.post(`/admin/users/${encodeURIComponent(userId)}/reset-password`, { password });
+      return res.data?.data || res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'audit-logs'] });
+    },
+  });
+
   // 10. Handlers
   const handleToggleRegistrationWindow = useCallback(
     (semesterId, currentIsOpen) => {
@@ -254,7 +266,7 @@ export function useAdminDashboard() {
 
     // Mutations & Actions
     handleToggleRegistrationWindow,
-    retryOutbox: (id) => retryOutboxMutation.mutate(id),
+    retryOutbox: (id) => retryOutboxMutation.mutateAsync(id),
     isRetryingOutbox: retryOutboxMutation.isPending,
     provisionUser: (data) => provisionUserMutation.mutate(data),
     isProvisioning: provisionUserMutation.isPending,
@@ -262,6 +274,9 @@ export function useAdminDashboard() {
     toggleUserStatus: (userId, status) => toggleUserStatusMutation.mutate({ userId, status }),
     isTogglingStatus: toggleUserStatusMutation.isPending,
     statusError: toggleUserStatusMutation.error,
+    resetUserPassword: (userId, password) => resetUserPasswordMutation.mutateAsync({ userId, password }),
+    isResettingPassword: resetUserPasswordMutation.isPending,
+    resetPasswordError: resetUserPasswordMutation.error,
 
     // Manual Refresh
     refetchAll: () => {

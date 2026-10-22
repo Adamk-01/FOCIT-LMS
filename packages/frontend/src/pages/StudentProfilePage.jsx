@@ -205,6 +205,7 @@ export function StudentProfilePage() {
         <ProfileSecurityTab
           form={passwordForm}
           onChange={setPasswordForm}
+          feedback={feedback}
           onSubmit={(e) => {
             e.preventDefault();
             handlePasswordSubmit(passwordForm);
