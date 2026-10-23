@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { RefreshCw, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 
@@ -10,6 +10,17 @@ export function AdminOutboxPage() {
   const {
     outbox, isOutboxLoading, outboxFilter, setOutboxFilter, retryOutbox, isRetryingOutbox,
   } = useAdminDashboard();
+
+  const [retryingId, setRetryingId] = useState(null);
+
+  const handleRetry = async (id) => {
+    setRetryingId(id);
+    try {
+      await retryOutbox(id);
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   const queue = outbox?.moodleSyncQueue || [];
   const pendingCount = queue.filter((i) => i.status === 'PENDING' || i.status === 'RETRYING').length;
@@ -85,8 +96,13 @@ export function AdminOutboxPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredQueue.map((item) => {
-                  const isFailed = item.status === 'FAILED' || item.status === 'DEAD_LETTER';
+                  const isFailed = item.status === 'FAILED';
+                  const isDeadLetter = item.status === 'DEAD_LETTER';
                   const isPending = item.status === 'PENDING' || item.status === 'RETRYING';
+                  const isItemRetrying = isRetryingOutbox && retryingId === item.id;
+                  const formattedTime = item.createdAt && !isNaN(new Date(item.createdAt).getTime())
+                    ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '—';
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-medium text-slate-500 text-[11px]">#{item.id}</td>
@@ -97,6 +113,7 @@ export function AdminOutboxPage() {
                       <td className="py-3.5 px-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                           isFailed ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : isDeadLetter ? 'bg-purple-50 text-purple-700 border border-purple-200'
                             : isPending ? 'bg-amber-50 text-amber-700 border border-amber-200'
                             : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         }`}>
@@ -104,18 +121,22 @@ export function AdminOutboxPage() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-gray-500 text-[11px] whitespace-nowrap">
-                        {item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        {formattedTime}
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         {isFailed ? (
                           <button
                             type="button"
-                            onClick={() => retryOutbox(item.id)}
+                            onClick={() => handleRetry(item.id)}
                             disabled={isRetryingOutbox}
                             className="px-3 py-1 rounded-lg text-[11px] font-bold bg-[#0a1142] text-white hover:bg-blue-900 transition-colors disabled:opacity-50"
                           >
-                            Retry Sync
+                            {isItemRetrying ? 'Retrying...' : 'Retry Sync'}
                           </button>
+                        ) : isDeadLetter ? (
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                            Quarantined
+                          </span>
                         ) : (
                           <span className="text-gray-400 text-[11px]">—</span>
                         )}

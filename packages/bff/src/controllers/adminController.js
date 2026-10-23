@@ -358,7 +358,8 @@ export async function createUser(req, res, next) {
       fullName,
       email,
       departmentId,
-      level = 100,
+      level,
+      assignedLevel,
       password,
     } = req.body || {};
 
@@ -370,7 +371,7 @@ export async function createUser(req, res, next) {
     }
 
     const normalizedRole = String(role).toUpperCase();
-    const candidateLevel = parseInt(level, 10) || 100;
+    const candidateLevel = parseInt(level || assignedLevel, 10) || 100;
     const resolvedDeptId = resolveDepartmentId(departmentId);
     const resolvedProgId = `BSC_${resolvedDeptId}`;
 
@@ -433,6 +434,29 @@ export async function createUser(req, res, next) {
         ON CONFLICT (student_id) DO UPDATE SET password_hash = EXCLUDED.password_hash
         `,
         [studentId, passwordHash]
+      );
+
+      // Enqueue Outbox Event for Upstream Moodle User Provisioning (Doctrine 8)
+      await client.query(
+        `
+        INSERT INTO integration_outbox_events (
+          aggregate_type, aggregate_id, event_type, payload, idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (idempotency_key) DO NOTHING
+        `,
+        [
+          'STUDENT',
+          studentId,
+          'USER_PROVISION_REQUESTED',
+          JSON.stringify({
+            student_id: studentId,
+            matric_number: identifier,
+            full_name: fullName,
+            email,
+          }),
+          `moodle_provision:${studentId}`,
+        ]
       );
     } else {
       const advisorId = `staff_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
@@ -497,8 +521,16 @@ export async function createUser(req, res, next) {
     }
     logger.error({ err }, '[AdminController] Error creating user');
     if (err.code === '23505') {
+      const isEmail = String(err.constraint || err.detail || '').toLowerCase().includes('email');
+      const isMatric = String(err.constraint || err.detail || '').toLowerCase().includes('matric');
+      let msg = 'A user with this matric/staff number or email already exists';
+      if (isEmail) {
+        msg = `The email address '${email}' is already registered to another user.`;
+      } else if (isMatric) {
+        msg = `The matric/staff number '${identifier}' is already registered.`;
+      }
       return res.status(409).json({
-        error: 'A user with this matric/staff number or email already exists',
+        error: msg,
         code: 'USER_ALREADY_EXISTS',
       });
     }
@@ -809,6 +841,116 @@ export async function updateUserRole(req, res, next) {
   } catch (err) {
     logger.error({ err, id }, '[AdminController] Error updating user role');
     return next(err);
+  }
+}
+
+/**
+ * 4c. POST /api/admin/users/:id/reset-password
+ * Administrative password reset for students and staff.
+ * Issues a cryptographically secure temporary password, marks must_change_password=TRUE,
+ * purges active sessions, and appends an immutable audit log entry.
+ */
+export async function resetUserPassword(req, res, next) {
+  const { id } = req.params;
+  const { password } = req.body || {};
+  let client;
+
+  try {
+    if (!id) {
+      return res.status(400).json({ error: 'User identifier required', code: 'VALIDATION_FAILED' });
+    }
+
+    const cleanId = String(id).trim();
+
+    // 1. Resolve user in students or staff_advisors
+    let isStudent = true;
+    const studentRes = await pool.query(
+      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1 OR matric_number = $1 OR username = $1`,
+      [cleanId]
+    );
+
+    let target = studentRes.rows[0];
+    if (!target) {
+      const staffRes = await pool.query(
+        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+        [cleanId]
+      );
+      if (staffRes.rows[0]) {
+        isStudent = false;
+        target = staffRes.rows[0];
+      }
+    }
+
+    if (!target) {
+      return res.status(404).json({ error: 'User not found in academic registry', code: 'USER_NOT_FOUND' });
+    }
+
+    // Role-Based Privilege Escalation Guard:
+    // Only SYSTEM_ADMIN can reset passwords for administrator accounts (ADMIN or SYSTEM_ADMIN)
+    if (!isStudent && ['ADMIN', 'SYSTEM_ADMIN'].includes(target.role) && req.user?.role !== 'SYSTEM_ADMIN') {
+      return res.status(403).json({
+        error: 'Only a System Administrator can reset passwords for administrator accounts',
+        code: 'FORBIDDEN_RESET_PRIVILEGED_PASSWORD',
+      });
+    }
+
+    const newPassword = password && String(password).trim().length >= 8
+      ? String(password).trim()
+      : crypto.randomBytes(9).toString('base64url') + '!A1';
+
+    const passwordHash = await hashPassword(newPassword);
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    if (isStudent) {
+      await client.query(
+        `INSERT INTO student_profiles (student_id, password_hash, must_change_password, updated_at)
+         VALUES ($1, $2, TRUE, NOW())
+         ON CONFLICT (student_id) DO UPDATE 
+         SET password_hash = EXCLUDED.password_hash, must_change_password = TRUE, updated_at = NOW()`,
+        [target.student_id, passwordHash]
+      );
+    } else {
+      await client.query(
+        `UPDATE staff_advisors SET password_hash = $1, must_change_password = TRUE, updated_at = NOW() WHERE advisor_id = $2`,
+        [passwordHash, target.student_id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Purge active sessions in Redis
+    await purgeUserSessions(target.student_id);
+
+    // Audit log
+    await recordIdentityAuditLog(pool, {
+      eventType: 'ADMIN_PASSWORD_RESET',
+      actorId: req.user?.username || req.user?.id || 'admin1',
+      actorRole: req.user?.role || 'ADMIN',
+      targetId: target.student_id,
+      targetType: 'CREDENTIALS',
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'admin-portal',
+      metadata: { identifier: target.matric_number, isStudent },
+    }).catch((e) => logger.warn({ e }, '[AdminController] Failed to record password reset audit log'));
+
+    return res.json({
+      success: true,
+      message: `Temporary password reset successfully for ${target.full_name}`,
+      temporaryPassword: newPassword,
+      user: {
+        id: target.student_id,
+        identifier: target.matric_number,
+        fullName: target.full_name,
+      },
+    });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    logger.error({ err, id }, '[AdminController] Failed to reset user password');
+    return next(err);
+  } finally {
+    if (client) client.release();
   }
 }
 

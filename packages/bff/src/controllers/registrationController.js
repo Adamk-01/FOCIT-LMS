@@ -107,6 +107,7 @@ export async function getCurrentRegistrationState(req, res) {
         c.enrolled_count,
         c.description,
         d.name AS department_name,
+        (c.level < $3) AS is_carryover,
         EXISTS (
           SELECT 1 FROM course_registration_items cri 
           WHERE cri.batch_id = $1 AND cri.course_id = c.course_id
@@ -119,6 +120,7 @@ export async function getCurrentRegistrationState(req, res) {
         AND (
           c.department_id = $4 
           OR c.category IN ('GENERAL', 'ELECTIVE')
+          OR (c.level IN (100, 200) AND c.department_id = 'CSC')
         )
         -- Exclude courses passed in any prior session
         AND NOT EXISTS (
@@ -128,7 +130,11 @@ export async function getCurrentRegistrationState(req, res) {
             AND e.status = 'COMPLETED'
             AND (e.grade >= 40.00 OR e.grade IS NULL)
         )
-      ORDER BY c.category ASC, c.code ASC
+      ORDER BY 
+        CASE WHEN c.level = $3 THEN 0 ELSE 1 END ASC,
+        CASE c.category WHEN 'CORE' THEN 1 WHEN 'GENERAL' THEN 2 WHEN 'ELECTIVE' THEN 3 ELSE 4 END ASC,
+        c.level DESC,
+        c.code ASC
       `,
       [batch.id, semester.semester_number, student.level, student.department_id, studentId]
     );
@@ -394,7 +400,8 @@ export async function submitRegistration(req, res) {
           AND c.level <= sc.student_level -- Level Invariant: Level Ceiling
           AND (
             c.department_id = sc.department_id -- Department Core
-            OR c.category IN ('GENERAL', 'ELECTIVE') -- Approved Cross-Cutting
+            OR c.category IN ('GENERAL', 'ELECTIVE')
+          OR (c.level IN (100, 200) AND c.department_id = 'CSC') -- Approved Cross-Cutting
           )
           -- Relational Exclusion: Exclude courses passed in any prior session
           AND NOT EXISTS (

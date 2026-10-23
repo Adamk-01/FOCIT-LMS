@@ -4,7 +4,12 @@
  * Mimics Moodle's REST Web Services API for local development.
  * Supports:
  * - core_course_get_contents: Returns course sections/modules/files
+ * - core_completion_override_activity_completion_status: Overrides activity completion
+ * - core_user_create_users: Creates mock student/user accounts
+ * - core_user_get_users_by_field: Looks up user accounts by field
+ * - enrol_manual_enrol_users: Enrols users into Moodle courses
  * - pluginfile.php: Serves sample PDF files with Range request support
+ * - /health: Health probe endpoint for BFF control plane
  *
  * This server returns the EXACT JSON shape that real Moodle returns,
  * so the BFF code works identically against mock and production Moodle.
@@ -22,18 +27,41 @@ const PORT = process.env.PORT || process.env.MOCK_MOODLE_PORT || 3001;
 
 const app = express();
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ─── Health Check Endpoint ───────────────────────────────────
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'UP',
+    version: '4.3.0 (Mock)',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── In-Memory Mock Store ────────────────────────────────────
+const mockUsers = [
+  { id: 1, username: 'student1', firstname: 'John', lastname: 'Student1', email: 'student1@focit.uniosun.edu.ng' },
+  { id: 2, username: 'student2', firstname: 'Jane', lastname: 'Student2', email: 'student2@focit.uniosun.edu.ng' },
+  { id: 3, username: 'student3', firstname: 'Bob', lastname: 'Student3', email: 'student3@focit.uniosun.edu.ng' },
+  { id: 4, username: 'student4', firstname: 'Alice', lastname: 'Student4', email: 'student4@focit.uniosun.edu.ng' },
+  { id: 5, username: 'student5', firstname: 'Charlie', lastname: 'Student5', email: 'student5@focit.uniosun.edu.ng' },
+];
+let nextUserId = 1000;
+const mockEnrolments = [];
+
 // ─── Static Files for End-to-End PDF Testing ──────────────
 // Serves local PDFs to test the BFF QuotaGuard transform
 const staticDir = path.join(__dirname, '../../200level first semester');
 app.use('/static', express.static(staticDir));
 
-
 // ─── Web Services API ────────────────────────────────────────
 // Moodle's REST API serves everything through a single endpoint:
-// GET /webservice/rest/server.php?wstoken=...&wsfunction=...&moodlewsrestformat=json
+// GET or POST /webservice/rest/server.php?wstoken=...&wsfunction=...&moodlewsrestformat=json
 
-app.get('/webservice/rest/server.php', (req, res) => {
-  const { wstoken, wsfunction, moodlewsrestformat } = req.query;
+app.all('/webservice/rest/server.php', (req, res) => {
+  const params = { ...req.query, ...req.body };
+  const { wstoken, wsfunction, moodlewsrestformat } = params;
 
   // Validate token (mock validation)
   if (!wstoken) {
@@ -47,10 +75,22 @@ app.get('/webservice/rest/server.php', (req, res) => {
   // Route to the appropriate function handler
   switch (wsfunction) {
     case 'core_course_get_contents':
-      return handleGetCourseContents(req, res);
+      return handleGetCourseContents(req, res, params);
 
     case 'core_completion_override_activity_completion_status':
-      return handleOverrideCompletion(req, res);
+      return handleOverrideCompletion(req, res, params);
+
+    case 'core_user_create_users':
+      return handleCreateUsers(req, res, params);
+
+    case 'core_user_get_users_by_field':
+      return handleGetUsersByField(req, res, params);
+
+    case 'enrol_manual_enrol_users':
+      return handleEnrolUsers(req, res, params);
+
+    case 'core_user_update_users':
+      return handleUpdateUsers(req, res, params);
 
     default:
       return res.json({
@@ -65,8 +105,8 @@ app.get('/webservice/rest/server.php', (req, res) => {
  * Handler: core_course_get_contents
  * Returns sections, modules, and file metadata for a course.
  */
-function handleGetCourseContents(req, res) {
-  const courseId = parseInt(req.query.courseid, 10);
+function handleGetCourseContents(req, res, params) {
+  const courseId = parseInt(params.courseid, 10);
 
   if (!courseId || !courses[courseId]) {
     return res.json({
@@ -87,8 +127,8 @@ function handleGetCourseContents(req, res) {
  * Handler: core_completion_override_activity_completion_status
  * Accepts userid, cmid, and newstate. Logs the completion override.
  */
-function handleOverrideCompletion(req, res) {
-  const { userid, cmid, newstate } = req.query;
+function handleOverrideCompletion(req, res, params) {
+  const { userid, cmid, newstate } = params;
 
   if (!userid || !cmid || newstate === undefined) {
     return res.json({
@@ -104,6 +144,113 @@ function handleOverrideCompletion(req, res) {
 
   // Simulate success response
   res.json({ status: true });
+}
+
+/**
+ * Handler: core_user_create_users
+ * Provisions mock Moodle users and returns array of created user records.
+ */
+function handleCreateUsers(req, res, params) {
+  let usersToCreate = params.users || [];
+  if (!Array.isArray(usersToCreate)) {
+    usersToCreate = Object.values(usersToCreate);
+  }
+
+  if (usersToCreate.length === 0) {
+    return res.json({
+      exception: 'moodle_exception',
+      errorcode: 'invalidparameter',
+      message: 'Missing users parameter',
+    });
+  }
+
+  const created = usersToCreate.map((u) => {
+    const id = nextUserId++;
+    const newUser = {
+      id,
+      username: u.username,
+      firstname: u.firstname || 'Student',
+      lastname: u.lastname || 'User',
+      email: u.email || `${u.username}@focit.uniosun.edu.ng`,
+    };
+    mockUsers.push(newUser);
+    console.log(`[MOCK MOODLE] User created: id=${id} username=${u.username}`);
+    return { id, username: u.username };
+  });
+
+  return res.json(created);
+}
+
+/**
+ * Handler: core_user_get_users_by_field
+ * Looks up users by field ('username', 'email', 'id').
+ */
+function handleGetUsersByField(req, res, params) {
+  const field = params.field;
+  let values = params.values || [];
+  if (!Array.isArray(values)) {
+    values = Object.values(values);
+  }
+
+  if (!field || values.length === 0) {
+    return res.json([]);
+  }
+
+  const matches = mockUsers.filter((u) => values.map(String).includes(String(u[field])));
+  console.log(`[MOCK MOODLE] Lookup users by ${field}=${values.join(',')}: found ${matches.length}`);
+  return res.json(matches);
+}
+
+/**
+ * Handler: enrol_manual_enrol_users
+ * Enrols mock users into courses. Returns null on success.
+ */
+function handleEnrolUsers(req, res, params) {
+  let enrolments = params.enrolments || [];
+  if (!Array.isArray(enrolments)) {
+    enrolments = Object.values(enrolments);
+  }
+
+  if (enrolments.length === 0) {
+    return res.json({
+      exception: 'moodle_exception',
+      errorcode: 'invalidparameter',
+      message: 'Missing enrolments parameter',
+    });
+  }
+
+  for (const e of enrolments) {
+    mockEnrolments.push({
+      roleid: parseInt(e.roleid, 10) || 5,
+      userid: parseInt(e.userid, 10),
+      courseid: parseInt(e.courseid, 10),
+      enrolledAt: new Date().toISOString(),
+    });
+    console.log(`[MOCK MOODLE] Enrolled user=${e.userid} in course=${e.courseid} (role=${e.roleid})`);
+  }
+
+  return res.json(null);
+}
+
+/**
+ * Handler: core_user_update_users
+ * Updates mock users and returns null.
+ */
+function handleUpdateUsers(req, res, params) {
+  let usersToUpdate = params.users || [];
+  if (!Array.isArray(usersToUpdate)) {
+    usersToUpdate = Object.values(usersToUpdate);
+  }
+  for (const u of usersToUpdate) {
+    const existing = mockUsers.find((mu) => String(mu.id) === String(u.id));
+    if (existing) {
+      if (u.email) existing.email = u.email;
+      if (u.description) existing.description = u.description;
+      if (u.phone1) existing.phone1 = u.phone1;
+      console.log(`[MOCK MOODLE] User updated: id=${u.id}`);
+    }
+  }
+  return res.json(null);
 }
 
 // ─── File Serving (pluginfile.php) ───────────────────────────

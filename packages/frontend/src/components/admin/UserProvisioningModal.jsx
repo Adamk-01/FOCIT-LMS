@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ProvisionSuccessView } from './ProvisionSuccessView';
 import { UserProvisioningForm } from './UserProvisioningForm';
@@ -24,6 +25,7 @@ export function UserProvisioningModal({
     fullName: '',
     identifier: '',
     email: '',
+    password: '',
     departmentId: 'CSC',
     role: 'STUDENT',
     assignedLevel: 100,
@@ -41,16 +43,19 @@ export function UserProvisioningModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      level: parseInt(formData.level || formData.assignedLevel, 10) || 100,
+    });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex min-h-full items-center justify-center p-4 sm:p-6">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="provision-modal-title"
-        className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-xl border border-gray-100 relative animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-xl border border-gray-100 relative animate-in fade-in zoom-in-95 duration-150 my-auto"
       >
         <button
           type="button"
@@ -78,7 +83,8 @@ export function UserProvisioningModal({
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 export default UserProvisioningModal;

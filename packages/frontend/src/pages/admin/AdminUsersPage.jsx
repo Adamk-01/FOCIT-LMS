@@ -1,7 +1,9 @@
-import React from 'react';
-import { Search, UserPlus, AlertCircle, ShieldAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { Search, UserPlus, AlertCircle, Key } from 'lucide-react';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { UserProvisioningModal } from '../../components/admin/UserProvisioningModal';
+import { SuspendConfirmationModal } from '../../components/admin/SuspendConfirmationModal';
+import { ResetPasswordModal } from '../../components/admin/ResetPasswordModal';
 
 /**
  * Faculty User Directory & Identity Management Page
@@ -12,7 +14,18 @@ export function AdminUsersPage() {
     users, isUsersLoading, userSearch, setUserSearch, userRoleFilter, setUserRoleFilter,
     toggleUserStatus, isTogglingStatus, statusError, isProvisionModalOpen, openProvisionModal,
     closeProvisionModal, provisionUser, isProvisioning, provisionError, provisionResult,
+    resetUserPassword, isResettingPassword,
   } = useAdminDashboard();
+
+  const [userToSuspend, setUserToSuspend] = useState(null);
+  const [userToResetPassword, setUserToResetPassword] = useState(null);
+
+  const handleConfirmSuspend = async () => {
+    if (!userToSuspend) return;
+    const targetId = userToSuspend.id;
+    setUserToSuspend(null);
+    await toggleUserStatus(targetId, 'SUSPENDED');
+  };
 
   const userList = users?.users || [];
 
@@ -25,8 +38,7 @@ export function AdminUsersPage() {
           <p className="text-xs text-gray-500 mt-1">Search academic identities, view roles, and govern active/suspended statuses</p>
         </div>
         <button
-          type="button"
-          onClick={openProvisionModal}
+          type="button" onClick={openProvisionModal}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0a1142] hover:bg-blue-900 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
         >
           <UserPlus size={16} />
@@ -39,9 +51,7 @@ export function AdminUsersPage() {
         <div className="relative flex-1 w-full">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
-            type="text"
-            value={userSearch}
-            onChange={(e) => setUserSearch(e.target.value)}
+            type="text" value={userSearch} onChange={(e) => setUserSearch(e.target.value)}
             placeholder="Search by name, matric number, or email..."
             className="w-full pl-9 pr-4 py-2.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142]"
           />
@@ -49,12 +59,8 @@ export function AdminUsersPage() {
         <div className="inline-flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl shrink-0 w-full sm:w-auto">
           {['ALL', 'STUDENT', 'LECTURER', 'LEVEL_ADVISOR', 'ADMIN'].map((r) => (
             <button
-              key={r}
-              type="button"
-              onClick={() => setUserRoleFilter(r)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                userRoleFilter === r ? 'bg-white text-[#0a1142] shadow-xs' : 'text-gray-600 hover:text-gray-900'
-              }`}
+              key={r} type="button" onClick={() => setUserRoleFilter(r)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${userRoleFilter === r ? 'bg-white text-[#0a1142] shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
             >
               {r === 'ALL' ? 'All Roles' : r === 'LEVEL_ADVISOR' ? 'Advisors' : r}
             </button>
@@ -84,14 +90,13 @@ export function AdminUsersPage() {
                   <th className="py-3 px-4">ID / Matric</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Action</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {userList.map((u, idx) => {
-                  const status = u.status;
-                  const isSuspended = status === 'SUSPENDED';
-                  const isActive = status === 'ACTIVE';
+                  const isSuspended = u.status === 'SUSPENDED';
+                  const isActive = u.status === 'ACTIVE';
                   const displayName = u.fullName || u.name || '—';
                   const displayIdentifier = u.identifier || u.matricNumber || '—';
 
@@ -103,32 +108,36 @@ export function AdminUsersPage() {
                       </td>
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 text-xs">{displayIdentifier}</td>
                       <td className="py-3.5 px-4">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">
-                          {u.role}
-                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">{u.role}</span>
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          isSuspended
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                            : isActive
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                          isSuspended ? 'bg-rose-50 text-rose-700 border border-rose-200' : isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-600'
                         }`}>
-                          {status || 'UNKNOWN'}
+                          {u.status || 'UNKNOWN'}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => toggleUserStatus(u.id, isSuspended ? 'ACTIVE' : 'SUSPENDED')}
-                          disabled={isTogglingStatus || !status}
-                          className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 ${
-                            isSuspended ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                          }`}
-                        >
-                          {isSuspended ? 'Activate' : 'Suspend'}
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          <button
+                            type="button" onClick={() => setUserToResetPassword(u)}
+                            title="Reset Temporary Password"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                          >
+                            <Key size={12} className="text-amber-600" />
+                            <span>Reset Pass</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => isSuspended ? toggleUserStatus(u.id, 'ACTIVE') : setUserToSuspend(u)}
+                            disabled={isTogglingStatus || !u.status}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 ${
+                              isSuspended ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                            }`}
+                          >
+                            {isSuspended ? 'Activate' : 'Suspend'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -140,12 +149,19 @@ export function AdminUsersPage() {
       </div>
 
       <UserProvisioningModal
-        isOpen={isProvisionModalOpen}
-        onClose={closeProvisionModal}
-        onSubmit={provisionUser}
-        isSubmitting={isProvisioning}
-        error={provisionError}
-        result={provisionResult}
+        isOpen={isProvisionModalOpen} onClose={closeProvisionModal}
+        onSubmit={provisionUser} isSubmitting={isProvisioning}
+        error={provisionError} result={provisionResult}
+      />
+      <SuspendConfirmationModal
+        isOpen={Boolean(userToSuspend)} user={userToSuspend}
+        onClose={() => setUserToSuspend(null)} onConfirm={handleConfirmSuspend}
+        isSubmitting={isTogglingStatus}
+      />
+      <ResetPasswordModal
+        isOpen={Boolean(userToResetPassword)} user={userToResetPassword}
+        onClose={() => setUserToResetPassword(null)} onReset={resetUserPassword}
+        isSubmitting={isResettingPassword}
       />
     </div>
   );

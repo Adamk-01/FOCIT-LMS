@@ -6,6 +6,17 @@ import { useAdminDashboard } from '../../hooks/useAdminDashboard';
  * Senate Security & Cryptographic Identity Audit Ledger Page
  * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
+const formatTimestamp = (val) => {
+  if (!val) return '—';
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export function AdminAuditPage() {
   const { auditLogs, isAuditLoading } = useAdminDashboard();
   const logs = auditLogs?.logs || [];
@@ -59,12 +70,7 @@ export function AdminAuditPage() {
                     <td className="py-3.5 px-4 text-gray-600 font-mono text-[11px]">{log.targetId}</td>
                     <td className="py-3.5 px-4 text-gray-500 font-mono text-[11px]">{log.ipAddress || '—'}</td>
                     <td className="py-3.5 px-4 text-right text-gray-400 text-[11px] whitespace-nowrap">
-                      {new Date(log.createdAt).toLocaleString([], {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {formatTimestamp(log.createdAt)}
                     </td>
                   </tr>
                 ))}

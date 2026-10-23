@@ -15,7 +15,6 @@ export const LoginPage = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // Derive session timeout error directly during render to prevent cascading renders
   const sessionTimeoutError = searchParams.get('reason') === 'session_timeout' ? {
     code: 'UPSTREAM_EXPIRED',
     title: 'Session Expired',
@@ -25,15 +24,12 @@ export const LoginPage = () => {
   } : null;
 
   const displayError = authError || sessionTimeoutError;
-
   const isSubmittingRef = useRef(false);
   const activeAbortRef = useRef(null);
 
-  useEffect(() => {
-    return () => {
-      activeAbortRef.current?.abort();
-      activeAbortRef.current = null;
-    };
+  useEffect(() => () => {
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = null;
   }, []);
 
   const handleSubmit = async (e) => {
@@ -68,15 +64,18 @@ export const LoginPage = () => {
     try {
       const shadowUser = await login({ studentId: trimmedId, password }, { signal: controller.signal });
       const userRole = String(shadowUser?.role || '').toUpperCase();
+      const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole);
       let destination = '/dashboard';
-      if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+      if (shadowUser?.mustChangePassword || shadowUser?.scope === 'RESET_ONLY') {
+        destination = isStaffRole ? '/admin/profile' : '/profile?tab=security';
+      } else if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
         destination = '/admin';
-      } else if (['LEVEL_ADVISOR', 'HOD', 'DEAN'].includes(userRole)) {
+      } else if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole)) {
         destination = '/advisor/registrations';
       }
 
       const redirectPath = location.state?.from?.pathname;
-      if (redirectPath && redirectPath !== '/login') {
+      if (redirectPath && redirectPath !== '/login' && !shadowUser?.mustChangePassword && shadowUser?.scope !== 'RESET_ONLY') {
         if (!['ADMIN', 'SYSTEM_ADMIN'].includes(userRole) || redirectPath !== '/dashboard') {
           destination = redirectPath;
         }
@@ -97,20 +96,10 @@ export const LoginPage = () => {
       <main className="h-full w-full overflow-y-auto overflow-x-hidden overscroll-y-contain [contain:layout_paint] [isolation:isolate] [-webkit-overflow-scrolling:touch] flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
           <div className="inline-flex items-center justify-center mb-3">
-            <img
-              src="/faculty-logo.jpg"
-              alt="UNIOSUN FOCIT Faculty Crest"
-              className="w-20 h-20 rounded-full object-cover ring-4 ring-[#ffb81c]/80 shadow-lg"
-              width="80"
-              height="80"
-            />
+            <img src="/faculty-logo.jpg" alt="UNIOSUN FOCIT Faculty Crest" className="w-20 h-20 rounded-full object-cover ring-4 ring-[#ffb81c]/80 shadow-lg" width="80" height="80" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#0a1142] tracking-tight font-display">
-            UNIOSUN FOCIT
-          </h1>
-          <p className="mt-1 text-xs sm:text-sm text-gray-600 font-sans">
-            Faculty of Computing & Information Technology
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-black text-[#0a1142] tracking-tight font-display">UNIOSUN FOCIT</h1>
+          <p className="mt-1 text-xs sm:text-sm text-gray-600 font-sans">Faculty of Computing & Information Technology</p>
         </div>
 
         <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
@@ -125,16 +114,8 @@ export const LoginPage = () => {
                     Matric Number / Staff or Admin ID
                   </label>
                   <input
-                    id="studentId"
-                    name="studentId"
-                    type="text"
-                    required
-                    autoComplete="username"
-                    value={studentId}
-                    onChange={(e) => {
-                      setStudentId(e.target.value);
-                      if (authError) setAuthError(null);
-                    }}
+                    id="studentId" name="studentId" type="text" required autoComplete="username"
+                    value={studentId} onChange={(e) => { setStudentId(e.target.value); if (authError) setAuthError(null); }}
                     placeholder="e.g. FOCIT/2024/0042 or ADM/2026/001"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] text-sm font-sans transition-all"
                   />
@@ -145,16 +126,8 @@ export const LoginPage = () => {
                     Password
                   </label>
                   <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (authError) setAuthError(null);
-                    }}
+                    id="password" name="password" type="password" required autoComplete="current-password"
+                    value={password} onChange={(e) => { setPassword(e.target.value); if (authError) setAuthError(null); }}
                     placeholder="••••••••••••"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] text-sm font-sans transition-all"
                   />
@@ -162,9 +135,7 @@ export const LoginPage = () => {
 
                 <div className="pt-2">
                   <button
-                    type="submit"
-                    disabled={isAuthenticating}
-                    aria-busy={isAuthenticating}
+                    type="submit" disabled={isAuthenticating} aria-busy={isAuthenticating}
                     className="w-full flex justify-center items-center min-h-[44px] min-w-[44px] py-2.5 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-[#0a1142] bg-[#ffb81c] hover:bg-[#e5a619] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0a1142] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {isAuthenticating ? (
@@ -172,9 +143,7 @@ export const LoginPage = () => {
                         <span className="w-4 h-4 border-2 border-[#0a1142]/30 border-t-[#0a1142] rounded-full animate-spin" aria-hidden="true" />
                         <span>Authenticating...</span>
                       </span>
-                    ) : (
-                      'Sign In to Academic Portal'
-                    )}
+                    ) : 'Sign In to Academic Portal'}
                   </button>
                 </div>
               </fieldset>

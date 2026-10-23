@@ -18,6 +18,7 @@ model academic_semesters {
   academic_sessions           academic_sessions             @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   course_registration_batches course_registration_batches[]
   enrollments                 enrollments[]
+  moodle_course_mappings      moodle_course_mappings[]
 }
 
 model academic_sessions {
@@ -29,16 +30,19 @@ model academic_sessions {
 }
 
 model academic_timetable {
-  id                     Int                    @id @default(autoincrement())
-  course_id              Int
+  id                     Int                       @id @default(autoincrement())
+  course_id              String                    @db.VarChar(32)
   lecturer_id            Int
   room_id                Int?
-  first_occurrence_start DateTime               @db.Timestamptz(6)
+  first_occurrence_start DateTime                  @db.Timestamptz(6)
   duration_minutes       Int
-  rrule                  String                 @db.VarChar(255)
-  exclusion_dates        DateTime[]             @default([]) @db.Date
-  created_at             DateTime?              @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime?              @default(now()) @db.Timestamptz(6)
+  rrule                  String                    @db.VarChar(255)
+  exclusion_dates        DateTime[]                @default([]) @db.Date
+  created_at             DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                 @default(now()) @db.Timestamptz(6)
+  day_of_week            Int?
+  start_time             DateTime?                 @db.Time(6)
+  minute_range           Unsupported("int4range")? @default(dbgenerated("int4range((((EXTRACT(hour FROM start_time))::integer * 60) + (EXTRACT(minute FROM start_time))::integer), ((((EXTRACT(hour FROM start_time))::integer * 60) + (EXTRACT(minute FROM start_time))::integer) + duration_minutes))"))
   timetable_exceptions   timetable_exceptions[]
 
   @@index([course_id], map: "idx_timetable_course_id")
@@ -136,27 +140,31 @@ model course_registration_items {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model courses {
-  course_id                 String                      @id @db.VarChar(32)
-  code                      String                      @unique @db.VarChar(16)
-  title                     String                      @db.VarChar(128)
-  department_id             String                      @db.VarChar(32)
-  level                     Int
-  semester_number           Int
-  units                     Int
-  category                  String                      @db.VarChar(16)
-  max_capacity              Int
-  enrolled_count            Int                         @default(0)
-  moodle_course_id          Int?
-  description               String?
-  is_active                 Boolean                     @default(true)
-  created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
-  course_registration_items course_registration_items[]
-  departments               departments                 @relation(fields: [department_id], references: [id], onUpdate: NoAction)
-  enrollments               enrollments[]
-  forum_threads             forum_threads[]
-  grade_items               grade_items[]
-  quizzes                   quizzes[]
+  course_id                                              String                      @id @db.VarChar(32)
+  code                                                   String                      @unique @db.VarChar(16)
+  title                                                  String                      @db.VarChar(128)
+  department_id                                          String                      @db.VarChar(32)
+  level                                                  Int
+  semester_number                                        Int
+  units                                                  Int
+  category                                               String                      @db.VarChar(16)
+  max_capacity                                           Int
+  enrolled_count                                         Int                         @default(0)
+  moodle_course_id                                       Int?
+  description                                            String?
+  is_active                                              Boolean                     @default(true)
+  created_at                                             DateTime?                   @default(now()) @db.Timestamptz(6)
+  course_assignments                                     course_assignments[]
+  course_registration_items                              course_registration_items[]
+  departments                                            departments                 @relation(fields: [department_id], references: [id], onUpdate: NoAction)
+  enrollments                                            enrollments[]
+  enrollments_enrollments_course_id_course_codeTocourses enrollments[]               @relation("enrollments_course_id_course_codeTocourses")
+  forum_threads                                          forum_threads[]
+  grade_items                                            grade_items[]
+  moodle_course_mappings                                 moodle_course_mappings[]
+  quizzes                                                quizzes[]
 
+  @@unique([course_id, code], map: "uq_courses_id_code")
   @@index([department_id], map: "idx_courses_dept")
   @@index([level, semester_number, is_active], map: "idx_courses_filter")
 }
@@ -174,21 +182,25 @@ model departments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model enrollments {
-  enrollment_id      String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  student_id         String             @db.VarChar(64)
-  course_id          String             @db.VarChar(32)
-  semester_id        String             @db.VarChar(32)
-  status             String             @default("ENROLLED") @db.VarChar(20)
-  progress_percent   Int                @default(0)
-  grade              Decimal?           @db.Decimal(5, 2)
-  enrolled_at        DateTime?          @default(now()) @db.Timestamptz(6)
-  courses            courses            @relation(fields: [course_id], references: [course_id], onUpdate: NoAction)
-  academic_semesters academic_semesters @relation(fields: [semester_id], references: [id], onUpdate: NoAction)
-  students           students           @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+  enrollment_id                                      String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  student_id                                         String             @db.VarChar(64)
+  course_id                                          String             @db.VarChar(32)
+  semester_id                                        String             @db.VarChar(32)
+  status                                             String             @default("ENROLLED") @db.VarChar(20)
+  progress_percent                                   Int                @default(0)
+  grade                                              Decimal?           @db.Decimal(5, 2)
+  enrolled_at                                        DateTime?          @default(now()) @db.Timestamptz(6)
+  course_code                                        String             @db.VarChar(16)
+  courses                                            courses            @relation(fields: [course_id], references: [course_id], onUpdate: NoAction)
+  academic_semesters                                 academic_semesters @relation(fields: [semester_id], references: [id], onUpdate: NoAction)
+  students                                           students           @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+  courses_enrollments_course_id_course_codeTocourses courses            @relation("enrollments_course_id_course_codeTocourses", fields: [course_id, course_code], references: [course_id, code], map: "fk_enrollments_course_id_code")
 
   @@unique([student_id, course_id, semester_id], map: "uq_student_course_semester")
   @@index([course_id], map: "idx_enrollments_course")
   @@index([student_id, semester_id], map: "idx_enrollments_student")
+  @@index([student_id, course_code, course_id, status, progress_percent, grade, enrollment_id], map: "idx_enrollments_student_code_cursor")
+  @@index([student_id, status, course_code, course_id, progress_percent, grade, enrollment_id], map: "idx_enrollments_student_status_code_cursor")
 }
 
 model forum_threads {
@@ -399,25 +411,28 @@ model student_profiles {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model students {
-  student_id                  String                        @id @db.VarChar(64)
-  matric_number               String                        @unique @db.VarChar(32)
-  username                    String                        @unique @db.VarChar(64)
-  full_name                   String                        @db.VarChar(128)
-  email                       String                        @unique @db.VarChar(128)
-  programme_id                String                        @db.VarChar(32)
-  level                       Int                           @default(200)
-  current_gpa                 Decimal                       @default(0.00) @db.Decimal(3, 2)
-  completed_units             Int                           @default(0)
-  created_at                  DateTime?                     @default(now()) @db.Timestamptz(6)
-  account_status              String                        @default("ACTIVE") @db.VarChar(16)
-  bff_idempotency_records     bff_idempotency_records[]
-  course_registration_batches course_registration_batches[]
-  enrollments                 enrollments[]
-  forum_threads               forum_threads[]
-  grade_items                 grade_items[]
-  quiz_attempts               quiz_attempts[]
-  student_profiles            student_profiles?
-  programmes                  programmes                    @relation(fields: [programme_id], references: [id], onUpdate: NoAction)
+  student_id                     String                           @id @db.VarChar(64)
+  matric_number                  String                           @unique @db.VarChar(32)
+  username                       String                           @unique @db.VarChar(64)
+  full_name                      String                           @db.VarChar(128)
+  email                          String                           @unique @db.VarChar(128)
+  programme_id                   String                           @db.VarChar(32)
+  level                          Int                              @default(200)
+  current_gpa                    Decimal                          @default(0.00) @db.Decimal(3, 2)
+  completed_units                Int                              @default(0)
+  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  account_status                 String                           @default("ACTIVE") @db.VarChar(16)
+  bff_idempotency_records        bff_idempotency_records[]
+  course_registration_batches    course_registration_batches[]
+  enrollments                    enrollments[]
+  forum_threads                  forum_threads[]
+  grade_items                    grade_items[]
+  moodle_user_mappings           moodle_user_mappings?
+  quiz_attempts                  quiz_attempts[]
+  student_assignment_submissions student_assignment_submissions[]
+  student_notifications          student_notifications[]
+  student_profiles               student_profiles?
+  programmes                     programmes                       @relation(fields: [programme_id], references: [id], onUpdate: NoAction)
 }
 
 model timetable_exceptions {
@@ -433,6 +448,117 @@ model timetable_exceptions {
   @@unique([parent_series_id, original_occurrence_date], map: "unique_exception_per_occurrence")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_assignments {
+  assignment_id                  String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id                      String                           @db.VarChar(32)
+  title                          String                           @db.VarChar(255)
+  description                    String
+  lecturer_name                  String                           @db.VarChar(128)
+  due_date                       DateTime                         @db.Timestamptz(6)
+  max_points                     Decimal                          @default(100.00) @db.Decimal(5, 2)
+  weight_percent                 Int                              @default(10)
+  file_url                       String?
+  file_name                      String?                          @db.VarChar(255)
+  file_size_bytes                BigInt?
+  status                         String                           @default("PUBLISHED") @db.VarChar(20)
+  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  courses                        courses                          @relation(fields: [course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction)
+  student_assignment_submissions student_assignment_submissions[]
+
+  @@index([course_id, due_date], map: "idx_assignments_course_due")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model integration_outbox_events {
+  event_id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aggregate_type    String    @db.VarChar(64)
+  aggregate_id      String    @db.VarChar(64)
+  event_type        String    @db.VarChar(64)
+  payload           Json      @default("{}")
+  status            String    @default("PENDING") @db.VarChar(20)
+  delivery_attempts Int       @default(0)
+  locked_until      DateTime? @db.Timestamptz(6)
+  worker_id         String?   @db.VarChar(64)
+  idempotency_key   String?   @unique @db.VarChar(128)
+  last_error        String?
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model moodle_course_mappings {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  focit_course_id    String             @db.VarChar(32)
+  semester_id        String             @db.VarChar(32)
+  moodle_course_id   Int
+  sync_status        String             @default("SYNCED") @db.VarChar(20)
+  last_error         String?
+  created_at         DateTime?          @default(now()) @db.Timestamptz(6)
+  last_synced_at     DateTime?          @default(now()) @db.Timestamptz(6)
+  courses            courses            @relation(fields: [focit_course_id], references: [course_id], onDelete: Cascade, onUpdate: NoAction)
+  academic_semesters academic_semesters @relation(fields: [semester_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([focit_course_id, semester_id], map: "uq_course_semester_mapping")
+  @@index([focit_course_id, semester_id], map: "idx_moodle_course_mappings_lookup")
+  @@index([sync_status], map: "idx_moodle_course_mappings_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model moodle_user_mappings {
+  focit_user_id  String    @id @db.VarChar(64)
+  moodle_user_id Int       @unique
+  sync_status    String    @default("SYNCED") @db.VarChar(20)
+  last_error     String?
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  last_synced_at DateTime? @default(now()) @db.Timestamptz(6)
+  students       students  @relation(fields: [focit_user_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sync_status], map: "idx_moodle_user_mappings_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model student_assignment_submissions {
+  submission_id      String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assignment_id      String             @db.Uuid
+  student_id         String             @db.VarChar(64)
+  submission_text    String?
+  file_url           String?
+  file_name          String?            @db.VarChar(255)
+  file_size_bytes    BigInt?
+  submitted_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  grade              Decimal?           @db.Decimal(5, 2)
+  feedback           String?
+  status             String             @default("SUBMITTED") @db.VarChar(20)
+  idempotency_key    String?            @db.VarChar(128)
+  course_assignments course_assignments @relation(fields: [assignment_id], references: [assignment_id], onDelete: Cascade, onUpdate: NoAction)
+  students           students           @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([assignment_id, student_id], map: "uq_student_assignment")
+  @@index([student_id, assignment_id], map: "idx_submissions_student")
+}
+
+model student_notifications {
+  id          String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence_id BigInt                @unique @default(autoincrement())
+  student_id  String                @db.VarChar(64)
+  category    notification_category @default(ACADEMIC)
+  priority    notification_priority @default(NORMAL)
+  title       String                @db.VarChar(255)
+  body        String
+  action_url  String?               @db.VarChar(512)
+  metadata    Json                  @default("{}")
+  is_read     Boolean               @default(false)
+  read_at     DateTime?             @db.Timestamptz(6)
+  created_at  DateTime              @default(now()) @db.Timestamptz(6)
+  students    students              @relation(fields: [student_id], references: [student_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([student_id, sequence_id(sort: Desc)], map: "idx_notif_student_all_seq")
+  @@index([student_id, category, sequence_id(sort: Desc)], map: "idx_notif_student_category_seq")
+  @@index([student_id, sequence_id], map: "idx_notif_student_seq_asc")
+}
+
 enum registration_batch_status {
   DRAFT
   SUBMITTED
@@ -440,4 +566,19 @@ enum registration_batch_status {
   HOD_CLEARED
   SENATE_CONFIRMED
   REJECTED
+}
+
+enum notification_category {
+  REGISTRATION
+  ACADEMIC
+  ASSESSMENT
+  SECURITY
+  SYSTEM
+}
+
+enum notification_priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }
