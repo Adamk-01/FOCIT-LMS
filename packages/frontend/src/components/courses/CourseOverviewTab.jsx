@@ -10,17 +10,27 @@ import { Video, ExternalLink, Clock } from 'lucide-react';
  */
 const PENDING_STATUSES = new Set(['PENDING', 'PENDING_APPROVAL', 'AWAITING_APPROVAL']);
 const COMPLETED_STATUSES = new Set(['COMPLETED', 'PASSED']);
+const ENROLLED_STATUSES = new Set(['ENROLLED', 'IN_PROGRESS', 'ACTIVE']);
 
 export function CourseOverviewTab({
   course,
   zoom,
   upcomingActivities = [],
 }) {
-  // Precedence: explicit student enrollment status takes priority over course catalog status
-  const enrolmentStatus = course?.enrollment_status || course?.enrolment_status || course?.status || 'Enrolled';
-  const normStatus = String(enrolmentStatus).toUpperCase().trim();
+  const rawStatus = course?.enrollment_status || course?.enrolment_status || course?.status;
+  const normStatus = rawStatus ? String(rawStatus).toUpperCase().trim() : '';
+
   const isPending = PENDING_STATUSES.has(normStatus);
   const isCompleted = COMPLETED_STATUSES.has(normStatus);
+  const isNotEnrolled = !rawStatus || normStatus === 'NOT_ENROLLED';
+
+  const displayStatus = isNotEnrolled
+    ? 'Not Enrolled'
+    : isPending
+      ? 'Pending Clearance'
+      : isCompleted
+        ? 'Completed'
+        : 'Active Enrolled';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
@@ -61,13 +71,15 @@ export function CourseOverviewTab({
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <h3 className="text-sm font-bold text-[#0a1142]">Course Enrolment</h3>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-              isPending
-                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : isCompleted
-                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              isNotEnrolled
+                ? 'bg-slate-100 text-slate-700 border-slate-300'
+                : isPending
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : isCompleted
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
             }`}>
-              {enrolmentStatus}
+              {displayStatus}
             </span>
           </div>
 
@@ -85,6 +97,17 @@ export function CourseOverviewTab({
               <span className="font-bold text-[#0a1142]">Rain Semester</span>
             </div>
           </div>
+
+          {isNotEnrolled && (
+            <div className="pt-2 border-t border-gray-100">
+              <Link
+                to="/registration"
+                className="w-full min-h-[38px] px-3 py-2 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <span>Register for Course</span>
+              </Link>
+            </div>
+          )}
         </section>
 
         {/* Upcoming Activities Card */}

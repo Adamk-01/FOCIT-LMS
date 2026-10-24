@@ -216,8 +216,8 @@ router.get(
             c.description,
             c.moodle_course_id,
             d.name AS department_name,
-            COALESCE(e.progress_percent, 45) AS progress_percent,
-            COALESCE(e.status, 'IN_PROGRESS') AS enrollment_status
+            COALESCE(e.progress_percent, 0) AS progress_percent,
+            e.status AS enrollment_status
           FROM courses c
           LEFT JOIN departments d ON d.id = c.department_id
           LEFT JOIN enrollments e ON e.course_id = c.course_id AND e.student_id = $2
@@ -273,8 +273,8 @@ router.get(
           category: courseData.category,
           description: courseData.description,
           department: courseData.department_name,
-          enrollment_status: courseData.enrollment_status,
-          status: courseData.enrollment_status,
+          enrollment_status: courseData.enrollment_status || 'NOT_ENROLLED',
+          status: courseData.enrollment_status || 'NOT_ENROLLED',
         },
         progress: {
           percent: courseData.progress_percent,
