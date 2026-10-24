@@ -13,6 +13,7 @@
 
 import { pool } from '../db/index.js';
 import { unifiedOutboxWorker } from '../workers/unifiedOutboxWorker.js';
+import config from '../config.js';
 
 async function runPipelineVerification() {
   console.log('\n======================================================');
@@ -20,13 +21,14 @@ async function runPipelineVerification() {
   console.log('======================================================\n');
 
   // Step 1: Probe Moodle /health
-  console.log('[1/5] Probing Moodle /health endpoint...');
+  const healthUrl = `${config.moodle.baseUrl}/health`;
+  console.log(`[1/5] Probing Moodle /health endpoint (${healthUrl})...`);
   try {
-    const healthRes = await fetch('http://localhost:3001/health');
+    const healthRes = await fetch(healthUrl);
     const healthData = await healthRes.json();
-    console.log(`  ✔ Moodle Health Probe: HTTP ${healthRes.status} - Status: ${healthData.status} (v${healthData.version})`);
+    console.log(`  ✔ Moodle Health Probe: HTTP ${healthRes.status} - Status: ${healthData.status} (v${healthData.version || '5.3'})`);
   } catch (err) {
-    console.log(`  ⚠ Moodle server is not running on port 3001.`);
+    console.log(`  ⚠ Moodle server is not running or unreachable at ${config.moodle.baseUrl}: ${err.message}`);
     process.exit(1);
   }
 
@@ -147,7 +149,18 @@ async function runPipelineVerification() {
   }
 
   try {
-    // Clean up
+    // Clean up ephemeral Moodle user
+    if (mappingRes.rows.length > 0) {
+      const moodleUserId = mappingRes.rows[0].moodle_user_id;
+      try {
+        const { callMoodleAPI } = await import('../integrations/moodle/moodle.client.js');
+        await callMoodleAPI('core_user_delete_users', { userids: [moodleUserId] }, 'POST');
+        console.log(`  ✔ Ephemeral Moodle test user (ID: ${moodleUserId}) purged from Moodle.`);
+      } catch (wsErr) {
+        console.warn(`  ⚠ Non-fatal: Ephemeral Moodle user could not be deleted from Moodle: ${wsErr.message}`);
+      }
+    }
+    // Clean up database records
     await pool.query(`DELETE FROM moodle_user_mappings WHERE focit_user_id = $1`, [testStudentId]);
     await pool.query(`DELETE FROM integration_outbox_events WHERE event_id IN ($1, $2)`, [testUserEventId, testEnrolEventId]);
     await pool.query(`DELETE FROM students WHERE student_id = $1`, [testStudentId]);

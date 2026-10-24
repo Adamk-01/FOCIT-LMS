@@ -21,13 +21,13 @@ export function QuestionBankHeader({
       <div className="space-y-1">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] border border-[#ffb81c]/30">
           <ShieldCheck size={14} className="text-[#0a1142]" />
-          <span>AUTHORITATIVE ASSESSMENT INVENTORY</span>
+          <span>TOPIC PRACTICE & REVISION POOL</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
           Question Bank: {courseCode} — {courseTitle}
         </h1>
         <p className="text-xs sm:text-sm text-gray-500 font-medium">
-          Active Revision: Version {activeQuiz?.version || 1} • {activeQuiz?.durationMinutes || 45} Minutes Examination
+          Active Practice Drill: Version {activeQuiz?.version || 1} • {activeQuiz?.durationMinutes || 45} Min Self-Paced Session
         </p>
       </div>
 
@@ -39,7 +39,7 @@ export function QuestionBankHeader({
           className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
         >
           <ShieldCheck size={16} className="text-white" />
-          <span>{isPublishing ? 'Publishing...' : 'Publish Revision'}</span>
+          <span>{isPublishing ? 'Publishing...' : 'Publish Practice Drill'}</span>
         </button>
         <button
           type="button"

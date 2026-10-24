@@ -84,18 +84,27 @@ export function useAdminDashboard() {
     staleTime: 5000,
   });
 
-  // 5. Fetch Security Audit Logs
+  // 5. Fetch Security Audit Logs (Paginated & Filterable)
+  const [auditEventType, setAuditEventType] = useState('ALL');
+  const [auditPage, setAuditPage] = useState(1);
+
   const {
     data: auditData,
     isLoading: isAuditLoading,
     refetch: refetchAudit,
   } = useQuery({
-    queryKey: ['admin', 'audit-logs'],
+    queryKey: ['admin', 'audit-logs', auditEventType, auditPage],
     queryFn: async () => {
-      const res = await apiClient.get('/admin/audit-logs?limit=30');
+      const params = new URLSearchParams({
+        page: String(auditPage),
+        limit: '25',
+      });
+      if (auditEventType && auditEventType !== 'ALL') {
+        params.append('eventType', auditEventType);
+      }
+      const res = await apiClient.get(`/admin/audit-logs?${params.toString()}`);
       return res.data?.data || res.data || {};
     },
-    enabled: isAuditModalOpen,
     staleTime: 5000,
   });
 
@@ -251,6 +260,13 @@ export function useAdminDashboard() {
     setUserRoleFilter,
     userPage,
     setUserPage,
+
+    // Audit Ledger Filtering & Pagination
+    auditEventType,
+    setAuditEventType,
+    auditPage,
+    setAuditPage,
+    refetchAudit,
 
     // Modals & Drawers
     isProvisionModalOpen,

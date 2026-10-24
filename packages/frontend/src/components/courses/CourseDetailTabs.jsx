@@ -12,7 +12,7 @@ export const COURSE_TABS = [
   { id: 'overview', label: 'Overview', icon: BookOpen },
   { id: 'materials', label: 'Materials', icon: FileText },
   { id: 'assignments', label: 'Assignments', icon: Calendar },
-  { id: 'quizzes', label: 'Quizzes', icon: HelpCircle },
+  { id: 'quizzes', label: 'Self-Practice', icon: HelpCircle },
   { id: 'forum', label: 'Forum', icon: MessagesSquare },
   { id: 'grades', label: 'Grades', icon: Award },
 ];

@@ -12,6 +12,17 @@
  * 8. Global error handler (must be last)
  */
 
+import dns from 'node:dns';
+import net from 'node:net';
+
+// Ensure IPv4 resolution takes priority and disable Happy Eyeballs IPv6 stalls in Docker
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+if (typeof net.setDefaultAutoSelectFamily === 'function') {
+  net.setDefaultAutoSelectFamily(false);
+}
+
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';

@@ -48,23 +48,29 @@ export function CourseOverviewTab({
 
       {/* Right Column: Course Progress & Upcoming Activities */}
       <aside className="space-y-6">
-        {/* Course Progress Card */}
+        {/* Course Academic Overview Card */}
         <section className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[#0a1142]">Course Progress</h3>
-            <span className="text-lg font-extrabold text-[#0a1142]">{progressPercent}%</span>
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <h3 className="text-sm font-bold text-[#0a1142]">Course Enrolment</h3>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Active Enrolled
+            </span>
           </div>
 
-          <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
-            <div 
-              className="h-full bg-gradient-to-r from-[#0a1142] to-[#16258f] rounded-full transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
+          <div className="space-y-2 text-xs text-gray-600">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">Credit Load:</span>
+              <span className="font-bold text-[#0a1142]">{course?.units || 3} Units</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">Academic Level:</span>
+              <span className="font-bold text-[#0a1142]">Level {course?.level || 200}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">Term:</span>
+              <span className="font-bold text-[#0a1142]">Rain Semester</span>
+            </div>
           </div>
-
-          <p className="text-xs text-gray-500 font-sans">
-            You have completed 4 out of 9 core syllabus modules.
-          </p>
         </section>
 
         {/* Upcoming Activities Card */}

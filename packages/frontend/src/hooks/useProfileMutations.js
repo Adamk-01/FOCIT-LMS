@@ -48,6 +48,7 @@ export function useProfileMutations({ studentId }) {
         ...patched,
       }));
       setFeedback({ type: 'success', message: 'Profile updated successfully.' });
+      toast.success('Profile and system preferences saved successfully.');
       setConflictState(null);
     },
     onError: (err, newProfile, context) => {

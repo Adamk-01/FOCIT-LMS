@@ -11,7 +11,12 @@
  */
 
 import pg from 'pg';
+import net from 'node:net';
 import { AsyncLocalStorage } from 'node:async_hooks';
+
+if (typeof net.setDefaultAutoSelectFamily === 'function') {
+  net.setDefaultAutoSelectFamily(false);
+}
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
 
@@ -34,7 +39,7 @@ const poolConfig = {
   connectionString: process.env.DATABASE_URL || 'postgresql://focit_user:focit_password@127.0.0.1:5432/focit_db',
   max: 20,                          // Little's Law capacity ceiling
   idleTimeoutMillis: 30000,         // Purge idle sockets after 30s
-  connectionTimeoutMillis: 5000,    // Fail fast if pool is exhausted
+  connectionTimeoutMillis: 10000,   // Resilient against container/serverless network latency
 };
 
 export const pool = new Pool(poolConfig);
