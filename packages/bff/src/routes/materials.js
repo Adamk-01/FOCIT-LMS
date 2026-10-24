@@ -273,6 +273,8 @@ router.get(
           category: courseData.category,
           description: courseData.description,
           department: courseData.department_name,
+          enrollment_status: courseData.enrollment_status,
+          status: courseData.enrollment_status,
         },
         progress: {
           percent: courseData.progress_percent,

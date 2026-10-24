@@ -8,15 +8,19 @@ import { Video, ExternalLink, Clock } from 'lucide-react';
  * Overview Tab Pane for CourseDetailPage
  * Isolates syllabus synopsis, live conference links, and Moodle upcoming assessments.
  */
+const PENDING_STATUSES = new Set(['PENDING', 'PENDING_APPROVAL', 'AWAITING_APPROVAL']);
+const COMPLETED_STATUSES = new Set(['COMPLETED', 'PASSED']);
+
 export function CourseOverviewTab({
   course,
   zoom,
   upcomingActivities = [],
 }) {
-  const enrolmentStatus = course?.status || course?.enrolment_status || 'Enrolled';
-  const normStatus = String(enrolmentStatus).toUpperCase();
-  const isPending = normStatus.includes('PEND');
-  const isCompleted = normStatus.includes('COMPLET');
+  // Precedence: explicit student enrollment status takes priority over course catalog status
+  const enrolmentStatus = course?.enrollment_status || course?.enrolment_status || course?.status || 'Enrolled';
+  const normStatus = String(enrolmentStatus).toUpperCase().trim();
+  const isPending = PENDING_STATUSES.has(normStatus);
+  const isCompleted = COMPLETED_STATUSES.has(normStatus);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
