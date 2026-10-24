@@ -68,13 +68,13 @@ export function QuizSubmissionModal({
               id="quiz-submit-modal-title"
               className="text-xl font-bold text-[#0a1142] font-display"
             >
-              Confirm Quiz Submission
+              Complete Practice Session
             </h2>
             <p
               id="quiz-submit-modal-description"
               className="text-xs text-gray-600 leading-relaxed"
             >
-              Once you submit, your answers will be committed permanently to the academic records ledger and cannot be modified.
+              Ready to wrap up? Submitting your answers will generate your topic mastery score and let you review detailed explanations.
             </p>
           </div>
           <button
@@ -120,7 +120,7 @@ export function QuizSubmissionModal({
             disabled={isSubmitting}
             className="px-4 py-2.5 min-h-[44px] rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:opacity-50 touch-manipulation transition-colors"
           >
-            Return to Attempt
+            Return to Questions
           </button>
 
           <button
@@ -135,12 +135,12 @@ export function QuizSubmissionModal({
             {isSubmitting ? (
               <>
                 <RefreshCw size={14} className="animate-spin" aria-hidden="true" />
-                <span>Committing to Ledger...</span>
+                <span>Evaluating Responses...</span>
               </>
             ) : (
               <>
                 <ShieldCheck size={16} aria-hidden="true" />
-                <span>Confirm & Submit</span>
+                <span>Complete Practice Drill</span>
               </>
             )}
           </button>

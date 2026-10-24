@@ -28,21 +28,21 @@ export function QuizFinalizedView({
           <CheckCircle2 size={36} aria-hidden="true" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
-          Assessment Attempt Submitted
+          Practice Drill Completed
         </h1>
         <p className="text-sm text-gray-600 max-w-md mx-auto">
-          Your answers have been cryptographically committed to the FOCIT academic ledger and synchronized with Headless Moodle.
+          Your practice responses have been recorded. Review your performance breakdown below to target specific topics for exam revision.
         </p>
 
         <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto py-6 border-y border-gray-100">
           <div>
-            <p className="text-xs text-gray-500 font-medium">Final Score</p>
+            <p className="text-xs text-gray-500 font-medium">Practice Score</p>
             <p className="text-xl font-extrabold text-[#0a1142] mt-1">
               {finalScore} / {finalTotal}
             </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 font-medium">Percentage</p>
+            <p className="text-xs text-gray-500 font-medium">Topic Mastery</p>
             <p className="text-xl font-extrabold text-emerald-600 mt-1">
               {percent}%
             </p>
@@ -50,7 +50,7 @@ export function QuizFinalizedView({
           <div>
             <p className="text-xs text-gray-500 font-medium">Status</p>
             <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-              GRADED
+              COMPLETED
             </span>
           </div>
         </div>
@@ -64,11 +64,11 @@ export function QuizFinalizedView({
             <span>Return to Course Overview</span>
           </Link>
           <Link
-            to={`/courses/${courseId}/grades`}
+            to={`/courses/${courseId}?tab=materials`}
             className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-bold transition-all flex items-center justify-center gap-2 touch-manipulation"
           >
             <Award size={16} aria-hidden="true" />
-            <span>View in Gradebook</span>
+            <span>Review Course Materials</span>
           </Link>
         </div>
       </header>

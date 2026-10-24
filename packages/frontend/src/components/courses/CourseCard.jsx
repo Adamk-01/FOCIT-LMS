@@ -20,7 +20,6 @@ import {
  */
 export function CourseCard({ course, focus = null }) {
   const canonicalId = course.course_id || course.id || '1';
-  const progressVal = Number(course.progress) || 45;
   const isCompleted = course.status === 'Completed';
 
   const handleCardClick = () => {
@@ -80,25 +79,6 @@ export function CourseCard({ course, focus = null }) {
             <span>Semester 2</span>
           </p>
         </div>
-
-        {/* Progress Gauge */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span className="text-gray-500 text-[11px]">Syllabus Completion</span>
-            <span className="text-[#0a1142] font-bold">{progressVal}%</span>
-          </div>
-
-          <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden p-0.5">
-            <div 
-              className={`h-full rounded-full transition-all duration-500 ${
-                isCompleted 
-                  ? 'bg-emerald-500' 
-                  : 'bg-gradient-to-r from-[#0a1142] to-[#16258f]'
-              }`}
-              style={{ width: `${progressVal}%` }}
-            />
-          </div>
-        </div>
       </div>
 
       {/* Course-Peculiar Quick Navigation Hub */}
@@ -114,15 +94,15 @@ export function CourseCard({ course, focus = null }) {
           <span>Assignments</span>
         </Link>
 
-        {/* Quizzes Quick Tab */}
+        {/* Self-Practice Quick Tab */}
         <Link
           to={`/courses/${canonicalId}?tab=quizzes`}
           onClick={handleCardClick}
-          title="View Quiz Assessments & CBT"
+          title="View Topic Self-Practice & Revision Drills"
           className="flex-1 min-h-[44px] p-2 rounded-lg text-gray-600 hover:text-[#0a1142] hover:bg-white text-center transition-colors flex flex-col items-center justify-center gap-0.5 border border-transparent hover:border-gray-200 hover:shadow-xs"
         >
           <HelpCircle size={14} className="text-amber-600" />
-          <span>Quizzes</span>
+          <span>Practice</span>
         </Link>
 
         {/* Materials Quick Tab */}
@@ -174,7 +154,7 @@ export function CourseCard({ course, focus = null }) {
             {focus === 'materials' 
               ? 'Open Learning Materials' 
               : focus === 'quizzes' 
-                ? 'Open Quizzes' 
+                ? 'Open Self-Practice' 
                 : focus === 'grades' 
                   ? 'Open Gradebook' 
                   : focus === 'forum' 

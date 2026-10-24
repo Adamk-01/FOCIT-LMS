@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../lib/api';
 import { useProfileMutations } from '../hooks/useProfileMutations';
+import { applyAllPreferences } from '../lib/preferencesManager';
 import { ProfileHeader } from '../components/profile/ProfileHeader';
 import { ProfileTabsNav, PROFILE_TABS } from '../components/profile/ProfileTabsNav';
 import { ProfileOverviewTab } from '../components/profile/ProfileOverviewTab';
@@ -97,7 +98,7 @@ export function StudentProfilePage() {
     handlePasswordSubmit,
   } = useProfileMutations({ studentId });
 
-  // Sync loaded profile into editable draft state
+  // Sync loaded profile into editable draft state and apply runtime preferences
   useEffect(() => {
     if (profile) {
       setDemographicsForm({
@@ -107,14 +108,16 @@ export function StudentProfilePage() {
         residential_address: profile.residential_address || '',
       });
       if (profile.preferences && typeof profile.preferences === 'object') {
-        setPreferencesForm({
+        const loadedPrefs = {
           email_notifications: profile.preferences.email_notifications ?? true,
           quiz_reminders: profile.preferences.quiz_reminders ?? true,
           forum_digest: profile.preferences.forum_digest ?? 'daily',
           sms_alerts: profile.preferences.sms_alerts ?? false,
           theme: profile.preferences.theme ?? 'system',
           compact_tables: profile.preferences.compact_tables ?? false,
-        });
+        };
+        setPreferencesForm(loadedPrefs);
+        applyAllPreferences(loadedPrefs);
       }
     }
   }, [profile]);
@@ -138,14 +141,18 @@ export function StudentProfilePage() {
   if (queryError) {
     return (
       <div className="max-w-4xl mx-auto my-12 p-6">
-        <ErrorStateView error={queryError} onRetry={refetch} />
+        <ErrorStateView
+          title="Profile Synchronization Halted"
+          message={queryError.message || 'Unable to retrieve your authoritative profile from the Senate ledger.'}
+          onRetry={refetch}
+        />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto flex flex-col gap-6 pb-20 select-text">
-      {/* 1. Header Banner & Identity Card */}
+    <div className="max-w-6xl mx-auto flex flex-col gap-6 p-4 sm:p-6 pb-20">
+      {/* 1. Hero Header */}
       <ProfileHeader
         profile={profile}
         fileInputRef={fileInputRef}
@@ -164,7 +171,7 @@ export function StudentProfilePage() {
         }}
       />
 
-      {/* 3. Tab Navigation Bar */}
+      {/* 3. Navigation Tabs */}
       <ProfileTabsNav activeTab={activeTab} onTabChange={handleTabChange} />
 
       {/* 4. Tab Content Router */}
@@ -190,7 +197,10 @@ export function StudentProfilePage() {
       {activeTab === 'preferences' && (
         <ProfilePreferencesTab
           form={preferencesForm}
-          onChange={setPreferencesForm}
+          onChange={(newForm) => {
+            setPreferencesForm(newForm);
+            applyAllPreferences(newForm);
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             if (!profileMutation.isPending) {

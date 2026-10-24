@@ -111,10 +111,10 @@ export function AdminOutboxQueueCard({
                     </td>
                     <td className="py-3.5 px-3">
                       <div className="font-semibold text-gray-900">
-                        {item.eventType || 'Course Enrollment Sync'}
+                        {item.action || item.eventType || 'Course Enrollment Sync'}
                       </div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">
-                        {item.courseCode || item.matricNumber || item.studentName || 'CSC 204'}
+                      <div className="text-[11px] text-gray-500 mt-0.5 truncate max-w-xs">
+                        {item.targetStudent || item.courseCode || item.matricNumber || item.studentName || 'Batch Sync'}
                       </div>
                     </td>
                     <td className="py-3.5 px-3">
@@ -159,8 +159,13 @@ export function AdminOutboxQueueCard({
                           {isRetrying ? 'Retrying...' : '[ Retry ]'}
                         </button>
                       ) : (
-                        <span className="text-[11px] text-gray-400">
-                          {item.updatedAt ? new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                        <span className="text-[11px] text-gray-500 font-mono">
+                          {(() => {
+                            const raw = item.timestamp || item.updatedAt || item.createdAt;
+                            return raw && !isNaN(new Date(raw).getTime())
+                              ? new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : 'Just now';
+                          })()}
                         </span>
                       )}
                     </td>

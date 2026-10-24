@@ -1,92 +1,123 @@
-version: '3.8'
+# ==============================================================================
+# FOCIT LMS — Unified Containerized Ecosystem (Docker Development & Testing)
+# ==============================================================================
+# Usage:
+#   Start all:  docker compose up -d
+#   Build/Sync: docker compose up -d --build
+#   Logs:       docker compose logs -f
+#   Stop all:   docker compose down
+#
+# Access URLs:
+#   Frontend SPA: http://localhost:5173
+#   BFF API:      http://localhost:3000
+#   Moodle LMS:   http://localhost:8080 (admin / AdminPassword123!)
+# ==============================================================================
 
 services:
-  postgres:
-    image: postgres:15-alpine
+  # ----------------------------------------------------------------------------
+  # 1. Moodle Database (MariaDB 11.4)
+  # ----------------------------------------------------------------------------
+  moodle-db:
+    image: mariadb:11.4
+    container_name: focit-moodle-db
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      POSTGRES_USER: focit_user
-      POSTGRES_PASSWORD: focit_password
-      POSTGRES_DB: focit_db
+      - MYSQL_ROOT_PASSWORD=rootpassword123
+      - MYSQL_USER=bn_moodle
+      - MYSQL_PASSWORD=bitnami_password123
+      - MYSQL_DATABASE=bitnami_moodle
+      - MARIADB_ROOT_PASSWORD=rootpassword123
+      - MARIADB_USER=bn_moodle
+      - MARIADB_PASSWORD=bitnami_password123
+      - MARIADB_DATABASE=bitnami_moodle
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+      - moodle_db_data:/var/lib/mysql
     networks:
-      - focit-net
+      - focit-network
 
-  redis:
-    image: redis:7-alpine
-    # Enable AOF for strict durability (persists state across crashes)
-    command: redis-server --appendonly yes
+  # ----------------------------------------------------------------------------
+  # 2. Real Moodle Engine (5.3)
+  # ----------------------------------------------------------------------------
+  moodle:
+    image: cloudtooling/moodle:latest
+    container_name: focit-moodle-app
+    restart: unless-stopped
+    depends_on:
+      - moodle-db
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      - MOODLE_DATABASE_HOST=moodle-db
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_NAME=bitnami_moodle
+      - MOODLE_DATABASE_USER=bn_moodle
+      - MOODLE_DATABASE_PASSWORD=bitnami_password123
+      - MOODLE_SITE_NAME=FOCIT Learning Engine (Local Dev)
+      - MOODLE_HOST=localhost:8080
+      - MOODLE_USERNAME=admin
+      - MOODLE_PASSWORD=AdminPassword123!
+      - MOODLE_EMAIL=admin@focit.uniosun.edu.ng
+      - ALLOW_EMPTY_PASSWORD=no
     volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
+      - moodle_app_data:/bitnami/moodle
+      - moodle_storage_data:/bitnami/moodledata
     networks:
-      - focit-net
+      - focit-network
 
-  moodle-mock:
-    image: node:20-alpine
-    working_dir: /app/packages/mock-moodle
-    # Bind mount the entire monorepo so hoisted node_modules are accessible,
-    # but mask the host's node_modules with anonymous volumes to prevent native binding crashes.
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/packages/bff/node_modules
-      - /app/packages/frontend/node_modules
-      - /app/node_modules
-      - /app/packages/mock-moodle/node_modules
-    command: npm run dev
-    ports:
-      - "4000:4000"
-    networks:
-      - focit-net
-
+  # ----------------------------------------------------------------------------
+  # 3. FOCIT Backend-For-Frontend (BFF Express Proxy)
+  # ----------------------------------------------------------------------------
   bff:
-    image: node:20-alpine
-    working_dir: /app/packages/bff
-    environment:
-      - PORT=3000
-      - DATABASE_URL=postgresql://focit_user:focit_password@postgres:5432/focit_db
-      - REDIS_URL=redis://redis:6379
-      - MOODLE_URL=http://moodle-mock:4000
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/packages/bff/node_modules
-      - /app/packages/frontend/node_modules
-    # Uses node --watch or nodemon via the dev script for hot-reloading
-    command: npm run dev
+    build:
+      context: .
+      dockerfile: packages/bff/Dockerfile
+    container_name: focit-bff
+    restart: unless-stopped
+    depends_on:
+      - moodle
     ports:
       - "3000:3000"
+    env_file:
+      - ./packages/bff/.env
+    environment:
+      - PORT=3000
+      - NODE_ENV=development
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+      - FRONTEND_ORIGIN=http://localhost:5173
+      - MOODLE_BASE_URL=http://moodle:8080
+      - MOODLE_WS_TOKEN=b385cd8eb592410cca0b35421a502001
     networks:
-      - focit-net
-    depends_on:
-      - postgres
-      - redis
-      - moodle-mock
+      - focit-network
 
+  # ----------------------------------------------------------------------------
+  # 4. FOCIT Frontend SPA (Vite + React)
+  # ----------------------------------------------------------------------------
   frontend:
-    image: node:20-alpine
-    working_dir: /app/packages/frontend
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/packages/bff/node_modules
-      - /app/packages/frontend/node_modules
-    command: npm run dev
-    ports:
-      - "5173:5173"
-    networks:
-      - focit-net
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+    container_name: focit-frontend
+    restart: unless-stopped
     depends_on:
       - bff
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_TARGET=http://bff:3000
+    networks:
+      - focit-network
 
 networks:
-  focit-net:
+  focit-network:
+    name: focit-network
     driver: bridge
 
 volumes:
-  postgres_data:
-  redis_data:
+  moodle_db_data:
+    name: focit_moodle_db_data
+  moodle_app_data:
+    name: focit_moodle_app_data
+  moodle_storage_data:
+    name: focit_moodle_storage_data

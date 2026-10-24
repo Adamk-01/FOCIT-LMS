@@ -1072,31 +1072,99 @@ export async function getOutboxEvents(req, res, next) {
       `).catch(() => ({ rows: [], rowCount: 0 })),
     ]);
 
+    const formatOutboxEventType = (type) => {
+      if (!type) return 'Course Enrollment Sync';
+      switch (type) {
+        case 'USER_PROVISION_REQUESTED':
+          return 'User Provisioning';
+        case 'ENROLLMENT_SYNC':
+        case 'COURSE_ENROLLMENT_REQUESTED':
+          return 'Course Enrollment Sync';
+        case 'COURSE_REGISTRATION_SUBMITTED':
+          return 'Registration Batch Sync';
+        case 'GRADE_SYNC_REQUESTED':
+          return 'Gradebook Sync';
+        case 'ACTIVITY_COMPLETED':
+          return 'Activity Completion Sync';
+        default:
+          return String(type)
+            .toLowerCase()
+            .split('_')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+      }
+    };
+
     const formattedMoodleQueue = [
-      ...moodleResult.rows.map((m) => ({
-        id: String(m.id),
-        eventType: m.event_type,
-        studentId: m.student_focit_id,
-        matricNumber: m.matric_number,
-        studentName: m.student_name,
-        courseCode: m.course_code,
-        status: m.status,
-        retryCount: m.retry_count,
-        updatedAt: m.updated_at,
-      })),
-      ...integrationResult.rows.map((io) => ({
-        id: String(io.event_id),
-        eventType: io.event_type,
-        studentId: io.aggregate_id,
-        matricNumber: io.payload?.matric_number || io.aggregate_id,
-        studentName: io.payload?.full_name || io.payload?.name || io.aggregate_type,
-        courseCode: io.payload?.course_code || io.aggregate_type,
-        status: io.status === 'PROCESSING' ? 'RETRYING' : io.status,
-        retryCount: io.delivery_attempts,
-        lastError: io.last_error,
-        updatedAt: io.updated_at,
-      })),
+      ...moodleResult.rows.map((m) => {
+        const actionLabel = formatOutboxEventType(m.event_type);
+        const targetLabel = m.student_name
+          ? `${m.student_name} (${m.matric_number || m.student_focit_id})`
+          : (m.matric_number || m.student_focit_id || 'Moodle Core Sync');
+
+        return {
+          id: String(m.id),
+          eventType: m.event_type,
+          action: actionLabel,
+          type: actionLabel,
+          studentId: m.student_focit_id,
+          matricNumber: m.matric_number,
+          studentName: m.student_name,
+          targetStudent: targetLabel,
+          courseCode: m.course_code,
+          status: m.status,
+          retryCount: m.retry_count,
+          payload: m.payload,
+          createdAt: m.created_at,
+          updatedAt: m.updated_at,
+          timestamp: m.created_at || m.updated_at,
+        };
+      }),
+      ...integrationResult.rows.map((io) => {
+        const studentName = io.payload?.full_name || io.payload?.name;
+        const matric = io.payload?.matric_number || io.aggregate_id;
+        const course = io.payload?.course_code || io.payload?.course_id;
+        const actionLabel = formatOutboxEventType(io.event_type);
+
+        let targetLabel = 'Integration Pipeline';
+        if (studentName && matric) {
+          targetLabel = `${studentName} (${matric})`;
+        } else if (studentName) {
+          targetLabel = studentName;
+        } else if (matric && course) {
+          targetLabel = `${matric} • ${course}`;
+        } else if (matric) {
+          targetLabel = matric;
+        }
+
+        return {
+          id: String(io.event_id),
+          eventType: io.event_type,
+          action: actionLabel,
+          type: actionLabel,
+          aggregateType: io.aggregate_type,
+          aggregateId: io.aggregate_id,
+          studentId: io.aggregate_id,
+          matricNumber: matric,
+          studentName: studentName || io.aggregate_type,
+          targetStudent: targetLabel,
+          courseCode: course || io.aggregate_type,
+          status: io.status === 'PROCESSING' ? 'RETRYING' : io.status,
+          retryCount: io.delivery_attempts,
+          lastError: io.last_error,
+          payload: io.payload,
+          createdAt: io.created_at,
+          updatedAt: io.updated_at,
+          timestamp: io.created_at || io.updated_at,
+        };
+      }),
     ];
+
+    formattedMoodleQueue.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt || a.timestamp || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || b.timestamp || 0).getTime();
+      return timeB - timeA;
+    });
 
     return res.status(200).json({
       success: true,
@@ -1166,9 +1234,9 @@ export async function retryOutboxEvent(req, res, next) {
       const existingEvent = existingRes.rows[0];
       const previousStatus = existingEvent.status;
 
-      if (!['FAILED', 'PROCESSING'].includes(previousStatus)) {
+      if (!['FAILED', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(previousStatus)) {
         return res.status(400).json({
-          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED or PROCESSING events can be retried.`,
+          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED, PROCESSING, or COMPLETED events can be retried.`,
           code: 'OUTBOX_STATUS_NOT_RETRYABLE',
           currentStatus: previousStatus,
         });
@@ -1222,9 +1290,9 @@ export async function retryOutboxEvent(req, res, next) {
         });
       }
 
-      if (!['FAILED', 'DEAD_LETTER', 'PROCESSING'].includes(previousIntegrationStatus)) {
+      if (!['FAILED', 'DEAD_LETTER', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(previousIntegrationStatus)) {
         return res.status(400).json({
-          error: `Cannot retry integration event with status '${previousIntegrationStatus}'. Only FAILED, DEAD_LETTER, or expired PROCESSING events can be retried.`,
+          error: `Cannot retry integration event with status '${previousIntegrationStatus}'. Only FAILED, DEAD_LETTER, COMPLETED, or expired PROCESSING events can be retried.`,
           code: 'OUTBOX_STATUS_NOT_RETRYABLE',
           currentStatus: previousIntegrationStatus,
         });
@@ -1236,7 +1304,7 @@ export async function retryOutboxEvent(req, res, next) {
         SET status = 'PENDING', delivery_attempts = 0, locked_until = NULL, last_error = NULL, updated_at = NOW()
         WHERE event_id = $1
           AND (
-            status IN ('FAILED', 'DEAD_LETTER')
+            status IN ('FAILED', 'DEAD_LETTER', 'COMPLETED', 'SYNCED')
             OR (status = 'PROCESSING' AND (locked_until IS NULL OR locked_until <= NOW()))
           )
         RETURNING event_id, event_type, aggregate_id, status
@@ -1374,6 +1442,10 @@ export async function getAuditLogs(req, res, next) {
           targetEntity: row.target_type,
           ipAddress: row.ip_address,
           details: row.metadata,
+          metadata: row.metadata,
+          prevEntryHash: row.prev_entry_hash,
+          entryHash: row.entry_hash,
+          createdAt: row.created_at,
           timestamp: row.created_at,
         })),
         pagination: {

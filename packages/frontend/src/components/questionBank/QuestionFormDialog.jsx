@@ -133,7 +133,7 @@ export function QuestionFormDialog({
             id="question-text-input"
             required
             rows={3}
-            placeholder="Enter the examination prompt (e.g. In a Min-Heap with N elements, what is the asymptotic runtime to extract min?)..."
+            placeholder="Enter the practice question prompt (e.g. In a Min-Heap with N elements, what is the asymptotic runtime to extract min?)..."
             value={formPrompt}
             onChange={(e) => setFormPrompt(e.target.value)}
             className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0a1142] resize-none"

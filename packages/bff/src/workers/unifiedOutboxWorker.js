@@ -157,6 +157,12 @@ export class UnifiedOutboxWorker {
             });
           }
 
+          // Guard: If moodleUserId was previously mapped to a stale/different FOCIT identity, purge the obsolete mapping
+          await pool.query(
+            `DELETE FROM moodle_user_mappings WHERE moodle_user_id = $1 AND focit_user_id != $2`,
+            [moodleUserId, aggregate_id]
+          );
+
           // Persist mapping
           await pool.query(`
             INSERT INTO moodle_user_mappings (focit_user_id, moodle_user_id, sync_status, last_synced_at)

@@ -32,9 +32,7 @@ export const CourseDetailPage = () => {
 
   // Resilient course ID resolution with session memory
   const savedCourseId = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('focit_last_course_id') : null;
-  const courseId = (paramCourseId && paramCourseId !== '1') 
-    ? paramCourseId 
-    : (savedCourseId && savedCourseId !== '1' ? savedCourseId : 'CSC202');
+  const courseId = (paramCourseId && paramCourseId !== '1') ? paramCourseId : (savedCourseId && savedCourseId !== '1' ? savedCourseId : 'CSC202');
 
   const [searchParams] = useSearchParams();
 
@@ -49,9 +47,7 @@ export const CourseDetailPage = () => {
     return 'overview';
   })();
 
-  const handleTabChange = (tabId) => {
-    navigate(`/courses/${encodeURIComponent(courseId)}?tab=${tabId}`);
-  };
+  const handleTabChange = (tabId) => navigate(`/courses/${encodeURIComponent(courseId)}?tab=${tabId}`);
 
   useEffect(() => {
     if (courseId && courseId !== '1') {
@@ -80,7 +76,6 @@ export const CourseDetailPage = () => {
   });
 
   const course = shellData?.course;
-  const progressPercent = shellData?.progress?.percent ?? 45;
   const zoom = shellData?.zoom_session;
   const upcomingActivities = shellData?.upcoming_activities || [];
   const isDegraded = shellData?._degraded;
@@ -127,7 +122,6 @@ export const CourseDetailPage = () => {
           <CourseOverviewTab 
             course={course}
             zoom={zoom}
-            progressPercent={progressPercent}
             upcomingActivities={upcomingActivities}
           />
         )}

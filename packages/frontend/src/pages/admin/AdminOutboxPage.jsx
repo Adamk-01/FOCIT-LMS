@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
-import { RefreshCw, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { RefreshCw, CheckCircle2, Eye } from 'lucide-react';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
+import { OutboxEventDetailModal } from '../../components/admin/OutboxEventDetailModal';
+
+/**
+ * Formats ISO timestamp into a readable date and time string.
+ */
+function formatEventTime(raw) {
+  if (!raw) return { dateStr: '—', timeStr: '' };
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return { dateStr: '—', timeStr: '' };
+  return {
+    dateStr: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+    timeStr: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+  };
+}
 
 /**
  * Moodle Integration Engine & Transactional Outbox Page
@@ -12,6 +26,7 @@ export function AdminOutboxPage() {
   } = useAdminDashboard();
 
   const [retryingId, setRetryingId] = useState(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
   const handleRetry = async (id) => {
     setRetryingId(id);
@@ -100,15 +115,14 @@ export function AdminOutboxPage() {
                   const isDeadLetter = item.status === 'DEAD_LETTER';
                   const isPending = item.status === 'PENDING' || item.status === 'RETRYING';
                   const isItemRetrying = isRetryingOutbox && retryingId === item.id;
-                  const formattedTime = item.createdAt && !isNaN(new Date(item.createdAt).getTime())
-                    ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    : '—';
+                  const { dateStr, timeStr } = formatEventTime(item.timestamp || item.createdAt || item.updatedAt);
+
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-medium text-slate-500 text-[11px]">#{item.id}</td>
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-800">{item.action || item.type || 'Course Enrollment Sync'}</div>
-                        <div className="text-[11px] text-gray-400 font-mono">{item.targetStudent || item.payload?.studentId || 'Batch Sync'}</div>
+                        <div className="font-bold text-slate-800">{item.action || item.type || item.eventType || 'Course Enrollment Sync'}</div>
+                        <div className="text-[11px] text-gray-400 font-mono truncate max-w-xs">{item.targetStudent || item.matricNumber || item.studentId || 'Batch Sync'}</div>
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -121,25 +135,60 @@ export function AdminOutboxPage() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-gray-500 text-[11px] whitespace-nowrap">
-                        {formattedTime}
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-semibold text-slate-700">{dateStr}</span>
+                          {timeStr && <span className="text-[10px] text-gray-400 font-mono mt-0.5">{timeStr}</span>}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        {isFailed ? (
+                        <div className="inline-flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleRetry(item.id)}
-                            disabled={isRetryingOutbox}
-                            className="px-3 py-1 rounded-lg text-[11px] font-bold bg-[#0a1142] text-white hover:bg-blue-900 transition-colors disabled:opacity-50"
+                            onClick={() => setSelectedEvent(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-[#0a1142] hover:text-white transition-colors border border-slate-200/80"
+                            title="Inspect event payload and trace"
                           >
-                            {isItemRetrying ? 'Retrying...' : 'Retry Sync'}
+                            <Eye size={12} />
+                            <span>Details</span>
                           </button>
-                        ) : isDeadLetter ? (
-                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                            Quarantined
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-[11px]">—</span>
-                        )}
+                          {isFailed ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRetry(item.id)}
+                              disabled={isRetryingOutbox}
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-bold bg-[#0a1142] text-white hover:bg-blue-900 transition-colors disabled:opacity-50"
+                            >
+                              <RefreshCw size={11} className={isItemRetrying ? 'animate-spin' : ''} />
+                              <span>{isItemRetrying ? 'Retrying...' : 'Retry'}</span>
+                            </button>
+                          ) : isDeadLetter ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRetry(item.id)}
+                              disabled={isRetryingOutbox}
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-bold bg-purple-700 text-white hover:bg-purple-800 transition-colors disabled:opacity-50"
+                            >
+                              <RefreshCw size={11} className={isItemRetrying ? 'animate-spin' : ''} />
+                              <span>Recover</span>
+                            </button>
+                          ) : isPending ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-medium px-2 py-0.5 bg-amber-50 rounded-md border border-amber-200">
+                              <RefreshCw size={11} className="animate-spin text-amber-600" />
+                              <span>Queued</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleRetry(item.id)}
+                              disabled={isRetryingOutbox}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors disabled:opacity-50"
+                              title="Re-synchronize with Moodle upstream"
+                            >
+                              <RefreshCw size={11} className={isItemRetrying ? 'animate-spin' : ''} />
+                              <span>{isItemRetrying ? 'Syncing...' : 'Re-sync'}</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -149,7 +198,20 @@ export function AdminOutboxPage() {
           )}
         </div>
       </div>
+
+      {/* Inspector Modal */}
+      <OutboxEventDetailModal
+        event={selectedEvent}
+        isOpen={Boolean(selectedEvent)}
+        onClose={() => setSelectedEvent(null)}
+        onRetry={async (id) => {
+          await handleRetry(id);
+          setSelectedEvent(null);
+        }}
+        isRetrying={isRetryingOutbox}
+      />
     </div>
   );
 }
+
 export default AdminOutboxPage;

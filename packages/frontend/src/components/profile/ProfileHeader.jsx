@@ -1,5 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, RefreshCw, Camera } from 'lucide-react';
+
+/**
+ * Extracts a clean 2-letter uppercase initials string from a student's full name.
+ * e.g., "John Doe" -> "JD", "Babatunde" -> "BA"
+ */
+function getInitials(name) {
+  if (!name || typeof name !== 'string') return 'ST';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return parts[0] ? parts[0].slice(0, 2).toUpperCase() : 'ST';
+}
 
 /**
  * <ProfileHeader />
@@ -12,6 +25,16 @@ export function ProfileHeader({
   onAvatarSelect,
   isCompressing,
 }) {
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error state whenever avatar URL changes
+  useEffect(() => {
+    setImageError(false);
+  }, [profile?.avatar_url]);
+
+  const hasAvatar = Boolean(profile?.avatar_url && !imageError);
+  const initials = getInitials(profile?.full_name);
+
   return (
     <header className="relative bg-gradient-to-r from-[#0a1142] via-[#101b60] to-[#16258f] rounded-2xl p-6 sm:p-8 text-white shadow-lg overflow-hidden border border-[#16258f]/40">
       <div className="absolute top-0 right-0 w-96 h-96 bg-[#ffb81c]/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
@@ -20,15 +43,19 @@ export function ProfileHeader({
         {/* Avatar Area with Off-Thread Downsampler */}
         <div className="relative group shrink-0">
           <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden ring-4 ring-[#ffb81c]/70 shadow-xl bg-slate-800 flex items-center justify-center">
-            {profile?.avatar_url ? (
+            {hasAvatar ? (
               <img
                 src={profile.avatar_url}
-                alt={profile.full_name}
+                alt={profile?.full_name || 'Student avatar'}
+                onError={() => setImageError(true)}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-tr from-[#0a1142] to-[#16258f] flex items-center justify-center text-[#ffb81c] text-3xl font-black">
-                {profile?.full_name ? profile.full_name.slice(0, 2).toUpperCase() : 'ST'}
+              <div 
+                className="w-full h-full bg-gradient-to-tr from-[#0a1142] to-[#16258f] flex items-center justify-center text-[#ffb81c] text-3xl font-black select-none tracking-wider"
+                aria-label={profile?.full_name || 'Student Initials'}
+              >
+                {initials}
               </div>
             )}
           </div>

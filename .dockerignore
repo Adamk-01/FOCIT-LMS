@@ -1,0 +1,10 @@
+**/node_modules
+**/.git
+**/.cache
+**/dist
+**/coverage
+**/*.log
+.agents
+docs
+bitnami
+*.docx
