@@ -11,9 +11,13 @@ import { Video, ExternalLink, Clock } from 'lucide-react';
 export function CourseOverviewTab({
   course,
   zoom,
-  progressPercent = 45,
   upcomingActivities = [],
 }) {
+  const enrolmentStatus = course?.status || course?.enrolment_status || 'Enrolled';
+  const normStatus = String(enrolmentStatus).toUpperCase();
+  const isPending = normStatus.includes('PEND');
+  const isCompleted = normStatus.includes('COMPLET');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
       {/* Left Column: Course Information & Description */}
@@ -53,13 +57,13 @@ export function CourseOverviewTab({
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <h3 className="text-sm font-bold text-[#0a1142]">Course Enrolment</h3>
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-              (course?.status === 'Pending' || course?.status === 'PENDING')
+              isPending
                 ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : (course?.status === 'Completed' || course?.status === 'COMPLETED')
+                : isCompleted
                   ? 'bg-blue-50 text-blue-700 border-blue-200'
                   : 'bg-emerald-50 text-emerald-700 border-emerald-200'
             }`}>
-              {course?.status || course?.enrolment_status || 'Enrolled'}
+              {enrolmentStatus}
             </span>
           </div>
 

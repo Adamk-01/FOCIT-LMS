@@ -114,6 +114,7 @@ export function AdminOutboxPage() {
                   const isFailed = item.status === 'FAILED';
                   const isDeadLetter = item.status === 'DEAD_LETTER';
                   const isPending = item.status === 'PENDING' || item.status === 'RETRYING';
+                  const isCompleted = item.status === 'COMPLETED' || item.status === 'SYNCED';
                   const isItemRetrying = isRetryingOutbox && retryingId === item.id;
                   const { dateStr, timeStr } = formatEventTime(item.timestamp || item.createdAt || item.updatedAt);
 

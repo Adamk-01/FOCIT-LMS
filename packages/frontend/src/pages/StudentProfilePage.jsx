@@ -204,8 +204,14 @@ export function StudentProfilePage() {
           onSubmit={(e) => {
             e.preventDefault();
             if (!profileMutation.isPending) {
-              applyAllPreferences(preferencesForm, true);
-              profileMutation.mutate({ preferences: preferencesForm, version: profile?.version || 1 });
+              profileMutation.mutate(
+                { preferences: preferencesForm, version: profile?.version || 1 },
+                {
+                  onSuccess: () => {
+                    applyAllPreferences(preferencesForm, true);
+                  },
+                }
+              );
             }
           }}
           isPending={profileMutation.isPending}
