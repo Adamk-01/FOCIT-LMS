@@ -292,7 +292,7 @@ export const REMEDIATION_REGISTRY = {
   ATTEMPT_CLOSED: () => ({
     title: 'Attempt Finalized',
     problem: 'This practice attempt has already been closed and submitted.',
-    remediation: 'No further edits can be saved. View your grade breakdown in the course overview.',
+    remediation: 'No further responses can be saved. You can start a new practice drill or return to the course overview.',
     severity: 'info',
     recoveryAction: { type: 'NAVIGATE', label: 'Course Overview', target: '/courses' },
   }),

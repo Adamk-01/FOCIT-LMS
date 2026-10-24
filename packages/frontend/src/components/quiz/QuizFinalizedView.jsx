@@ -31,7 +31,7 @@ export function QuizFinalizedView({
           Practice Drill Completed
         </h1>
         <p className="text-sm text-gray-600 max-w-md mx-auto">
-          Your practice responses have been recorded. Review your performance breakdown below to target specific topics for exam revision.
+          Your practice responses have been recorded. Review your total score and mastery percentage below, and revisit your course materials for further revision.
         </p>
 
         <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto py-6 border-y border-gray-100">

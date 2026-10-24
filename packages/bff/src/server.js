@@ -76,7 +76,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+    const isAppVercelOrigin = typeof origin === 'string' && /^https:\/\/focit(-[a-z0-9-]+)?\.vercel\.app$/.test(origin);
+    if (!origin || allowedOrigins.includes(origin) || isAppVercelOrigin) {
       return callback(null, true);
     }
     return callback(new Error(`CORS blocked for origin: ${origin}`));

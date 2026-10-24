@@ -20,15 +20,44 @@ async function runPipelineVerification() {
   console.log('   FOCIT LMS: MOODLE INTEGRATION & OUTBOX PIPELINE   ');
   console.log('======================================================\n');
 
-  // Step 1: Probe Moodle /health
-  const healthUrl = `${config.moodle.baseUrl}/health`;
-  console.log(`[1/5] Probing Moodle /health endpoint (${healthUrl})...`);
+  // Step 1: Probe Moodle availability (Resilient against real Bitnami Moodle and mock engines)
+  console.log(`[1/5] Probing Moodle server (${config.moodle.baseUrl})...`);
+  let isMoodleUp = false;
+  let probeDetails = '';
+
   try {
-    const healthRes = await fetch(healthUrl);
-    const healthData = await healthRes.json();
-    console.log(`  ✔ Moodle Health Probe: HTTP ${healthRes.status} - Status: ${healthData.status} (v${healthData.version || '5.3'})`);
-  } catch (err) {
-    console.log(`  ⚠ Moodle server is not running or unreachable at ${config.moodle.baseUrl}: ${err.message}`);
+    const wsRes = await fetch(`${config.moodle.baseUrl}/webservice/rest/server.php`);
+    if (wsRes.ok || wsRes.status === 200 || wsRes.status === 400 || wsRes.status === 405) {
+      isMoodleUp = true;
+      probeDetails = `HTTP ${wsRes.status} (Moodle Web Service Engine)`;
+    }
+  } catch (_) {}
+
+  if (!isMoodleUp) {
+    try {
+      const healthRes = await fetch(`${config.moodle.baseUrl}/health`);
+      if (healthRes.ok) {
+        const healthData = await healthRes.json().catch(() => ({}));
+        isMoodleUp = true;
+        probeDetails = `HTTP ${healthRes.status} - Status: ${healthData.status || 'OK'}`;
+      }
+    } catch (_) {}
+  }
+
+  if (!isMoodleUp) {
+    try {
+      const loginRes = await fetch(`${config.moodle.baseUrl}/login/index.php`);
+      if (loginRes.ok || loginRes.status === 200 || loginRes.status === 303) {
+        isMoodleUp = true;
+        probeDetails = `HTTP ${loginRes.status} (Moodle Web Portal)`;
+      }
+    } catch (_) {}
+  }
+
+  if (isMoodleUp) {
+    console.log(`  ✔ Moodle Server Probe: Available - ${probeDetails}`);
+  } else {
+    console.log(`  ⚠ Moodle server is not running or unreachable at ${config.moodle.baseUrl}`);
     process.exit(1);
   }
 

@@ -16,8 +16,9 @@ export const PREFS_STORAGE_KEY = 'focit_preferences';
 /**
  * Applies color scheme to the HTML document root.
  * @param {'system' | 'light' | 'dark'} theme
+ * @param {boolean} persist
  */
-export function applyTheme(theme = 'system') {
+export function applyTheme(theme = 'system', persist = false) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
 
@@ -36,16 +37,19 @@ export function applyTheme(theme = 'system') {
     root.setAttribute('data-theme', 'light');
   }
 
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch (_) {}
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (_) {}
+  }
 }
 
 /**
  * Applies high-density row padding across grade tables.
  * @param {boolean} isCompact
+ * @param {boolean} persist
  */
-export function applyTableDensity(isCompact = false) {
+export function applyTableDensity(isCompact = false, persist = false) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
 
@@ -57,28 +61,33 @@ export function applyTableDensity(isCompact = false) {
     root.removeAttribute('data-compact-tables');
   }
 
-  try {
-    localStorage.setItem(COMPACT_STORAGE_KEY, isCompact ? 'true' : 'false');
-  } catch (_) {}
+  if (persist) {
+    try {
+      localStorage.setItem(COMPACT_STORAGE_KEY, isCompact ? 'true' : 'false');
+    } catch (_) {}
+  }
 }
 
 /**
  * Applies all user preferences simultaneously (theme, table density, etc.).
  * @param {Object} prefs
+ * @param {boolean} persist
  */
-export function applyAllPreferences(prefs = {}) {
+export function applyAllPreferences(prefs = {}, persist = false) {
   if (!prefs || typeof prefs !== 'object') return;
 
   if (prefs.theme) {
-    applyTheme(prefs.theme);
+    applyTheme(prefs.theme, persist);
   }
   if (typeof prefs.compact_tables === 'boolean') {
-    applyTableDensity(prefs.compact_tables);
+    applyTableDensity(prefs.compact_tables, persist);
   }
 
-  try {
-    localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (_) {}
+  if (persist) {
+    try {
+      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    } catch (_) {}
+  }
 }
 
 /**

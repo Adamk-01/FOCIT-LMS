@@ -114,6 +114,7 @@ export function AdminOutboxPage() {
                   const isFailed = item.status === 'FAILED';
                   const isDeadLetter = item.status === 'DEAD_LETTER';
                   const isPending = item.status === 'PENDING' || item.status === 'RETRYING';
+                  const isCompleted = item.status === 'COMPLETED' || item.status === 'SYNCED';
                   const isItemRetrying = isRetryingOutbox && retryingId === item.id;
                   const { dateStr, timeStr } = formatEventTime(item.timestamp || item.createdAt || item.updatedAt);
 
@@ -176,7 +177,7 @@ export function AdminOutboxPage() {
                               <RefreshCw size={11} className="animate-spin text-amber-600" />
                               <span>Queued</span>
                             </span>
-                          ) : (
+                          ) : isCompleted ? (
                             <button
                               type="button"
                               onClick={() => handleRetry(item.id)}
@@ -187,7 +188,7 @@ export function AdminOutboxPage() {
                               <RefreshCw size={11} className={isItemRetrying ? 'animate-spin' : ''} />
                               <span>{isItemRetrying ? 'Syncing...' : 'Re-sync'}</span>
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -205,8 +206,12 @@ export function AdminOutboxPage() {
         isOpen={Boolean(selectedEvent)}
         onClose={() => setSelectedEvent(null)}
         onRetry={async (id) => {
-          await handleRetry(id);
-          setSelectedEvent(null);
+          try {
+            await handleRetry(id);
+            setSelectedEvent(null);
+          } catch (err) {
+            console.error('Outbox retry modal execution failed:', err);
+          }
         }}
         isRetrying={isRetryingOutbox}
       />
