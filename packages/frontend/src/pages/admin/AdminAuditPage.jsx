@@ -101,8 +101,8 @@ export function AdminAuditPage() {
                       </td>
                       <td className="py-3.5 px-4 text-gray-700 font-mono text-[11px] truncate max-w-xs">{log.targetId}</td>
                       <td className="py-3.5 px-4 font-mono text-[10px] text-emerald-800">
-                        <span className="bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200" title={log.entryHash}>
-                          {log.entryHash ? `${log.entryHash.slice(0, 8)}...` : 'GENESIS'}
+                        <span className="bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200" title={log.entryHash || 'Unhashed entry'}>
+                          {log.entryHash ? `${log.entryHash.slice(0, 8)}...` : (log.isGenesis ? 'GENESIS' : 'UNHASHED')}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-gray-500 font-mono text-[11px]">{log.ipAddress || 'Internal'}</td>

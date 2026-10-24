@@ -15,6 +15,24 @@
 
 services:
   # ----------------------------------------------------------------------------
+  # 0. Local PostgreSQL Service (Optional Local/Offline BFF Database)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: focit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-focit_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-focit_password}
+      POSTGRES_DB: ${POSTGRES_DB:-focit_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - focit-network
+
+  # ----------------------------------------------------------------------------
   # 1. Moodle Database (MariaDB 11.4)
   # ----------------------------------------------------------------------------
   moodle-db:
@@ -87,7 +105,7 @@ services:
       - NODE_OPTIONS=--dns-result-order=ipv4first
       - FRONTEND_ORIGIN=http://localhost:5173
       - MOODLE_BASE_URL=http://moodle:8080
-      - MOODLE_WS_TOKEN=b385cd8eb592410cca0b35421a502001
+      - MOODLE_WS_TOKEN=${MOODLE_WS_TOKEN:-b385cd8eb592410cca0b35421a502001}
     networks:
       - focit-network
 
@@ -115,6 +133,8 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
+    name: focit_postgres_data
   moodle_db_data:
     name: focit_moodle_db_data
   moodle_app_data:

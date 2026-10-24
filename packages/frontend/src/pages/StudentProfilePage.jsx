@@ -199,11 +199,12 @@ export function StudentProfilePage() {
           form={preferencesForm}
           onChange={(newForm) => {
             setPreferencesForm(newForm);
-            applyAllPreferences(newForm);
+            applyAllPreferences(newForm, false);
           }}
           onSubmit={(e) => {
             e.preventDefault();
             if (!profileMutation.isPending) {
+              applyAllPreferences(preferencesForm, true);
               profileMutation.mutate({ preferences: preferencesForm, version: profile?.version || 1 });
             }
           }}
