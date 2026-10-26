@@ -15,6 +15,7 @@ import IORedis from 'ioredis';
 import { pool } from '../db/index.js';
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
+import { notificationBroadcaster } from '../services/notificationBroadcaster.js';
 
 const router = express.Router();
 
@@ -134,7 +135,12 @@ export async function createStudentNotification({
       await client.query('COMMIT');
     }
 
-    // 3. Post-Commit Redis Emission Barrier (Guarantees ACID Visibility to Readers)
+    // 3. Post-Commit Emission via PostgreSQL LISTEN / NOTIFY (Option B)
+    try {
+      await notificationBroadcaster.broadcast(createdRecord, isDedicatedTransaction ? pool : client);
+    } catch (notifErr) {
+      logger.warn({ err: notifErr?.message }, '[Notification] Postgres notification broadcast failed');
+    }
     try {
       await redisPublisher.publish('student_notifications', JSON.stringify(createdRecord));
     } catch (redisErr) {

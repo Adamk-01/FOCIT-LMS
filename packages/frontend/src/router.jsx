@@ -18,6 +18,7 @@ import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AdminOutboxPage } from './pages/admin/AdminOutboxPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminProfilePage } from './pages/admin/AdminProfilePage';
+import { HodDashboardPage } from './pages/HodDashboardPage';
 import { LoginPage } from './pages/LoginPage';
 
 /**
@@ -32,6 +33,7 @@ function RootIndexRedirect() {
     return <Navigate to={isStaffRole ? '/admin/profile' : '/profile?tab=security'} replace />;
   }
   if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
+  if (role === 'HOD') return <Navigate to="/hod" replace />;
   if (isStaffRole) {
     return <Navigate to="/advisor/registrations" replace />;
   }
@@ -47,7 +49,8 @@ function RoleRouteGuard({ allowedRoles, fallbackPath, children }) {
   if (allowedRoles && !allowedRoles.includes(role)) {
     if (fallbackPath) return <Navigate to={fallbackPath} replace />;
     if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
-    if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
+    if (role === 'HOD') return <Navigate to="/hod" replace />;
+    if (['LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
       return <Navigate to="/advisor/registrations" replace />;
     }
     if (role === 'STUDENT') return <Navigate to="/dashboard" replace />;
@@ -79,6 +82,11 @@ export const router = createBrowserRouter([
       {
         path: 'admin',
         element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminDashboardPage /></RoleRouteGuard>,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'hod',
+        element: <RoleRouteGuard allowedRoles={['HOD', 'ADMIN', 'SYSTEM_ADMIN']}><HodDashboardPage /></RoleRouteGuard>,
         errorElement: <RouteErrorBoundary />,
       },
       {
