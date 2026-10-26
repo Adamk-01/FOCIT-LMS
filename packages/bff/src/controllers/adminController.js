@@ -1236,7 +1236,7 @@ export async function retryOutboxEvent(req, res, next) {
 
       if (!['FAILED', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(previousStatus)) {
         return res.status(400).json({
-          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED, PROCESSING, or COMPLETED events can be retried.`,
+          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED, PROCESSING, COMPLETED, or SYNCED events can be retried.`,
           code: 'OUTBOX_STATUS_NOT_RETRYABLE',
           currentStatus: previousStatus,
         });

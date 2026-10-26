@@ -2,37 +2,30 @@ import React, { useState } from 'react';
 import { X, Copy, Check, AlertCircle, RefreshCw, FileText } from 'lucide-react';
 
 /**
- * OutboxEventDetailModal
- *
- * Inspector modal for deep telemetry on outbox events:
- * - Event metadata, aggregate details, target student, retry count
- * - Status badge, execution timestamps, error traces (if any)
- * - Raw JSON payload preview with 1-click clipboard copy
- *
+ * OutboxEventDetailModal - Telemetry inspector for outbox events & raw payloads
  * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
-export function OutboxEventDetailModal({
-  event,
-  isOpen,
-  onClose,
-  onRetry,
-  isRetrying = false,
-}) {
+export function OutboxEventDetailModal({ event, isOpen, onClose, onRetry, isRetrying = false }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen || !event) return null;
 
   const handleCopyPayload = async () => {
-    const text = JSON.stringify(event.payload || {}, null, 2);
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      const text = JSON.stringify(event.payload || {}, null, 2);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+    }
   };
 
   const isFailed = event.status === 'FAILED';
   const isDeadLetter = event.status === 'DEAD_LETTER';
   const isPending = event.status === 'PENDING' || event.status === 'RETRYING';
   const isCompleted = event.status === 'COMPLETED' || event.status === 'SYNCED';
+  const isRetryable = ['FAILED', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(event.status);
 
   const formatDateTime = (raw) => {
     if (!raw) return '—';
@@ -157,7 +150,7 @@ export function OutboxEventDetailModal({
             Close
           </button>
 
-          {onRetry && (
+          {onRetry && isRetryable && (
             <button
               type="button"
               onClick={() => onRetry(event.id)}

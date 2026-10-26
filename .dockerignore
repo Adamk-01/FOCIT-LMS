@@ -4,6 +4,8 @@
 **/dist
 **/coverage
 **/*.log
+**/.env
+**/.env.*
 .agents
 docs
 bitnami

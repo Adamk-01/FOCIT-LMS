@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiClient } from '../lib/api';
 
 /**
@@ -105,6 +105,7 @@ export function useAdminDashboard() {
       const res = await apiClient.get(`/admin/audit-logs?${params.toString()}`);
       return res.data?.data || res.data || {};
     },
+    placeholderData: keepPreviousData,
     staleTime: 5000,
   });
 

@@ -18,17 +18,25 @@ export function AuditLogDetailModal({ log, isOpen, onClose }) {
   if (!isOpen || !log) return null;
 
   const handleCopyJson = async () => {
-    const text = JSON.stringify(log.details || log.metadata || {}, null, 2);
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      const text = JSON.stringify(log.details || log.metadata || {}, null, 2);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+    }
   };
 
   const handleCopyHash = async (hash) => {
     if (!hash) return;
-    await navigator.clipboard.writeText(hash);
-    setHashCopied(true);
-    setTimeout(() => setHashCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(hash);
+      setHashCopied(true);
+      setTimeout(() => setHashCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+    }
   };
 
   const formatFullDate = (raw) => {

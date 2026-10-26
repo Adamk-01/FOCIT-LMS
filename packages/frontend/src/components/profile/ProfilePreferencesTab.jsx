@@ -13,13 +13,13 @@ export function ProfilePreferencesTab({ form, onChange, onSubmit, isPending }) {
   const handleToggle = (key, val) => {
     const updated = { ...form, [key]: val };
     onChange(updated);
-    applyAllPreferences(updated);
+    applyAllPreferences(updated, false);
 
     if (key === 'theme') {
-      applyTheme(val);
+      applyTheme(val, false);
       toast.info(`Portal color scheme set to ${val.toUpperCase()}`, { autoClose: 1500 });
     } else if (key === 'compact_tables') {
-      applyTableDensity(val);
+      applyTableDensity(val, false);
       toast.info(`Compact table density ${val ? 'enabled' : 'disabled'}`, { autoClose: 1500 });
     }
   };
@@ -54,9 +54,9 @@ export function ProfilePreferencesTab({ form, onChange, onSubmit, isPending }) {
               id="email_notifications"
               checked={Boolean(form.email_notifications)}
               onChange={(e) => handleToggle('email_notifications', e.target.checked)}
-              className="sr-only"
+              className="sr-only peer"
             />
-            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all ${
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[#0a1142] peer-focus-visible:ring-offset-2 ${
               form.email_notifications
                 ? 'bg-[#0a1142] text-white border-2 border-[#0a1142]'
                 : 'bg-white border-2 border-slate-300'
@@ -78,9 +78,9 @@ export function ProfilePreferencesTab({ form, onChange, onSubmit, isPending }) {
               id="quiz_reminders"
               checked={Boolean(form.quiz_reminders)}
               onChange={(e) => handleToggle('quiz_reminders', e.target.checked)}
-              className="sr-only"
+              className="sr-only peer"
             />
-            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all ${
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[#0a1142] peer-focus-visible:ring-offset-2 ${
               form.quiz_reminders
                 ? 'bg-[#0a1142] text-white border-2 border-[#0a1142]'
                 : 'bg-white border-2 border-slate-300'
@@ -102,9 +102,9 @@ export function ProfilePreferencesTab({ form, onChange, onSubmit, isPending }) {
               id="sms_alerts"
               checked={Boolean(form.sms_alerts)}
               onChange={(e) => handleToggle('sms_alerts', e.target.checked)}
-              className="sr-only"
+              className="sr-only peer"
             />
-            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all ${
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[#0a1142] peer-focus-visible:ring-offset-2 ${
               form.sms_alerts
                 ? 'bg-[#0a1142] text-white border-2 border-[#0a1142]'
                 : 'bg-white border-2 border-slate-300'
@@ -178,9 +178,9 @@ export function ProfilePreferencesTab({ form, onChange, onSubmit, isPending }) {
               id="compact_tables"
               checked={Boolean(form.compact_tables)}
               onChange={(e) => handleToggle('compact_tables', e.target.checked)}
-              className="sr-only"
+              className="sr-only peer"
             />
-            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all ${
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[#0a1142] peer-focus-visible:ring-offset-2 ${
               form.compact_tables
                 ? 'bg-[#0a1142] text-white border-2 border-[#0a1142]'
                 : 'bg-white border-2 border-slate-300'
