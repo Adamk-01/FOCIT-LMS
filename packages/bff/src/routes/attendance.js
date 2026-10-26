@@ -33,6 +33,7 @@ async function resolveAttendanceActor(req, res, next) {
   req.attendanceActor = {
     userId,
     userRole,
+    role: userRole,
     isStaff: ['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'].includes(userRole),
     isCourseRep: false,
   };
@@ -67,30 +68,36 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
     );
     const semesterId = termRes.rows[0]?.id || '2026_RAIN';
 
-    // 2. Authorization Check: Must be Allocated Lecturer OR Appointed Course Rep / Enrolled Student
-    const isLecturer = req.attendanceActor.isStaff;
+    // 2. Authorization Check: Must be Allocated Lecturer, Departmental HOD/Admin OR Appointed Course Rep
+    const isStaff = req.attendanceActor.isStaff;
     const repCheck = await client.query(
       `SELECT 1 FROM course_representatives 
-       WHERE course_id = $1 AND student_id = $2
+       WHERE course_id = $1 AND student_id = $2 AND semester_id = $3
        LIMIT 1`,
-      [courseId, actorId]
+      [courseId, actorId, semesterId]
     );
-    let isCourseRep = repCheck.rows.length > 0;
-    if (!isCourseRep) {
-      const enrCheck = await client.query(
-        `SELECT 1 FROM enrollments WHERE course_id = $1 AND student_id = $2 LIMIT 1`,
-        [courseId, actorId]
-      );
-      if (enrCheck.rows.length > 0) {
-        isCourseRep = true;
-      }
-    }
+    const isCourseRep = repCheck.rows.length > 0;
 
-    if (!isLecturer && !isCourseRep) {
+    if (!isStaff && !isCourseRep) {
       await client.query('ROLLBACK');
       return res.status(403).json({
-        error: 'Only the allocated Lecturer or appointed Course Representative may upload attendance sheets.',
+        error: 'Only the allocated Lecturer, Department HOD, or officially appointed Course Representative may upload attendance sheets.',
         code: 'FORBIDDEN_ATTENDANCE_UPLOADER',
+      });
+    }
+
+    // 2.1 Enforce Session Lock Guard: Reject sheet uploads if session is already finalized and locked
+    const existingSession = await client.query(
+      `SELECT session_id, is_locked FROM attendance_sessions 
+       WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 
+       LIMIT 1`,
+      [courseId, semesterId, week_number]
+    );
+    if (existingSession.rows[0]?.is_locked) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
+        code: 'SESSION_LOCKED',
       });
     }
 
@@ -141,7 +148,10 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
 
     for (const student of enrolledStudents) {
       const canonicalMatric = student.matric_number.toUpperCase().replace(/\s+/g, '');
-      const rawTextMatches = raw_extracted_text && raw_extracted_text.toUpperCase().includes(canonicalMatric);
+      const escapedMatric = canonicalMatric.replace(/[.*+?^${}()|[\]\\]/g, (m) => '\\' + m);
+      // Token-boundary regex: prevents '2021/CSC/01' from falsely matching substring in '2021/CSC/015'
+      const tokenRegex = new RegExp(`(^|[^A-Z0-9])${escapedMatric}([^A-Z0-9]|$)`, 'i');
+      const rawTextMatches = Boolean(raw_extracted_text && tokenRegex.test(raw_extracted_text));
       const isDetected = normalizedDetected.has(canonicalMatric) || rawTextMatches;
 
       const status = isDetected ? 'PRESENT' : 'ABSENT';
@@ -272,6 +282,31 @@ router.get('/sessions/:sessionId', async (req, res, next) => {
 
     const session = sessionRes.rows[0];
 
+    // Authorization: Must be allocated lecturer, departmental HOD, Admin, or course representative
+    const actorId = req.attendanceActor.userId;
+    const isCourseRep = (await pool.query(
+      `SELECT 1 FROM course_representatives WHERE course_id = $1 AND student_id = $2 LIMIT 1`,
+      [session.course_id, actorId]
+    )).rows.length > 0;
+    const isAllocated = req.attendanceActor.isStaff && (await pool.query(
+      `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 LIMIT 1`,
+      [session.course_id, actorId]
+    )).rows.length > 0;
+    const isSysAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(req.attendanceActor.role);
+    const isDeptHod = req.attendanceActor.role === 'HOD' && (await pool.query(
+      `SELECT 1 FROM staff_advisors sa 
+       JOIN courses c ON c.department_id = sa.department_id 
+       WHERE sa.advisor_id = $1 AND c.course_id = $2 LIMIT 1`,
+      [actorId, session.course_id]
+    )).rows.length > 0;
+
+    if (!isCourseRep && !isAllocated && !isDeptHod && !isSysAdmin) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to view this attendance session.',
+        code: 'FORBIDDEN_SESSION_ACCESS',
+      });
+    }
+
     const recordsRes = await pool.query(`
       SELECT 
         r.id AS record_id,
@@ -313,16 +348,47 @@ router.put('/sessions/:sessionId/records', async (req, res, next) => {
   try {
     await client.query('BEGIN');
 
-    // Check lock status
+    // Authorization & lock status check
     const sessionCheck = await client.query(
-      `SELECT is_locked FROM attendance_sessions WHERE session_id = $1 LIMIT 1`,
+      `SELECT course_id, semester_id, is_locked FROM attendance_sessions WHERE session_id = $1 LIMIT 1`,
       [sessionId]
     );
-    if (sessionCheck.rows[0]?.is_locked) {
+    if (sessionCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+    }
+    const sessionMeta = sessionCheck.rows[0];
+
+    if (sessionMeta.is_locked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
         error: 'Cannot modify attendance: Session has already been approved and locked.',
         code: 'SESSION_LOCKED',
+      });
+    }
+
+    const actorId = req.attendanceActor.userId;
+    const isCourseRep = (await client.query(
+      `SELECT 1 FROM course_representatives WHERE course_id = $1 AND student_id = $2 LIMIT 1`,
+      [sessionMeta.course_id, actorId]
+    )).rows.length > 0;
+    const isAllocated = req.attendanceActor.isStaff && (await client.query(
+      `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 LIMIT 1`,
+      [sessionMeta.course_id, actorId]
+    )).rows.length > 0;
+    const isSysAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(req.attendanceActor.role);
+    const isDeptHod = req.attendanceActor.role === 'HOD' && (await client.query(
+      `SELECT 1 FROM staff_advisors sa 
+       JOIN courses c ON c.department_id = sa.department_id 
+       WHERE sa.advisor_id = $1 AND c.course_id = $2 LIMIT 1`,
+      [actorId, sessionMeta.course_id]
+    )).rows.length > 0;
+
+    if (!isAllocated && !isDeptHod && !isSysAdmin && !isCourseRep) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to modify attendance records for this course.',
+        code: 'FORBIDDEN_RECORD_UPDATE',
       });
     }
 
@@ -355,12 +421,44 @@ router.post('/sessions/:sessionId/lock', async (req, res, next) => {
   // Only Staff/Lecturers can lock
   if (!req.attendanceActor.isStaff) {
     return res.status(403).json({
-      error: 'Only the allocated course lecturer or HOD can approve and lock attendance sessions.',
+      error: 'Only the allocated course lecturer or departmental HOD can approve and lock attendance sessions.',
       code: 'FORBIDDEN_LOCK',
     });
   }
 
   try {
+    // Require course allocation or departmental HOD authority before locking
+    const sessionRes = await pool.query(
+      `SELECT s.course_id, s.semester_id, c.department_id 
+       FROM attendance_sessions s
+       JOIN courses c ON c.course_id = s.course_id
+       WHERE s.session_id = $1 LIMIT 1`,
+      [sessionId]
+    );
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+    }
+    const sessionMeta = sessionRes.rows[0];
+
+    const isAllocated = await pool.query(
+      `SELECT 1 FROM hod_course_allocations 
+       WHERE course_id = $1 AND semester_id = $2 AND lecturer_id = $3 LIMIT 1`,
+      [sessionMeta.course_id, sessionMeta.semester_id, actorId]
+    );
+    const isDeptHod = req.attendanceActor.role === 'HOD' && (await pool.query(
+      `SELECT 1 FROM staff_advisors 
+       WHERE advisor_id = $1 AND department_id = $2 LIMIT 1`,
+      [actorId, sessionMeta.department_id]
+    )).rows.length > 0;
+    const isSysAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(req.attendanceActor.role);
+
+    if (!isAllocated.rows.length && !isDeptHod && !isSysAdmin) {
+      return res.status(403).json({
+        error: 'Forbidden: You must be allocated to teach this course to approve and lock its attendance.',
+        code: 'FORBIDDEN_ALLOCATION_REQUIRED',
+      });
+    }
+
     const { rows } = await pool.query(`
       UPDATE attendance_sessions
       SET is_locked = TRUE, locked_by = $1, locked_at = NOW(), updated_at = NOW()
@@ -393,16 +491,16 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
     );
     const semesterId = reqSemesterId || termRes.rows[0]?.id || '2026_RAIN';
 
-    // 1. Total sessions held
+    // 1. Total locked sessions held (official NUC audit requires finalized sessions)
     const sessionCountRes = await pool.query(`
       SELECT COUNT(*)::int AS total_sessions
       FROM attendance_sessions
-      WHERE course_id = $1 AND semester_id = $2;
+      WHERE course_id = $1 AND semester_id = $2 AND is_locked = TRUE;
     `, [courseId, semesterId]);
 
     const totalSessions = sessionCountRes.rows[0]?.total_sessions || 0;
 
-    // 2. Student attendance percentages
+    // 2. Student attendance percentages (Locked sessions only, explicit semester equality)
     const query = `
       SELECT 
         s.student_id,
@@ -425,7 +523,7 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
       FROM enrollments e
       JOIN students s ON s.student_id = e.student_id
       LEFT JOIN programmes p ON p.id = s.programme_id
-      LEFT JOIN attendance_sessions sess ON sess.course_id = e.course_id AND sess.semester_id = e.semester_id
+      LEFT JOIN attendance_sessions sess ON sess.course_id = e.course_id AND sess.semester_id = $2 AND sess.is_locked = TRUE
       LEFT JOIN attendance_records r ON r.session_id = sess.session_id AND r.student_id = s.student_id
       WHERE e.course_id = $1 AND (e.semester_id = $2 OR e.semester_id IS NULL) AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
       GROUP BY s.student_id, p.code

@@ -134,7 +134,9 @@ export const Sidebar = ({
 
   const role = String(user?.role || 'STUDENT').toUpperCase();
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
-  const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'STAFF', 'LECTURER'].includes(role);
+  const isHod = role === 'HOD';
+  const isLecturer = role === 'LECTURER';
+  const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'DEAN', 'STAFF'].includes(role);
 
   let navItems = [];
   if (isAdmin) {
@@ -182,6 +184,75 @@ export const Sidebar = ({
         screenNumber: 'PRF',
       },
     ];
+  } else if (isHod) {
+    navItems = [
+      {
+        name: 'HOD Dashboard',
+        to: '/hod',
+        icon: LayoutDashboard,
+        badge: 'HOD',
+        screenNumber: 'HOD',
+      },
+      {
+        name: 'Lecturer Workspace',
+        to: '/lecturer',
+        icon: BookOpen,
+        badge: 'Faculty',
+        screenNumber: 'LEC',
+      },
+      {
+        name: 'Registration Clearance',
+        to: '/advisor/registrations',
+        icon: ShieldCheck,
+        badge: 'Senate',
+        screenNumber: '8A',
+      },
+      {
+        name: 'Question Bank & AI',
+        to: '/question-bank',
+        icon: Sparkles,
+        badge: 'AI',
+        screenNumber: '5',
+      },
+      {
+        name: 'Profile & Security',
+        to: '/admin/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: 'PRF',
+      },
+    ];
+  } else if (isLecturer) {
+    navItems = [
+      {
+        name: 'Lecturer Workspace',
+        to: '/lecturer',
+        icon: BookOpen,
+        badge: 'Faculty',
+        screenNumber: 'LEC',
+      },
+      {
+        name: 'Question Bank & AI',
+        to: '/question-bank',
+        icon: Sparkles,
+        badge: 'AI',
+        screenNumber: '5',
+      },
+      {
+        name: 'Advisor Review',
+        to: '/advisor/registrations',
+        icon: ShieldCheck,
+        badge: 'Advisor',
+        screenNumber: '8A',
+      },
+      {
+        name: 'Profile & Security',
+        to: '/admin/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: 'PRF',
+      },
+    ];
   } else if (isAdvisor) {
     navItems = [
       {
@@ -192,11 +263,11 @@ export const Sidebar = ({
         screenNumber: '8A',
       },
       {
-        name: 'Course Catalog',
-        to: '/courses',
+        name: 'Lecturer Workspace',
+        to: '/lecturer',
         icon: BookOpen,
-        badge: null,
-        screenNumber: '2',
+        badge: 'Faculty',
+        screenNumber: 'LEC',
       },
       {
         name: 'Question Bank & AI',
@@ -204,6 +275,13 @@ export const Sidebar = ({
         icon: Sparkles,
         badge: 'AI',
         screenNumber: '5',
+      },
+      {
+        name: 'Profile & Security',
+        to: '/admin/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: 'PRF',
       },
     ];
   } else {

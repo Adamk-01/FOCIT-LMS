@@ -390,6 +390,17 @@ router.post('/:courses/:courseId/question-bank/questions', async (req, res, next
 router.post('/:courseId/tests/publish', async (req, res, next) => {
   const { courseId } = req.params;
   const lecturerId = req.user?.username || req.user?.id || 'lecturer1';
+  const callerRole = String(req.user?.role || '').toUpperCase();
+
+  // Finding 7.1: Restrict official-test publishing strictly to lecturer or administrator roles
+  const allowedRoles = ['LECTURER', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'];
+  if (!allowedRoles.includes(callerRole)) {
+    return res.status(403).json({
+      error: 'Forbidden: Only academic faculty (Lecturer, HOD, Admin) can publish official tests.',
+      code: 'FORBIDDEN_TEST_AUTHORING',
+    });
+  }
+
   const {
     title,
     description = '',
@@ -406,6 +417,34 @@ router.post('/:courseId/tests/publish', async (req, res, next) => {
       error: 'Test title is required',
       code: 'TITLE_REQUIRED',
     });
+  }
+
+  // Validate each window date on its own
+  if (windowOpenAt !== null && windowOpenAt !== undefined && windowOpenAt !== '') {
+    const openDate = new Date(windowOpenAt);
+    if (isNaN(openDate.getTime())) {
+      return res.status(400).json({
+        error: 'Invalid assessment window open date format.',
+        code: 'INVALID_DATES',
+      });
+    }
+  }
+  if (windowCloseAt !== null && windowCloseAt !== undefined && windowCloseAt !== '') {
+    const closeDate = new Date(windowCloseAt);
+    if (isNaN(closeDate.getTime())) {
+      return res.status(400).json({
+        error: 'Invalid assessment window close date format.',
+        code: 'INVALID_DATES',
+      });
+    }
+  }
+  if (windowOpenAt && windowCloseAt) {
+    if (new Date(windowCloseAt) <= new Date(windowOpenAt)) {
+      return res.status(400).json({
+        error: 'Assessment window close time must be strictly later than open time.',
+        code: 'INVALID_WINDOW_RANGE',
+      });
+    }
   }
 
   const client = await pool.connect();
@@ -429,11 +468,12 @@ router.post('/:courseId/tests/publish', async (req, res, next) => {
 
     const testId = `test_${courseId.toLowerCase()}_${Date.now()}`;
 
-    // Retire any previously active official test for this course
+    // Finding 7.2: Retire only earlier OFFICIAL_TEST rows (preserve practice drills)
     await client.query(`
       UPDATE quizzes 
-      SET is_active_for_new_attempts = FALSE 
+      SET is_active_for_new_attempts = FALSE, status = 'CLOSED'
       WHERE course_id = $1 
+        AND quiz_type = 'OFFICIAL_TEST'
         AND is_active_for_new_attempts = TRUE;
     `, [courseId]);
 
@@ -496,9 +536,11 @@ router.post('/:courseId/tests/publish', async (req, res, next) => {
           q.correct_option_id,
           q.points
         FROM quiz_questions q
+        JOIN quizzes qz ON qz.quiz_id = q.quiz_id
         WHERE q.question_id = ANY($2::varchar[])
+          AND qz.course_id = $3::varchar
         RETURNING question_id;
-      `, [testId, questionIds]);
+      `, [testId, questionIds, courseId]);
       copiedQuestionsCount = qRes.rowCount;
     } else {
       // Copy all questions from the latest quiz/practice bank for this course
@@ -524,11 +566,22 @@ router.post('/:courseId/tests/publish', async (req, res, next) => {
           q.points
         FROM quiz_questions q
         JOIN quizzes qz ON qz.quiz_id = q.quiz_id
-        WHERE qz.course_id = $2 AND qz.quiz_id != $1::varchar
+        WHERE qz.course_id = $2 
+          AND qz.quiz_id != $1::varchar 
+          AND qz.status != 'CLOSED'
         ORDER BY q.question_number ASC
         RETURNING question_id;
       `, [testId, courseId]);
       copiedQuestionsCount = qRes.rowCount;
+    }
+
+    // Finding 7.4: Reject an empty test
+    if (copiedQuestionsCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Cannot publish an official test with 0 questions. Please add questions to the question bank first.',
+        code: 'NO_QUESTIONS_FOUND',
+      });
     }
 
     await client.query('COMMIT');

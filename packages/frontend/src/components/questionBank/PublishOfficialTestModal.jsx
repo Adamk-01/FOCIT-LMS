@@ -9,6 +9,7 @@ export function PublishOfficialTestModal({
   totalAvailableQuestions,
   onPublishTest,
   isPublishing,
+  error = null,
 }) {
   const [title, setTitle] = useState(`${courseCode || 'Course'} Continuous Assessment Test`);
   const [description, setDescription] = useState('Official timed assessment. Unsubmitted tests upon timer expiration are automatically marked zero.');
@@ -17,11 +18,24 @@ export function PublishOfficialTestModal({
   const [autoZero, setAutoZero] = useState(true);
   const [windowOpenAt, setWindowOpenAt] = useState('');
   const [windowCloseAt, setWindowCloseAt] = useState('');
+  const [clientError, setClientError] = useState(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setClientError(null);
+
+    // Finding 14: Reject close time that is not strictly later than open time
+    if (windowOpenAt && windowCloseAt) {
+      const openD = new Date(windowOpenAt);
+      const closeD = new Date(windowCloseAt);
+      if (closeD <= openD) {
+        setClientError('Assessment window close time must be strictly later than open time.');
+        return;
+      }
+    }
+
     onPublishTest({
       title,
       description,
@@ -65,6 +79,12 @@ export function PublishOfficialTestModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {(clientError || error) && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-xs text-red-700 font-medium">
+              <AlertTriangle size={16} className="text-red-600 shrink-0" />
+              <span>{clientError || error}</span>
+            </div>
+          )}
           {/* Strict Notice */}
           <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200/60 flex items-start gap-3">
             <ShieldAlert size={20} className="text-amber-700 shrink-0 mt-0.5" />

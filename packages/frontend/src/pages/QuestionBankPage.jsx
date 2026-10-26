@@ -141,6 +141,7 @@ export function QuestionBankPage() {
           });
         }}
         isPublishing={publishOfficialTestMutation.isPending}
+        error={publishOfficialTestMutation.error?.response?.data?.error || publishOfficialTestMutation.error?.message}
       />
     </div>
   );

@@ -27,6 +27,9 @@ export async function runMigrations() {
 
   const client = await pool.connect();
   try {
+    // 0. Serialize concurrent migration runs using PostgreSQL advisory lock
+    await client.query("SELECT pg_advisory_lock(hashtext('focit_schema_migrations_lock'));");
+
     // 1. Ensure migration tracking ledger exists
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -76,6 +79,7 @@ export async function runMigrations() {
       logger.info({ appliedCount }, '[DB Migrate] Database migrations completed successfully.');
     }
   } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtext('focit_schema_migrations_lock'));").catch(() => {});
     client.release();
   }
 }

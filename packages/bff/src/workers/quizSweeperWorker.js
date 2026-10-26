@@ -63,16 +63,18 @@ export class QuizSweeperWorker {
     try {
       await client.query('BEGIN');
 
-      // 1. Atomically claim expired official test attempts
+      // 1. Atomically claim expired official test attempts with auto_zero enabled
       const claimResult = await client.query(`
         WITH expired_candidates AS (
-          SELECT attempt_id
-          FROM quiz_attempts
+          SELECT qa.attempt_id
+          FROM quiz_attempts qa
+          JOIN quizzes q ON q.quiz_id = qa.quiz_id
           WHERE 
-            status = 'IN_PROGRESS' 
-            AND due_at < NOW()
-            AND is_practice = FALSE
-          ORDER BY attempt_id ASC
+            qa.status = 'IN_PROGRESS' 
+            AND qa.due_at < NOW()
+            AND qa.is_practice = FALSE
+            AND q.auto_zero = TRUE
+          ORDER BY qa.attempt_id ASC
           LIMIT $1
           FOR UPDATE SKIP LOCKED
         )

@@ -205,7 +205,7 @@ export function AttendanceVerificationDeskModal({
                     {records.map((r) => (
                       <tr key={r.student_id} className="hover:bg-gray-50/70 transition-colors">
                         <td className="py-2.5 px-3 font-medium text-gray-900">
-                          {r.first_name} {r.last_name}
+                          {r.full_name || r.student_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.matric_number || r.student_id}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-gray-600 text-[11px]">
                           {r.matric_number || r.student_id}
@@ -293,7 +293,8 @@ export function AttendanceVerificationDeskModal({
 
                 <button
                   type="button"
-                  disabled={isLocking}
+                  disabled={isLocking || hasUnsavedChanges}
+                  title={hasUnsavedChanges ? 'Save pending adjustments before locking' : undefined}
                   onClick={() => onLockSession(session.session_id)}
                   className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all"
                 >
