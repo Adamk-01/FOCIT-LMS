@@ -18,10 +18,12 @@ import { QuestionMetricsSummary } from '../components/questionBank/QuestionMetri
 import { QuestionFormDialog } from '../components/questionBank/QuestionFormDialog';
 import { QuestionInventoryList } from '../components/questionBank/QuestionInventoryList';
 import { ErrorStateView } from '../components/ErrorStateView';
+import { PublishOfficialTestModal } from '../components/questionBank/PublishOfficialTestModal';
 
 export function QuestionBankPage() {
   const { courseId = 'CSC204' } = useParams();
   const [showAuthoringCard, setShowAuthoringCard] = useState(false);
+  const [showPublishTestModal, setShowPublishTestModal] = useState(false);
 
   const {
     courseCode,
@@ -37,6 +39,7 @@ export function QuestionBankPage() {
     refetch,
     addQuestionMutation,
     publishMutation,
+    publishOfficialTestMutation,
   } = useQuestionBank(courseId);
 
   // Unhappy Path: Loading Skeleton
@@ -97,6 +100,7 @@ export function QuestionBankPage() {
         onPublish={() => publishMutation.mutate()}
         showAuthoringCard={showAuthoringCard}
         onToggleAuthoring={() => setShowAuthoringCard((prev) => !prev)}
+        onOpenPublishTestModal={() => setShowPublishTestModal(true)}
       />
 
       {/* 3. Metrics Summary Cards */}
@@ -124,6 +128,19 @@ export function QuestionBankPage() {
         filteredQuestions={filteredQuestions}
         selectedTypeFilter={selectedTypeFilter}
         onFilterChange={handleFilterChange}
+      />
+      <PublishOfficialTestModal
+        isOpen={showPublishTestModal}
+        onClose={() => setShowPublishTestModal(false)}
+        courseId={courseId}
+        courseCode={courseCode}
+        totalAvailableQuestions={questions.length}
+        onPublishTest={(payload) => {
+          publishOfficialTestMutation.mutate(payload, {
+            onSuccess: () => setShowPublishTestModal(false),
+          });
+        }}
+        isPublishing={publishOfficialTestMutation.isPending}
       />
     </div>
   );

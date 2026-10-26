@@ -381,4 +381,180 @@ router.post('/:courses/:courseId/question-bank/questions', async (req, res, next
   }
 });
 
+/**
+ * POST /api/courses/:courseId/tests/publish
+ * Publishes an Official Timed Assessment for the given course.
+ * Creates an OFFICIAL_TEST quiz with auto_zero = true, strict duration, window,
+ * and attaches designated questions or copies all questions from the current practice pool.
+ */
+router.post('/:courseId/tests/publish', async (req, res, next) => {
+  const { courseId } = req.params;
+  const lecturerId = req.user?.username || req.user?.id || 'lecturer1';
+  const {
+    title,
+    description = '',
+    durationMinutes = 30,
+    totalPoints = 20,
+    windowOpenAt = null,
+    windowCloseAt = null,
+    autoZero = true,
+    questionIds = [],
+  } = req.body;
+
+  if (!title || !title.trim()) {
+    return res.status(400).json({
+      error: 'Test title is required',
+      code: 'TITLE_REQUIRED',
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Check Course Allocation
+    const courseCheck = await client.query(`
+      SELECT course_id, code, title 
+      FROM courses 
+      WHERE course_id = $1;
+    `, [courseId]);
+
+    if (courseCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Course not found',
+        code: 'COURSE_NOT_FOUND',
+      });
+    }
+
+    const testId = `test_${courseId.toLowerCase()}_${Date.now()}`;
+
+    // Retire any previously active official test for this course
+    await client.query(`
+      UPDATE quizzes 
+      SET is_active_for_new_attempts = FALSE 
+      WHERE course_id = $1 
+        AND is_active_for_new_attempts = TRUE;
+    `, [courseId]);
+
+    // 2. Insert Official Test Record
+    const testResult = await client.query(`
+      INSERT INTO quizzes (
+        quiz_id,
+        course_id,
+        title,
+        description,
+        duration_minutes,
+        total_points,
+        version,
+        status,
+        quiz_type,
+        auto_zero,
+        window_open_at,
+        window_close_at,
+        is_active_for_new_attempts,
+        published_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, 1, 'ACTIVE', 'OFFICIAL_TEST', $7, $8, $9, TRUE, NOW()
+      )
+      RETURNING *;
+    `, [
+      testId,
+      courseId,
+      title.trim(),
+      description,
+      parseInt(durationMinutes, 10) || 30,
+      parseFloat(totalPoints) || 20.00,
+      autoZero !== false,
+      windowOpenAt ? new Date(windowOpenAt) : new Date(),
+      windowCloseAt ? new Date(windowCloseAt) : null,
+    ]);
+
+    const createdTest = testResult.rows[0];
+
+    // 3. Attach Questions to the Test
+    let copiedQuestionsCount = 0;
+    if (Array.isArray(questionIds) && questionIds.length > 0) {
+      const qRes = await client.query(`
+        INSERT INTO quiz_questions (
+          question_id,
+          quiz_id,
+          question_number,
+          type,
+          prompt,
+          options,
+          correct_option_id,
+          points
+        )
+        SELECT 
+          'qq_' || substring(md5(random()::text || q.question_id) from 1 for 16),
+          $1::varchar,
+          row_number() over (order by q.question_number),
+          q.type,
+          q.prompt,
+          q.options,
+          q.correct_option_id,
+          q.points
+        FROM quiz_questions q
+        WHERE q.question_id = ANY($2::varchar[])
+        RETURNING question_id;
+      `, [testId, questionIds]);
+      copiedQuestionsCount = qRes.rowCount;
+    } else {
+      // Copy all questions from the latest quiz/practice bank for this course
+      const qRes = await client.query(`
+        INSERT INTO quiz_questions (
+          question_id,
+          quiz_id,
+          question_number,
+          type,
+          prompt,
+          options,
+          correct_option_id,
+          points
+        )
+        SELECT 
+          'qq_' || substring(md5(random()::text || q.question_id) from 1 for 16),
+          $1::varchar,
+          row_number() over (order by q.question_number),
+          q.type,
+          q.prompt,
+          q.options,
+          q.correct_option_id,
+          q.points
+        FROM quiz_questions q
+        JOIN quizzes qz ON qz.quiz_id = q.quiz_id
+        WHERE qz.course_id = $2 AND qz.quiz_id != $1::varchar
+        ORDER BY q.question_number ASC
+        RETURNING question_id;
+      `, [testId, courseId]);
+      copiedQuestionsCount = qRes.rowCount;
+    }
+
+    await client.query('COMMIT');
+
+    logger.info({
+      courseId,
+      testId,
+      title,
+      durationMinutes,
+      autoZero,
+      copiedQuestionsCount,
+      lecturerId,
+    }, '[QuestionBank] Official test created & published');
+
+    return res.status(201).json({
+      status: 'PUBLISHED',
+      test: createdTest,
+      copiedQuestionsCount,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error({ err: err?.message || err, courseId, lecturerId }, '[QuestionBank] Official test publish failed');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

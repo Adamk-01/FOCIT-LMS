@@ -19,6 +19,7 @@ import { AdminOutboxPage } from './pages/admin/AdminOutboxPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminProfilePage } from './pages/admin/AdminProfilePage';
 import { HodDashboardPage } from './pages/HodDashboardPage';
+import { LecturerDashboardPage } from './pages/LecturerDashboardPage';
 import { LoginPage } from './pages/LoginPage';
 
 /**
@@ -34,6 +35,7 @@ function RootIndexRedirect() {
   }
   if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
   if (role === 'HOD') return <Navigate to="/hod" replace />;
+  if (role === 'LECTURER') return <Navigate to="/lecturer" replace />;
   if (isStaffRole) {
     return <Navigate to="/advisor/registrations" replace />;
   }
@@ -50,7 +52,8 @@ function RoleRouteGuard({ allowedRoles, fallbackPath, children }) {
     if (fallbackPath) return <Navigate to={fallbackPath} replace />;
     if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
     if (role === 'HOD') return <Navigate to="/hod" replace />;
-    if (['LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
+    if (role === 'LECTURER') return <Navigate to="/lecturer" replace />;
+    if (['LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF'].includes(role)) {
       return <Navigate to="/advisor/registrations" replace />;
     }
     if (role === 'STUDENT') return <Navigate to="/dashboard" replace />;
@@ -87,6 +90,15 @@ export const router = createBrowserRouter([
       {
         path: 'hod',
         element: <RoleRouteGuard allowedRoles={['HOD', 'ADMIN', 'SYSTEM_ADMIN']}><HodDashboardPage /></RoleRouteGuard>,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'lecturer',
+        element: (
+          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <LecturerDashboardPage />
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
@@ -135,6 +147,7 @@ export const router = createBrowserRouter([
       { path: 'courses', element: <CoursesPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId', element: <CourseDetailPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/materials', element: <CourseDetailPage />, errorElement: <RouteErrorBoundary /> },
+      { path: 'courses/:courseId/quizzes/:quizId/attempts/:attemptId', element: <QuizAttemptPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/quizzes/:quizId', element: <QuizAttemptPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/quizzes', element: <QuizAttemptPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/grades', element: <GradebookPage />, errorElement: <RouteErrorBoundary /> },
