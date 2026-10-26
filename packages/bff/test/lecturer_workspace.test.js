@@ -136,4 +136,8 @@ describe('Lecturer Workspace & Class Roster Verification', () => {
     assert.ok(course.code, 'Course code must exist');
     assert.ok(Array.isArray(students), 'Student list must be an array');
   });
+
+  after(async () => {
+    await pool.end();
+  });
 });

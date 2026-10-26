@@ -585,7 +585,8 @@ export async function submitRegistration(req, res) {
  */
 export async function getAdvisorCohort(req, res) {
   const advisorId = req.user?.username || req.user?.id || 'advisor1';
-  const { level, status = 'SUBMITTED', programme_id } = req.query || {};
+  const { level, status, programme_id } = req.query || {};
+  const filterStatus = (status && status !== 'ALL') ? status : (status === 'ALL' ? null : 'SUBMITTED');
 
   try {
     // 1. Resolve Advisor Role & Assigned Level
@@ -655,7 +656,7 @@ export async function getAdvisorCohort(req, res) {
     const { rows } = await pool.query(query, [
       semesterId,
       targetLevel || null,
-      status || null,
+      filterStatus,
       programme_id || null,
     ]);
 

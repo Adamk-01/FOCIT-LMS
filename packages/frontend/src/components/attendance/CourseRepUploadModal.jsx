@@ -81,7 +81,7 @@ export function CourseRepUploadModal({
             <input
               type="number"
               min="1"
-              max="16"
+              max="15"
               required
               value={weekNumber}
               onChange={(e) => setWeekNumber(e.target.value)}

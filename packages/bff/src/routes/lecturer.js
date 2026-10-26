@@ -1,3 +1,12 @@
+function escapeCsvField(val) {
+  if (val === null || val === undefined) return '""';
+  let str = String(val);
+  // Mitigate CSV Formula Injection (CWE-1236): Prepend apostrophe to formula trigger chars
+  if (/^[=\+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
 /**
  * FOCIT LMS - Lecturer Workspace & Cohort Roster Router
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
@@ -89,17 +98,22 @@ router.get('/overview', async (req, res, next) => {
         COALESCE(COUNT(DISTINCT q.quiz_id), 0)::int AS active_quizzes_count,
         COALESCE(COUNT(DISTINCT a.id), 0)::int AS active_assignments_count
       FROM hod_course_allocations hca
+      JOIN courses c ON c.course_id = hca.course_id
       LEFT JOIN enrollments e ON e.course_id = hca.course_id AND e.semester_id = hca.semester_id AND e.status = 'ENROLLED'
       LEFT JOIN quizzes q ON q.course_id = hca.course_id AND q.status = 'ACTIVE'
       LEFT JOIN course_assignments a ON a.course_id = hca.course_id AND a.is_published = TRUE
-      WHERE (hca.lecturer_id = $1 OR $2 = TRUE)
-        AND hca.semester_id = $3
+      WHERE (
+        hca.lecturer_id = $1 
+        OR ($2 = TRUE AND ($4::varchar IS NULL OR c.department_id = $4::varchar))
+      )
+      AND hca.semester_id = $3
     `;
 
     const { rows } = await pool.query(statsQuery, [
       lecturerId,
       req.lecturerScope.isSystemAdmin || req.lecturerScope.role === 'HOD',
       activeSemesterId,
+      req.lecturerScope.isSystemAdmin ? null : req.lecturerScope.department_id,
     ]);
 
     res.json({
@@ -147,8 +161,11 @@ router.get('/courses', async (req, res, next) => {
       FROM courses c
       JOIN departments d ON d.id = c.department_id
       JOIN hod_course_allocations hca ON hca.course_id = c.course_id AND hca.semester_id = $2
-      WHERE (hca.lecturer_id = $1 OR $3 = TRUE)
-        AND c.is_active = TRUE
+      WHERE (
+        hca.lecturer_id = $1 
+        OR ($3 = TRUE AND ($4::varchar IS NULL OR c.department_id = $4::varchar))
+      )
+      AND c.is_active = TRUE
       ORDER BY c.code ASC
     `;
 
@@ -156,6 +173,7 @@ router.get('/courses', async (req, res, next) => {
       lecturerId,
       targetSemesterId,
       req.lecturerScope.isSystemAdmin || req.lecturerScope.role === 'HOD',
+      req.lecturerScope.isSystemAdmin ? null : req.lecturerScope.department_id,
     ]);
 
     res.json({
@@ -261,15 +279,31 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
     );
     const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
 
-    // 1. Fetch Course metadata
+    // 1. Fetch Course metadata & enforce course allocation check
     const courseRes = await pool.query(
-      `SELECT course_id, code, title FROM courses WHERE course_id = $1 LIMIT 1`,
+      `SELECT course_id, code, title, department_id FROM courses WHERE course_id = $1 LIMIT 1`,
       [courseId]
     );
     if (courseRes.rows.length === 0) {
       return res.status(404).json({ error: 'Course not found', code: 'COURSE_NOT_FOUND' });
     }
     const course = courseRes.rows[0];
+
+    // Enforce course allocation check: caller must be assigned lecturer, department HOD, or System Admin
+    const isAllocated = await pool.query(
+      `SELECT 1 FROM hod_course_allocations 
+       WHERE course_id = $1 AND semester_id = $2 AND lecturer_id = $3 LIMIT 1`,
+      [courseId, targetSemesterId, lecturerId]
+    );
+    const isDeptHod = req.lecturerScope.role === 'HOD' && req.lecturerScope.department_id === course.department_id;
+    const isSysAdmin = req.lecturerScope.isSystemAdmin;
+
+    if (!isAllocated.rows.length && !isDeptHod && !isSysAdmin) {
+      return res.status(403).json({
+        error: 'Forbidden: You must be allocated to teach this course to export its official examination roster.',
+        code: 'FORBIDDEN_ROSTER_EXPORT',
+      });
+    }
 
     // 2. Fetch all verified enrolled students
     const { rows: students } = await pool.query(
@@ -286,21 +320,39 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
       [courseId, targetSemesterId]
     );
 
-    // 3. Format CSV content
+    // 3. Format CSV content with rigorous escaping against CSV Formula Injection (CWE-1236)
     const csvRows = [
-      `"OSUN STATE UNIVERSITY - FACULTY OF COMPUTING & INFORMATION TECHNOLOGY (FOCIT)"`,
-      `"OFFICIAL CLASS & EXAMINATION ROSTER"`,
-      `"Course: ${course.code} - ${course.title} | Semester: ${targetSemesterId}"`,
-      `"Lecturer: ${req.lecturerScope.full_name} (${req.lecturerScope.staff_number})"`,
-      `"Total Enrolled Students: ${students.length}"`,
-      ``,
-      `"S/N","Matric Number","Student Full Name","Programme","Level","Continuous Assessment (40)","Exam (60)","Total (100)","Candidate Signature"`,
+      escapeCsvField('OSUN STATE UNIVERSITY - FACULTY OF COMPUTING & INFORMATION TECHNOLOGY (FOCIT)'),
+      escapeCsvField('OFFICIAL CLASS & EXAMINATION ROSTER'),
+      escapeCsvField(`Course: ${course.code} - ${course.title} | Semester: ${targetSemesterId}`),
+      escapeCsvField(`Lecturer: ${req.lecturerScope.full_name} (${req.lecturerScope.staff_number})`),
+      escapeCsvField(`Total Enrolled Students: ${students.length}`),
+      '',
+      [
+        escapeCsvField('S/N'),
+        escapeCsvField('Matric Number'),
+        escapeCsvField('Student Full Name'),
+        escapeCsvField('Programme'),
+        escapeCsvField('Level'),
+        escapeCsvField('Continuous Assessment (40)'),
+        escapeCsvField('Exam (60)'),
+        escapeCsvField('Total (100)'),
+        escapeCsvField('Candidate Signature'),
+      ].join(','),
     ];
 
     students.forEach((s, idx) => {
-      csvRows.push(
-        `${idx + 1},"${s.matric_number}","${s.full_name}","${s.programme_code}",${s.level},"","","",""`
-      );
+      csvRows.push([
+        idx + 1,
+        escapeCsvField(s.matric_number),
+        escapeCsvField(s.full_name),
+        escapeCsvField(s.programme_code),
+        s.level,
+        '""',
+        '""',
+        '""',
+        '""',
+      ].join(','));
     });
 
     const csvContent = csvRows.join('\r\n');

@@ -261,7 +261,8 @@ router.get('/course/:courseId', async (req, res, next) => {
         (SELECT COUNT(*)::int FROM quiz_questions qq WHERE qq.quiz_id = q.quiz_id) AS question_count
       FROM quizzes q
       WHERE q.course_id = $1
-        AND (q.status = 'ACTIVE' OR q.is_active_for_new_attempts = TRUE OR q.quiz_type = 'SELF_PRACTICE')
+        AND q.status != 'CLOSED'
+        AND (q.quiz_type = 'SELF_PRACTICE' OR q.is_active_for_new_attempts = TRUE)
       ORDER BY 
         CASE WHEN q.quiz_type = 'SELF_PRACTICE' THEN 0 ELSE 1 END,
         q.published_at DESC NULLS LAST,
@@ -359,6 +360,34 @@ router.post('/:quizId/start', async (req, res, next) => {
     }
 
     const quiz = quizRes.rows[0];
+
+    // Finding 8.2: Check that the quiz is published, active, and student is enrolled
+    if (quiz.status === 'CLOSED' || (!quiz.is_active_for_new_attempts && quiz.quiz_type === 'OFFICIAL_TEST')) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'This official assessment is inactive or retired. No new attempts are permitted.',
+        code: 'TEST_RETIRED',
+      });
+    }
+
+    const userRole = String(req.user?.role || 'STUDENT').toUpperCase();
+    const isStudent = userRole === 'STUDENT';
+    if (isStudent) {
+      const enrCheck = await client.query(
+        `SELECT 1 FROM enrollments 
+         WHERE course_id = $1 AND student_id = $2 
+           AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS') 
+         LIMIT 1`,
+        [quiz.course_id, studentId]
+      );
+      if (enrCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'Forbidden: You are not enrolled in this course.',
+          code: 'NOT_ENROLLED',
+        });
+      }
+    }
 
     // 2. Check Assessment Window if OFFICIAL_TEST
     const now = new Date();

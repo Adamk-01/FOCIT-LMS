@@ -48,6 +48,7 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     });
 
     // 2. Prepare test data in database
+    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'");
     await pool.query(`
       INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status)
       VALUES 
@@ -69,11 +70,17 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
       WHERE student_id = 'student2';
     `);
 
-    // Appoint student1 as Course Rep for CSC204
+    // Appoint student1 as Course Rep and allocate lecturer1 to CSC204
     const termRes = await pool.query(
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
     );
     const semId = termRes.rows[0]?.id || '2026_RAIN';
+
+    await pool.query(`
+      INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
+      VALUES ('CSC204', $1, 'lecturer1', 'hod_csc')
+      ON CONFLICT (course_id, semester_id) DO UPDATE SET lecturer_id = 'lecturer1';
+    `, [semId]);
 
     await pool.query(`
       INSERT INTO course_representatives (course_id, semester_id, student_id, appointed_by)
@@ -86,6 +93,9 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     if (server) {
       server.close();
     }
+    // Finding 11: Make test suite repeatable on a persistent database
+    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
+    await pool.query("DELETE FROM quizzes WHERE course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST'").catch(() => {});
   });
 
   test('Mode 4 Upload: Course Rep submits snapped sheet and OCR text', async () => {
@@ -269,5 +279,17 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     const body = await res.json();
     assert.equal(res.status, 409);
     assert.equal(body.code, 'OFFICIAL_TEST_ALREADY_COMPLETED');
+  });
+
+  after(async () => {
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    try {
+      const { redisSubscriber, redisPublisher } = await import('../src/routes/notifications.js');
+      if (redisSubscriber?.disconnect) redisSubscriber.disconnect();
+      if (redisPublisher?.disconnect) redisPublisher.disconnect();
+    } catch {}
+    await pool.end();
   });
 });

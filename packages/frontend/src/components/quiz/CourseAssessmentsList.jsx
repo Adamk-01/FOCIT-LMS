@@ -52,7 +52,26 @@ export function CourseAssessmentsList({ courseId }) {
     return (
       <div className="bg-white rounded-2xl p-12 border border-gray-200 text-center space-y-4 shadow-sm animate-pulse">
         <RefreshCw size={32} className="animate-spin text-[#0a1142] mx-auto" />
-        <p className="text-sm text-gray-500">Loading course assessment assessments...</p>
+        <p className="text-sm text-gray-500">Loading course assessments...</p>
+      </div>
+    );
+  }
+
+  // Finding 15: Handle isError separately from an empty list
+  if (isError) {
+    return (
+      <div className="bg-red-50 rounded-2xl p-8 border border-red-200 text-center space-y-3 shadow-sm">
+        <AlertTriangle size={32} className="text-red-600 mx-auto" />
+        <h3 className="text-sm font-bold text-red-900">Failed to Load Course Assessments</h3>
+        <p className="text-xs text-red-700">Unable to retrieve assessment catalog from the server.</p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+        >
+          <RefreshCw size={14} />
+          <span>Retry</span>
+        </button>
       </div>
     );
   }

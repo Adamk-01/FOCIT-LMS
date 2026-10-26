@@ -117,11 +117,15 @@ class NotificationBroadcaster {
    * Emits a notification payload to the distributed PostgreSQL notification bus.
    * Can be invoked from any container instance or worker.
    */
-  async broadcast(payload, client = null) {
-    const dbClient = client || pool;
+  async broadcast(payload) {
+    // Decouple pg_notify from caller transaction to prevent transaction abort/poisoning
     const jsonStr = JSON.stringify(payload);
+    if (Buffer.byteLength(jsonStr, 'utf8') >= 7900) {
+      logger.warn('[PostgresListen] Payload exceeds pg_notify payload threshold; skipped broadcast');
+      return;
+    }
     try {
-      await dbClient.query('SELECT pg_notify($1, $2)', [CHANNEL_NAME, jsonStr]);
+      await pool.query('SELECT pg_notify($1, $2)', [CHANNEL_NAME, jsonStr]);
     } catch (err) {
       logger.warn({ err: err?.message || err }, '[PostgresListen] pg_notify emission error');
     }
