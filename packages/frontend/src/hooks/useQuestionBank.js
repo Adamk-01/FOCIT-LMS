@@ -104,6 +104,15 @@ export function useQuestionBank(courseId = 'CSC204') {
     refetch,
     addQuestionMutation,
     publishMutation,
+    publishOfficialTestMutation: useMutation({
+      mutationFn: async (testData) => {
+        const res = await apiClient.post(`/courses/${courseId}/tests/publish`, testData);
+        return res.data;
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['question-bank', courseId] });
+      },
+    }),
   };
 }
 

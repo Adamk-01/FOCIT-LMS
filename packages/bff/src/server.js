@@ -46,6 +46,8 @@ import questionBankRouter from './routes/questionBank.js';
 import profileRouter from './routes/profile.js';
 import adminRouter from './routes/admin.js';
 import hodRouter from './routes/hod.js';
+import lecturerRouter from './routes/lecturer.js';
+import attendanceRouter from './routes/attendance.js';
 import notificationsRouter from './routes/notifications.js';
 import assignmentsRouter from './routes/assignments.js';
 import studentCoursesRouter from './routes/studentCourses.js';
@@ -141,6 +143,8 @@ app.use('/api/student/notifications', notificationsRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/hod', hodRouter);
+app.use('/api/lecturer', lecturerRouter);
+app.use('/api/attendance', attendanceRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {

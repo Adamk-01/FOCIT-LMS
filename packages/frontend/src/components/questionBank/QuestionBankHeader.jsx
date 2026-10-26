@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Plus } from 'lucide-react';
+import { ShieldCheck, Plus, Clock } from 'lucide-react';
 
 /**
  * <QuestionBankHeader />
@@ -15,6 +15,7 @@ export function QuestionBankHeader({
   onPublish,
   showAuthoringCard,
   onToggleAuthoring,
+  onOpenPublishTestModal,
 }) {
   return (
     <header className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -31,12 +32,20 @@ export function QuestionBankHeader({
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenPublishTestModal}
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
+        >
+          <Clock size={16} className="text-white" />
+          <span>Publish Official Test</span>
+        </button>
         <button
           type="button"
           disabled={isPublishing || !canPublish}
           onClick={onPublish}
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
         >
           <ShieldCheck size={16} className="text-white" />
           <span>{isPublishing ? 'Publishing...' : 'Publish Practice Drill'}</span>
@@ -44,7 +53,7 @@ export function QuestionBankHeader({
         <button
           type="button"
           onClick={onToggleAuthoring}
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
         >
           <Plus size={16} className="text-[#ffb81c]" />
           <span>{showAuthoringCard ? 'Close Question Form' : 'Add Question'}</span>
