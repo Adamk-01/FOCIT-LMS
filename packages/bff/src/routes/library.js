@@ -361,6 +361,7 @@ router.get('/items/:id/ticket', async (req, res, next) => {
     });
   }
 
+  try {
     const clientIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || '';
 

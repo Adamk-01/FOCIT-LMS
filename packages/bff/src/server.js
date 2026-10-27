@@ -37,6 +37,8 @@ import adminRouter from './routes/admin.js';
 import notificationsRouter from './routes/notifications.js';
 import assignmentsRouter from './routes/assignments.js';
 import studentCoursesRouter from './routes/studentCourses.js';
+import timetableRouter from './routes/timetable.js';
+import libraryRouter from './routes/library.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
 
@@ -119,14 +121,17 @@ app.use('/api/courses', gradesRouter);
 app.use('/api/courses', forumsRouter);
 app.use('/api/courses', questionBankRouter);
 app.use('/api/courses', assignmentsRouter);
+app.use('/api/courses', quizzesRouter);
 app.use('/api/quizzes', quizzesRouter);
 app.use('/api/files', filesRouter);
-app.use('/api/student', studentDashboardRouter);
-app.use('/api/student', profileRouter);
+app.use('/api/student/timetable', timetableRouter);
 app.use('/api/student/courses', studentCoursesRouter);
 app.use('/api/student/notifications', notificationsRouter);
+app.use('/api/student', studentDashboardRouter);
+app.use('/api/student', profileRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/library', libraryRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {
@@ -140,28 +145,23 @@ app.use((req, res) => {
 // ─── 9. Global Error Handler (must be last) ──────────────────
 app.use(errorHandler);
 
-import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
-
-// ─── Start Server ────────────────────────────────────────────
+// ─── Start HTTP Server (Stateless Web Plane) ─────────────────
 const server = app.listen(config.port, () => {
   console.log(`\n  ┌──────────────────────────────────────────┐`);
-  console.log(`  │  FOCIT BFF Proxy                         │`);
+  console.log(`  │  FOCIT BFF Proxy (Web Plane)             │`);
   console.log(`  │  http://localhost:${config.port}                  │`);
   console.log(`  │  Moodle: ${config.moodle.baseUrl}       │`);
   console.log(`  │  Mode: ${config.nodeEnv}                    │`);
   console.log(`  └──────────────────────────────────────────┘\n`);
   
-  logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
-  
-  // Start Unified Transactional Outbox Worker
-  unifiedOutboxWorker.start();
+  logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP stateless server initialized');
 });
 
 // ─── Zero-Downtime Graceful Shutdown Lifecycle ───────────────
 setupGracefulShutdown({
   server,
   redis,
-  workers: [unifiedOutboxWorker],
+  workers: [], // Background workers decoupled into worker.js
   options: {
     ingressDrainDelayMs: config.nodeEnv === 'production' ? 5000 : 500,
     maxDrainWaitMs: 15000,

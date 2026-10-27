@@ -13,12 +13,12 @@ export function ProfileSecurityTab({
   isChangingPassword,
 }) {
   return (
-    <section aria-labelledby="security-heading" className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-sm flex flex-col gap-6">
-      <div className="border-b border-slate-100 pb-4">
-        <h2 id="security-heading" className="text-lg font-bold text-[#0a1142]">
+    <section aria-labelledby="security-heading" className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-6 transition-colors">
+      <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
+        <h2 id="security-heading" className="text-lg font-bold text-[#0a1142] dark:text-[#ffb81c]">
           Security Credentials & Session Management
         </h2>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-500 dark:text-gray-400">
           Mutating your password revokes all active session hashes across campus workstations.
         </p>
       </div>
@@ -26,7 +26,7 @@ export function ProfileSecurityTab({
       <form onSubmit={onSubmit} className="flex flex-col gap-6 max-w-xl">
         {/* Current Password */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="currentPassword" className="text-xs font-bold text-slate-700">
+          <label htmlFor="currentPassword" className="text-xs font-bold text-slate-700 dark:text-slate-300">
             Current Password
           </label>
           <input
@@ -35,14 +35,14 @@ export function ProfileSecurityTab({
             required
             value={form.currentPassword}
             onChange={(e) => onChange({ ...form, currentPassword: e.target.value })}
-            className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
+            className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c]"
             placeholder="••••••••••••"
           />
         </div>
 
         {/* New Password */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="newPassword" className="text-xs font-bold text-slate-700">
+          <label htmlFor="newPassword" className="text-xs font-bold text-slate-700 dark:text-slate-300">
             New Password (Minimum 8 Characters)
           </label>
           <input
@@ -52,14 +52,14 @@ export function ProfileSecurityTab({
             minLength={8}
             value={form.newPassword}
             onChange={(e) => onChange({ ...form, newPassword: e.target.value })}
-            className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
+            className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c]"
             placeholder="••••••••••••"
           />
         </div>
 
         {/* Confirm New Password */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="confirmPassword" className="text-xs font-bold text-slate-700">
+          <label htmlFor="confirmPassword" className="text-xs font-bold text-slate-700 dark:text-slate-300">
             Confirm New Password
           </label>
           <input
@@ -69,13 +69,13 @@ export function ProfileSecurityTab({
             minLength={8}
             value={form.confirmPassword}
             onChange={(e) => onChange({ ...form, confirmPassword: e.target.value })}
-            className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
+            className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c]"
             placeholder="••••••••••••"
           />
         </div>
 
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-3">
-          <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={16} />
+        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-3">
+          <AlertTriangle className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={16} />
           <div className="leading-relaxed">
             <strong>4-Phase Teardown Notice:</strong> Updating your password will immediately terminate background SWR queries, clear your local session nonce, and redirect you to the login screen.
           </div>
@@ -86,7 +86,7 @@ export function ProfileSecurityTab({
           <button
             type="submit"
             disabled={isChangingPassword}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-600 text-white text-xs sm:text-sm font-semibold hover:bg-red-700 transition-colors shadow-md disabled:opacity-50 min-h-[44px]"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-semibold transition-colors shadow-md disabled:opacity-50 min-h-[44px]"
           >
             {isChangingPassword ? (
               <>

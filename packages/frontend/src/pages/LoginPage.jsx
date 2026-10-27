@@ -80,7 +80,7 @@ export const LoginPage = () => {
   };
 
   return (
-    <div className="fixed inset-0 h-[100dvh] max-h-[100dvh] overflow-hidden m-0 p-0 bg-slate-50 flex flex-col">
+    <div className="fixed inset-0 h-[100dvh] max-h-[100dvh] overflow-hidden m-0 p-0 bg-slate-50 dark:bg-slate-950 flex flex-col">
       <main className="h-full w-full overflow-y-auto overflow-x-hidden overscroll-y-contain [contain:layout_paint] [isolation:isolate] [-webkit-overflow-scrolling:touch] flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
           <div className="inline-flex items-center justify-center mb-3">
@@ -92,23 +92,23 @@ export const LoginPage = () => {
               height="80"
             />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#0a1142] tracking-tight font-display">
+          <h1 className="text-2xl sm:text-3xl font-black text-[#0a1142] dark:text-slate-100 tracking-tight font-display">
             UNIOSUN FOCIT
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-gray-600 font-sans">
+          <p className="mt-1 text-xs sm:text-sm text-gray-600 dark:text-slate-400 font-sans">
             Faculty of Computing & Information Technology
           </p>
         </div>
 
         <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="bg-white py-8 px-6 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100 border-t-4 border-t-[#ffb81c]">
+          <div className="bg-white dark:bg-slate-900 py-8 px-6 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100 dark:border-slate-800 border-t-4 border-t-[#ffb81c]">
             {displayError && <ErrorAlertCallout error={displayError} className="mb-6" />}
 
             <form className="space-y-5" onSubmit={handleSubmit} noValidate>
               <fieldset disabled={isAuthenticating} className="space-y-4">
                 <legend className="sr-only">Student Login Credentials</legend>
                 <div>
-                  <label htmlFor="studentId" className="block text-xs sm:text-sm font-bold text-gray-800 mb-1 font-sans">
+                  <label htmlFor="studentId" className="block text-xs sm:text-sm font-bold text-gray-800 dark:text-slate-200 mb-1 font-sans">
                     Student ID / Matric Number
                   </label>
                   <input
@@ -122,13 +122,13 @@ export const LoginPage = () => {
                       setStudentId(e.target.value);
                       if (authError) setAuthError(null);
                     }}
-                    placeholder="e.g. student1 or FOCIT/2024/0042"
-                    className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] text-sm font-sans transition-all"
+                    placeholder="e.g. 2024/28682 or student1"
+                    className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:border-[#0a1142] dark:focus:border-[#ffb81c] text-sm font-sans transition-all"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="password" className="block text-xs sm:text-sm font-bold text-gray-800 mb-1 font-sans">
+                  <label htmlFor="password" className="block text-xs sm:text-sm font-bold text-gray-800 dark:text-slate-200 mb-1 font-sans">
                     Password
                   </label>
                   <input
@@ -143,7 +143,7 @@ export const LoginPage = () => {
                       if (authError) setAuthError(null);
                     }}
                     placeholder="••••••••••••"
-                    className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] text-sm font-sans transition-all"
+                    className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:border-[#0a1142] dark:focus:border-[#ffb81c] text-sm font-sans transition-all"
                   />
                 </div>
 

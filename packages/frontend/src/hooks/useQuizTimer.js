@@ -68,9 +68,12 @@ export function useQuizTimer({
     if (dueAtMsRef.current === null || estimatedServerNowRef.current === null) return;
 
     const intervalId = setInterval(() => {
-      if (perfAnchorRef.current === null || estimatedServerNowRef.current === null) return;
+      if (perfAnchorRef.current === null || wallAnchorRef.current === null || estimatedServerNowRef.current === null) return;
 
-      const elapsedSinceReceive = performance.now() - perfAnchorRef.current;
+      const elapsedPerf = performance.now() - perfAnchorRef.current;
+      const elapsedWall = Date.now() - wallAnchorRef.current;
+      const elapsedSinceReceive = Math.max(elapsedPerf, elapsedWall);
+
       const currentProjectedServerMs = estimatedServerNowRef.current + elapsedSinceReceive;
       const diffSeconds = Math.max(
         0,

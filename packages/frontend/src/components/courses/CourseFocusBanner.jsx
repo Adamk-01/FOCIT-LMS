@@ -1,9 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, FileText, HelpCircle, MessagesSquare, Award } from 'lucide-react';
+import { BookOpen, FileText, HelpCircle, MessagesSquare, Award, Library } from 'lucide-react';
 
 const FOCUS_CONFIG = {
-  materials: { label: 'learning materials', icon: FileText },
+  materials: { label: 'digital library & learning materials', icon: Library },
   quizzes: { label: 'quizzes', icon: HelpCircle },
   grades: { label: 'grades', icon: Award },
   forum: { label: 'discussion forum', icon: MessagesSquare },
@@ -21,23 +21,23 @@ export function CourseFocusBanner({ focus }) {
   const Icon = config.icon;
 
   return (
-    <aside aria-label="Course Focus Notice" className="bg-indigo-50/90 border border-indigo-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-indigo-950 shadow-xs">
+    <aside aria-label="Course Focus Notice" className="bg-indigo-50/90 dark:bg-slate-800/90 border border-indigo-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-indigo-950 dark:text-indigo-200 shadow-xs">
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-[#0a1142] text-[#ffb81c] flex items-center justify-center shrink-0">
           <Icon size={18} aria-hidden="true" />
         </div>
         <div>
-          <p className="text-xs font-bold text-[#0a1142]">
+          <p className="text-xs font-bold text-[#0a1142] dark:text-slate-100">
             Select a course to view its {config.label}
           </p>
-          <p className="text-[11px] text-gray-600">
+          <p className="text-[11px] text-gray-600 dark:text-slate-400">
             Choose one of your registered courses below to open its dedicated academic workspace.
           </p>
         </div>
       </div>
       <Link
         to="/courses"
-        className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-white px-3 py-1.5 rounded-lg border border-indigo-200 shrink-0 self-start sm:self-auto transition-colors"
+        className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-white bg-white dark:bg-slate-700 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-slate-600 shrink-0 self-start sm:self-auto transition-colors"
       >
         Clear Filter
       </Link>

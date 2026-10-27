@@ -19,6 +19,8 @@
   --color-purple-light: #8b5cf6;
   --color-purple-lightest: #f3e8ff;
 
+  color-scheme: light;
+
   --color-surface: #ffffff;
   --color-surface-alt: #f8fafc;
   --color-surface-elevated: #ffffff;
@@ -30,6 +32,34 @@
   --color-text-muted: #94a3b8;
   --color-text-on-dark: #f8fafc;
   --color-text-on-blue: #ffffff;
+
+  /* RGB decomposed channels for Tailwind <alpha-value> compilation */
+  --color-blue-primary-rgb: 10 17 66;
+  --color-blue-dark-rgb: 7 12 46;
+  --color-blue-darker-rgb: 4 6 23;
+  --color-blue-light-rgb: 22 37 143;
+  --color-blue-lightest-rgb: 230 232 244;
+
+  --color-gold-rgb: 255 184 28;
+  --color-gold-dark-rgb: 229 162 0;
+  --color-gold-light-rgb: 255 208 96;
+
+  --color-purple-rgb: 107 33 168;
+  --color-purple-dark-rgb: 88 28 135;
+  --color-purple-light-rgb: 139 92 246;
+  --color-purple-lightest-rgb: 243 232 255;
+
+  --color-surface-rgb: 255 255 255;
+  --color-surface-alt-rgb: 248 250 252;
+  --color-surface-elevated-rgb: 255 255 255;
+  --color-border-rgb: 226 232 240;
+  --color-border-light-rgb: 241 245 249;
+
+  --color-text-primary-rgb: 15 23 42;
+  --color-text-secondary-rgb: 71 85 105;
+  --color-text-muted-rgb: 148 163 184;
+  --color-text-on-dark-rgb: 248 250 252;
+  --color-text-on-blue-rgb: 255 255 255;
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-heading: 'Merriweather', serif;
@@ -65,6 +95,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.dark {
+  color-scheme: dark;
+
+  --color-surface: #0f172a;
+  --color-surface-alt: #090d16;
+  --color-surface-elevated: #1e293b;
+  --color-border: #1e293b;
+  --color-border-light: #334155;
+
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-text-on-dark: #f8fafc;
+  --color-text-on-blue: #ffffff;
+
+  /* Dark RGB channels */
+  --color-surface-rgb: 15 23 42;
+  --color-surface-alt-rgb: 9 13 22;
+  --color-surface-elevated-rgb: 30 41 59;
+  --color-border-rgb: 30 41 59;
+  --color-border-light-rgb: 51 65 85;
+
+  --color-text-primary-rgb: 248 250 252;
+  --color-text-secondary-rgb: 148 163 184;
+  --color-text-muted-rgb: 100 116 139;
+  --color-text-on-dark-rgb: 248 250 252;
+  --color-text-on-blue-rgb: 255 255 255;
+}
+
+/* Native HTML <dialog> Top-Layer Isolation */
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+/* Native form controls color-scheme adherence in dark mode */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+.dark select,
+.dark textarea {
+  color-scheme: dark;
+}
+
 /* 2. Isolated Scrollport Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -79,6 +151,13 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 /* 3. Utility Classes */

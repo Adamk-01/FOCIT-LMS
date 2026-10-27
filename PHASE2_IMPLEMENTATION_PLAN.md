@@ -302,3 +302,9 @@ Matching [ui_template.jpeg](file:///c:/Users/PC/Desktop/OneDrive/Documents/focit
    - Register routes in `packages/frontend/src/router.jsx`.
 5. **Step 2.5 (Zero-Trust Validation):**
    - Execute production build and verify responsive behavior across desktop and mobile viewports.
+
+
+The dark mode is not fully implemented on all pages and section, check it, and also the assignment upload and page itself is not working and showing error
+And we want to add a new feature , a digital library where student can access tectbooks, materials, and other digital assets
+And also past questions based on their department
+Give me the plan

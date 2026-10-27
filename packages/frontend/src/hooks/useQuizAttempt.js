@@ -366,12 +366,12 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   const handleWakeHeartbeat = useCallback(async () => {
     try {
       const clientSend = Date.now();
-      const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}`);
+      const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}/ping`);
       const clientReceive = Date.now();
-      const freshAttempt = res.data?.attempt;
-      if (freshAttempt?.serverNow) {
+      const freshServerNow = res.data?.serverNow;
+      if (freshServerNow) {
         const freshRtt = clientReceive - clientSend;
-        timerRef.current?.reanchor(freshAttempt.serverNow, freshRtt);
+        timerRef.current?.reanchor(freshServerNow, freshRtt);
       }
     } catch {
       // Silently ignore network hiccup during wake heartbeat

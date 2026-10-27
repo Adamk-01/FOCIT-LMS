@@ -27,7 +27,7 @@ export function CourseDetailTabs({
   onTabChange,
 }) {
   return (
-    <nav aria-label="Course Navigation Tabs" className="border-b border-gray-200">
+    <nav aria-label="Course Navigation Tabs" className="border-b border-gray-200 dark:border-slate-800">
       <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         {COURSE_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -40,11 +40,11 @@ export function CourseDetailTabs({
               className={`
                 flex items-center gap-2 min-h-[44px] px-5 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap
                 ${isActive 
-                  ? 'border-[#0a1142] text-[#0a1142]' 
-                  : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'}
+                  ? 'border-[#0a1142] text-[#0a1142] dark:border-indigo-400 dark:text-indigo-400' 
+                  : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200 hover:border-gray-300 dark:hover:border-slate-700'}
               `}
             >
-              <Icon size={16} className={isActive ? 'text-[#0a1142]' : 'text-gray-400'} aria-hidden="true" />
+              <Icon size={16} className={isActive ? 'text-[#0a1142] dark:text-indigo-400' : 'text-gray-400 dark:text-slate-500'} aria-hidden="true" />
               <span>{tab.label}</span>
             </button>
           );

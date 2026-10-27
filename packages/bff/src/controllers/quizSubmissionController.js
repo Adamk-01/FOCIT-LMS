@@ -13,6 +13,10 @@
 
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
+import {
+  allocateQuizAttempt,
+  translateClientAnswersToCanonical,
+} from '../services/quizAllocationService.js';
 
 /**
  * Handles final quiz attempt submission with transactional outbox event.
@@ -66,6 +70,7 @@ export async function submitQuizAttemptHandler(req, res, next) {
         a.total_points,
         a.due_at,
         a.submitted_at,
+        a.allocation_seed,
         NOW() AS server_now
       FROM quiz_attempts a
       WHERE a.attempt_id = $1
@@ -134,6 +139,16 @@ export async function submitQuizAttemptHandler(req, res, next) {
 
     // 6. Relational Set-Difference Guard (Detects Poisoned/Foreign Question IDs)
     if (answers.length > 0) {
+      let canonicalAnswers = answers;
+      if (attempt.allocation_seed) {
+        const qRows = await client.query(
+          'SELECT question_id, options FROM quiz_questions WHERE quiz_id = $1 ORDER BY question_id ASC',
+          [quizId]
+        );
+        const { reverseMap } = allocateQuizAttempt(attemptId, attempt.allocation_seed, qRows.rows);
+        canonicalAnswers = translateClientAnswersToCanonical(answers, reverseMap);
+      }
+
       const setDifferenceQuery = await client.query(`
         WITH incoming_answers AS (
           SELECT 
@@ -154,7 +169,7 @@ export async function submitQuizAttemptHandler(req, res, next) {
         )
         SELECT array_agg(question_id) AS illegal_question_ids
         FROM illegal_questions;
-      `, [JSON.stringify(answers), quizId]);
+      `, [JSON.stringify(canonicalAnswers), quizId]);
 
       const illegalIds = setDifferenceQuery.rows[0]?.illegal_question_ids;
       if (illegalIds && illegalIds.length > 0) {
@@ -183,7 +198,7 @@ export async function submitQuizAttemptHandler(req, res, next) {
         DO UPDATE SET 
           selected_option_id = EXCLUDED.selected_option_id,
           updated_at = NOW();
-      `, [attemptId, JSON.stringify(answers)]);
+      `, [attemptId, JSON.stringify(canonicalAnswers)]);
     }
 
     // 7. Deterministic Scoring Evaluation via Authoritative Answer Key

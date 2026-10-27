@@ -7,6 +7,8 @@ import { AuthProvider, useAuth, AuthState } from './contexts/AuthContext';
 import { QuarantineBoundary } from './components/QuarantineBoundary';
 import { router } from './router';
 
+import { ThemeProvider } from './contexts/ThemeContext';
+
 // Synchronized SWR Client Contract: Mathematically aligned with BFF Cache Epochs
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,9 +67,11 @@ const AppRoot = () => {
 
 export const App = () => (
   <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <AppRoot />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppRoot />
+      </AuthProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

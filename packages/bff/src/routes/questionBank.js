@@ -12,8 +12,12 @@
 import express from 'express';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Milestone 10.8: Strict Server-Side RBAC Barrier (Only Faculty/Lecturers allowed on Question Bank endpoints)
+router.use('/:courseId/question-bank', requireRole(['LECTURER', 'FACULTY', 'ADMIN']));
 
 /**
  * GET /api/courses/:courseId/question-bank
@@ -325,7 +329,7 @@ router.post('/:courseId/question-bank/publish', async (req, res, next) => {
  * POST /api/courses/:courseId/question-bank/questions
  * Creates a manual question with database-enforced option membership.
  */
-router.post('/:courses/:courseId/question-bank/questions', async (req, res, next) => {
+router.post('/:courseId/question-bank/questions', async (req, res, next) => {
   const { courseId } = req.params;
   const { quizId, questionNumber, prompt, options, correctOptionId, points = 1.0, type = 'MULTIPLE_CHOICE' } = req.body;
 

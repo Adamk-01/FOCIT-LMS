@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "node --watch-path=src src/server.js",
     "start": "node src/server.js",
+    "start:worker": "node src/worker.js",
+    "dev:worker": "node --watch-path=src src/worker.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "db:seed": "node src/db/seed.js",
     "db:pull": "prisma db pull",
@@ -15,6 +17,7 @@
     "test:connections": "node src/scripts/testConnections.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
     "busboy": "^1.6.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -25,7 +28,8 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
-    "undici": "^7.0.0"
+    "undici": "^7.0.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@prisma/client": "^6.4.0",

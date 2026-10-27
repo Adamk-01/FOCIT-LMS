@@ -34,7 +34,7 @@ test.describe('Phase 6: Student Profile & Zero-Trust Doctrine Verification', { c
 
     assert.strictEqual(rows.length, 1, 'Seed student1 must exist');
     const student = rows[0];
-    assert.strictEqual(student.matric_number, 'FOCIT/2024/0042');
+    assert.strictEqual(student.matric_number, '2024/0042');
     assert.strictEqual(student.full_name, 'John Doe');
     assert.strictEqual(student.level, 200);
     assert.strictEqual(Number(student.current_gpa), 3.60);

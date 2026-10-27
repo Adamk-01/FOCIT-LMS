@@ -2,6 +2,7 @@ import React from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { ProtectedLayout } from './layouts/ProtectedLayout';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { RoleGuard } from './components/RoleGuard';
 import { CourseDetailPage } from './pages/CourseDetailPage';
 import { MaterialsPage } from './pages/MaterialsPage';
 import { QuizAttemptPage } from './pages/QuizAttemptPage';
@@ -12,7 +13,9 @@ import { DashboardPage } from './pages/DashboardPage';
 import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
 import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
 import { StudentProfilePage } from './pages/StudentProfilePage';
+import { CalendarPage } from './pages/CalendarPage';
 import { CoursesPage } from './pages/CoursesPage';
+import { DigitalLibraryPage } from './pages/DigitalLibraryPage';
 import { LoginPage } from './pages/LoginPage';
 
 export const router = createBrowserRouter([
@@ -37,6 +40,24 @@ export const router = createBrowserRouter([
         path: 'dashboard',
         element: <DashboardPage />,
         errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'calendar',
+        element: <CalendarPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'timetable',
+        element: <Navigate to="/calendar" replace />,
+      },
+      {
+        path: 'library',
+        element: <DigitalLibraryPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'digital-library',
+        element: <Navigate to="/library" replace />,
       },
       {
         path: 'registration',
@@ -69,13 +90,18 @@ export const router = createBrowserRouter([
         errorElement: <RouteErrorBoundary />,
       },
       {
+        path: 'courses/:courseId/assignments',
+        element: <CourseDetailPage />,
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
         path: 'courses/:courseId/quizzes/:quizId',
         element: <QuizAttemptPage />,
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'courses/:courseId/quizzes',
-        element: <QuizAttemptPage />,
+        element: <CourseDetailPage />,
         errorElement: <RouteErrorBoundary />,
       },
       {
@@ -90,17 +116,29 @@ export const router = createBrowserRouter([
       },
       {
         path: 'courses/:courseId/question-bank',
-        element: <QuestionBankPage />,
+        element: (
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+            <QuestionBankPage />
+          </RoleGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'question-bank',
-        element: <QuestionBankPage />,
+        element: (
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+            <QuestionBankPage />
+          </RoleGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'lecturer/question-bank',
-        element: <QuestionBankPage />,
+        element: (
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+            <QuestionBankPage />
+          </RoleGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       }
     ]

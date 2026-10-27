@@ -12,9 +12,12 @@ import { logger } from './logger.js';
 export const redis = new IORedis(config.redis.url, {
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
-  lazyConnect: false,
+  lazyConnect: true,
   enableOfflineQueue: false, // Strict Fail-Closed: Never buffer commands in offline memory
   retryStrategy(times) {
+    if (times > 5 && (process.env.NODE_ENV === 'test' || !process.env.NODE_ENV)) {
+      return null; // Bounded reconnect in test/dev so event loops don't hang indefinitely
+    }
     const delay = Math.min(times * 100, 3000);
     logger.warn({ attempt: times, delayMs: delay }, '[Redis] Reconnecting to cluster...');
     return delay;

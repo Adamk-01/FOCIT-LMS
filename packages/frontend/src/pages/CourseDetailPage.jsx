@@ -16,7 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import { MaterialsPage } from './MaterialsPage';
-import { QuizAttemptPage } from './QuizAttemptPage';
+import { CourseQuizzesTab } from '../components/course/CourseQuizzesTab';
 import { GradebookPage } from './GradebookPage';
 import { ForumPage } from './ForumPage';
 import AssignmentsTab from '../components/course/AssignmentsTab';
@@ -52,6 +52,14 @@ export const CourseDetailPage = () => {
   const handleTabChange = (tabId) => {
     navigate(`/courses/${encodeURIComponent(courseId)}?tab=${tabId}`);
   };
+
+  // System Invariant 2: Normalize sub-path deep-links to canonical URL SearchParams (?tab=...)
+  useEffect(() => {
+    const hasPathSuffix = location.pathname.match(/\/courses\/[^/]+\/(materials|quizzes|grades|forum|assignments)$/);
+    if (hasPathSuffix && !searchParams.get('tab')) {
+      navigate(`/courses/${encodeURIComponent(courseId)}?tab=${activeTab}`, { replace: true });
+    }
+  }, [location.pathname, courseId, activeTab, searchParams, navigate]);
 
   useEffect(() => {
     if (courseId && courseId !== '1') {
@@ -89,12 +97,12 @@ export const CourseDetailPage = () => {
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto flex flex-col gap-8 pb-16 animate-pulse" aria-busy="true">
-        <div className="w-48 h-4 bg-gray-200 rounded" />
-        <div className="h-44 bg-gray-200 rounded-2xl" />
-        <div className="h-12 bg-gray-100 rounded-xl" />
+        <div className="w-48 h-4 bg-gray-200 dark:bg-slate-700 rounded" />
+        <div className="h-44 bg-gray-200 dark:bg-slate-700 rounded-2xl" />
+        <div className="h-12 bg-gray-100 dark:bg-slate-800 rounded-xl" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 h-64 bg-gray-100 rounded-2xl" />
-          <div className="h-64 bg-gray-100 rounded-2xl" />
+          <div className="lg:col-span-2 h-64 bg-gray-100 dark:bg-slate-800 rounded-2xl" />
+          <div className="h-64 bg-gray-100 dark:bg-slate-800 rounded-2xl" />
         </div>
       </div>
     );
@@ -137,7 +145,10 @@ export const CourseDetailPage = () => {
         )}
 
         {activeTab === 'quizzes' && (
-          <QuizAttemptPage />
+          <CourseQuizzesTab 
+            courseId={course?.course_id || courseId} 
+            courseCode={course?.code || courseId} 
+          />
         )}
 
         {activeTab === 'grades' && (
@@ -154,21 +165,21 @@ export const CourseDetailPage = () => {
 
         {/* Fallback for unknown tab */}
         {!COURSE_TABS.some((t) => t.id === activeTab) && (
-          <div className="bg-white rounded-2xl p-12 border border-gray-200 text-center space-y-4 shadow-sm">
-            <div className="p-4 bg-blue-50 text-[#0a1142] rounded-full w-fit mx-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-12 border border-gray-200 dark:border-slate-800 text-center space-y-4 shadow-sm">
+            <div className="p-4 bg-blue-50 dark:bg-slate-800 text-[#0a1142] dark:text-indigo-400 rounded-full w-fit mx-auto">
               <Sparkles size={32} aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold text-[#0a1142] font-display capitalize">
+            <h2 className="text-xl font-bold text-[#0a1142] dark:text-slate-100 font-display capitalize">
               {activeTab} Module
             </h2>
-            <p className="text-sm text-gray-600 max-w-md mx-auto font-sans">
+            <p className="text-sm text-gray-600 dark:text-slate-400 max-w-md mx-auto font-sans">
               This module is synchronized with Headless Moodle Core.
             </p>
             <div className="pt-2">
               <button
                 type="button"
                 onClick={() => handleTabChange('overview')}
-                className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0a1142] text-white text-xs font-bold"
+                className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 text-white text-xs font-bold transition-colors"
               >
                 Return to Overview
               </button>

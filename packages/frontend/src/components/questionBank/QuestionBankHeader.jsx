@@ -17,16 +17,16 @@ export function QuestionBankHeader({
   onToggleAuthoring,
 }) {
   return (
-    <header className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <header className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-gray-200 dark:border-slate-800 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
       <div className="space-y-1">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] border border-[#ffb81c]/30">
-          <ShieldCheck size={14} className="text-[#0a1142]" />
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] dark:text-[#ffb81c] border border-[#ffb81c]/30">
+          <ShieldCheck size={14} className="text-[#0a1142] dark:text-[#ffb81c]" />
           <span>AUTHORITATIVE ASSESSMENT INVENTORY</span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] dark:text-slate-100 font-display">
           Question Bank: {courseCode} — {courseTitle}
         </h1>
-        <p className="text-xs sm:text-sm text-gray-500 font-medium">
+        <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 font-medium">
           Active Revision: Version {activeQuiz?.version || 1} • {activeQuiz?.durationMinutes || 45} Minutes Examination
         </p>
       </div>
@@ -36,7 +36,7 @@ export function QuestionBankHeader({
           type="button"
           disabled={isPublishing || !canPublish}
           onClick={onPublish}
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
         >
           <ShieldCheck size={16} className="text-white" />
           <span>{isPublishing ? 'Publishing...' : 'Publish Revision'}</span>
@@ -44,7 +44,7 @@ export function QuestionBankHeader({
         <button
           type="button"
           onClick={onToggleAuthoring}
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 text-white text-xs font-bold shadow-md transition-all min-h-[44px]"
         >
           <Plus size={16} className="text-[#ffb81c]" />
           <span>{showAuthoringCard ? 'Close Question Form' : 'Add Question'}</span>

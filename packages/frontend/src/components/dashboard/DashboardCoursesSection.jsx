@@ -24,12 +24,12 @@ export function DashboardCoursesSection({ courses = [], isLoading = false }) {
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-[#0a1142] font-display">
+        <h2 className="text-xl font-bold text-[#0a1142] dark:text-slate-100 font-display">
           My Courses
         </h2>
         <Link
           to="/courses"
-          className="min-h-[44px] px-3 py-2 text-xs font-bold text-[#0a1142] hover:text-[#16258f] flex items-center gap-1 transition-colors touch-manipulation"
+          className="min-h-[44px] px-3 py-2 text-xs font-bold text-[#0a1142] dark:text-indigo-400 hover:text-[#16258f] dark:hover:text-indigo-300 flex items-center gap-1 transition-colors touch-manipulation"
         >
           <span>View All</span>
           <ArrowRight size={14} aria-hidden="true" />
@@ -38,12 +38,12 @@ export function DashboardCoursesSection({ courses = [], isLoading = false }) {
 
       <div className="space-y-3">
         {courses.length === 0 && !isLoading ? (
-          <div className="bg-white rounded-2xl p-8 border border-gray-200 text-center space-y-3">
-            <BookOpen size={32} className="mx-auto text-gray-400" aria-hidden="true" />
-            <p className="text-sm text-gray-600 font-medium">No active courses enrolled for this term.</p>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-gray-200 dark:border-slate-800 text-center space-y-3">
+            <BookOpen size={32} className="mx-auto text-gray-400 dark:text-slate-500" aria-hidden="true" />
+            <p className="text-sm text-gray-600 dark:text-slate-400 font-medium">No active courses enrolled for this term.</p>
             <Link
               to="/registration"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 py-2 bg-[#0a1142] text-white text-xs font-bold rounded-xl hover:bg-[#16258f] transition-colors touch-manipulation"
+              className="inline-flex items-center justify-center min-h-[44px] px-4 py-2 bg-[#0a1142] dark:bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-[#16258f] dark:hover:bg-indigo-700 transition-colors touch-manipulation"
             >
               Proceed to Course Registration
             </Link>
@@ -55,23 +55,23 @@ export function DashboardCoursesSection({ courses = [], isLoading = false }) {
             return (
               <div
                 key={courseTargetId}
-                className="bg-white rounded-2xl p-5 border border-gray-200 hover:border-[#0a1142]/30 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-gray-200 dark:border-slate-800 hover:border-[#0a1142]/30 dark:hover:border-slate-700 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-[#0a1142]/10 text-[#0a1142] flex items-center justify-center font-bold text-xs shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-[#0a1142]/10 dark:bg-slate-800 text-[#0a1142] dark:text-indigo-400 flex items-center justify-center font-bold text-xs shrink-0">
                     {course.code.slice(0, 3)}
                   </div>
                   <div>
-                    <h3 className="font-bold text-[#0a1142] text-sm">
+                    <h3 className="font-bold text-[#0a1142] dark:text-slate-100 text-sm">
                       <Link
                         to={`/courses/${courseTargetId}`}
                         onClick={() => handleCourseClick(courseTargetId)}
-                        className="hover:text-[#16258f] transition-colors"
+                        className="hover:text-[#16258f] dark:hover:text-indigo-400 transition-colors"
                       >
                         {course.code} — {course.title}
                       </Link>
                     </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
                       {course.units} Units • Level {course.level} • {course.category}
                     </p>
                   </div>
@@ -81,10 +81,10 @@ export function DashboardCoursesSection({ courses = [], isLoading = false }) {
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                       course.status === 'In Progress' || course.status === 'IN_PROGRESS'
-                        ? 'bg-emerald-100 text-emerald-800'
+                        ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
                         : course.status === 'Completed' || course.status === 'COMPLETED'
-                        ? 'bg-blue-100 text-[#0a1142]'
-                        : 'bg-gray-100 text-gray-600'
+                        ? 'bg-blue-100 dark:bg-slate-800 text-[#0a1142] dark:text-indigo-300'
+                        : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300'
                     }`}
                   >
                     {course.status}
@@ -93,7 +93,7 @@ export function DashboardCoursesSection({ courses = [], isLoading = false }) {
                   <Link
                     to={`/courses/${courseTargetId}`}
                     onClick={() => handleCourseClick(courseTargetId)}
-                    className="min-w-[44px] min-h-[44px] p-2 rounded-lg text-gray-400 hover:text-[#0a1142] hover:bg-gray-100 flex items-center justify-center transition-colors touch-manipulation"
+                    className="min-w-[44px] min-h-[44px] p-2 rounded-lg text-gray-400 dark:text-slate-400 hover:text-[#0a1142] dark:hover:text-slate-100 hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors touch-manipulation"
                     title="Open Course Overview"
                     aria-label={`Open course ${course.code}`}
                   >

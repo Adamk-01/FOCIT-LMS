@@ -6,6 +6,7 @@ import { ForumHeader } from '../components/forum/ForumHeader';
 import { ForumSearchBar } from '../components/forum/ForumSearchBar';
 import { ForumThreadList } from '../components/forum/ForumThreadList';
 import { NewTopicDialog } from '../components/forum/NewTopicDialog';
+import { ThreadRepliesModal } from '../components/forum/ThreadRepliesModal';
 import { ErrorStateView } from '../components/ErrorStateView';
 
 /**
@@ -17,6 +18,7 @@ import { ErrorStateView } from '../components/ErrorStateView';
  * 3. Moodle-Synchronized Active Discussion Topics Feed
  * 4. Native HTML Top Layer <dialog> Modal for New Topics with Anti-Spam Mutex
  * 5. Minimum WCAG 44x44px Touch Targets on all Interactive Controls
+ * 6. Thread Replies Modal with author avatar propagation
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
@@ -38,6 +40,13 @@ export function ForumPage() {
     handleCreateTopic,
     isPosting,
     postError,
+    selectedThread,
+    setSelectedThread,
+    replies,
+    isLoadingReplies,
+    handlePostReply,
+    isPostingReply,
+    postReplyError,
     isLoading,
     isError,
     error,
@@ -47,8 +56,8 @@ export function ForumPage() {
   if (isLoading) {
     return (
       <div className="max-w-6xl mx-auto p-12 text-center space-y-4">
-        <RefreshCw size={36} className="animate-spin text-[#0a1142] mx-auto" aria-hidden="true" />
-        <p className="text-gray-600 font-medium">Synchronizing forum discussions with Moodle...</p>
+        <RefreshCw size={36} className="animate-spin text-[#0a1142] dark:text-[#ffb81c] mx-auto" aria-hidden="true" />
+        <p className="text-gray-600 dark:text-gray-300 font-medium">Synchronizing forum discussions with Moodle...</p>
       </div>
     );
   }
@@ -83,7 +92,7 @@ export function ForumPage() {
       />
 
       {/* 3. Discussion Thread List */}
-      <ForumThreadList threads={threads} />
+      <ForumThreadList threads={threads} onSelectThread={setSelectedThread} />
 
       {/* 4. New Discussion Topic Top Layer Dialog */}
       <NewTopicDialog
@@ -96,6 +105,19 @@ export function ForumPage() {
         onChangeBody={setNewTopicBody}
         isPosting={isPosting}
         error={postError}
+        courseCode={courseCode}
+      />
+
+      {/* 5. Thread Replies Stream Modal */}
+      <ThreadRepliesModal
+        isOpen={Boolean(selectedThread)}
+        onClose={() => setSelectedThread(null)}
+        thread={selectedThread}
+        replies={replies}
+        isLoadingReplies={isLoadingReplies}
+        onPostReply={handlePostReply}
+        isPosting={isPostingReply}
+        postError={postReplyError}
         courseCode={courseCode}
       />
     </div>

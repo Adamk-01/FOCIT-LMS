@@ -66,7 +66,7 @@ export const ProtectedLayout = () => {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-[#f8fafc]">
+    <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-[#f8fafc] dark:bg-[#090d16] transition-colors duration-200">
       {/* 1. Desktop Fixed-Position Rail Sidebar */}
       <aside 
         className={`hidden md:flex flex-col bg-[#0a1142] text-white shrink-0 transition-all duration-200 ease-in-out border-r border-[#16258f]/40 z-30 select-none ${
@@ -122,8 +122,8 @@ export const ProtectedLayout = () => {
         <main 
           id="main-content"
           tabIndex={-1}
-          className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-y-contain focus:outline-none bg-[#f8fafc]"
-          style={{ contain: 'layout paint' }}
+          className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-y-contain focus:outline-none bg-[#f8fafc] dark:bg-[#090d16] transition-colors duration-200"
+          style={{ contain: 'paint' }}
         >
           <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
             <Outlet />

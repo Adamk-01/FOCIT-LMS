@@ -31,9 +31,9 @@ export function CohortLedgerTable({
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-12 text-center flex flex-col items-center justify-center gap-3">
-        <RefreshCw size={32} className="animate-spin text-[#0a1142]" aria-hidden="true" />
-        <span className="text-xs font-semibold text-gray-500">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm p-12 text-center flex flex-col items-center justify-center gap-3">
+        <RefreshCw size={32} className="animate-spin text-[#0a1142] dark:text-[#ffb81c]" aria-hidden="true" />
+        <span className="text-xs font-semibold text-gray-500 dark:text-slate-400">
           Querying Level Advisor cohort records...
         </span>
       </div>
@@ -42,10 +42,10 @@ export function CohortLedgerTable({
 
   if (cohort.length === 0) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-12 text-center flex flex-col items-center justify-center gap-2">
-        <CheckCircle2 size={36} className="text-gray-300" aria-hidden="true" />
-        <h3 className="text-sm font-bold text-gray-700">No Registrations in Cohort</h3>
-        <p className="text-xs text-gray-500 max-w-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm p-12 text-center flex flex-col items-center justify-center gap-2">
+        <CheckCircle2 size={36} className="text-gray-300 dark:text-slate-600" aria-hidden="true" />
+        <h3 className="text-sm font-bold text-gray-700 dark:text-slate-200">No Registrations in Cohort</h3>
+        <p className="text-xs text-gray-500 dark:text-slate-400 max-w-sm">
           There are no student registration batches matching Level {selectedLevel} with status {selectedStatus}.
         </p>
       </div>
@@ -53,10 +53,10 @@ export function CohortLedgerTable({
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-sm">
-          <thead className="bg-gray-100 text-gray-700 text-xs uppercase tracking-wider font-bold border-b border-gray-200">
+          <thead className="bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 text-xs uppercase tracking-wider font-bold border-b border-gray-200 dark:border-slate-700">
             <tr>
               <th className="py-3 px-4 w-12 text-center">
                 <label className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] cursor-pointer">
@@ -66,7 +66,7 @@ export function CohortLedgerTable({
                     disabled={actionableBatches.length === 0 || isActionLocked}
                     onChange={onSelectAll}
                     aria-label="Select all pending batches"
-                    className="w-4 h-4 rounded text-[#0a1142] focus:ring-[#0a1142] border-gray-300 cursor-pointer"
+                    className="w-4 h-4 rounded text-[#0a1142] dark:text-indigo-600 focus:ring-[#0a1142] dark:focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-800 cursor-pointer"
                   />
                 </label>
               </th>
@@ -79,7 +79,7 @@ export function CohortLedgerTable({
               <th className="py-3 px-4 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
             {cohort.map((row) => {
               const isSelected = selectedBatchIds.includes(row.batch_id);
               const isActionable = row.status === 'SUBMITTED';
@@ -88,7 +88,7 @@ export function CohortLedgerTable({
                 <tr
                   key={row.batch_id}
                   className={`transition-colors ${
-                    isSelected ? 'bg-[#0a1142]/5' : 'hover:bg-gray-50'
+                    isSelected ? 'bg-[#0a1142]/5 dark:bg-indigo-950/20' : 'hover:bg-gray-50 dark:hover:bg-slate-800/40'
                   }`}
                 >
                   <td className="py-3 px-4 text-center">
@@ -99,27 +99,27 @@ export function CohortLedgerTable({
                         disabled={!isActionable || isActionLocked}
                         onChange={() => onToggleBatch(row.batch_id)}
                         aria-label={`Select ${row.student_name}`}
-                        className="w-4 h-4 rounded text-[#0a1142] focus:ring-[#0a1142] border-gray-300 cursor-pointer disabled:opacity-40"
+                        className="w-4 h-4 rounded text-[#0a1142] dark:text-indigo-600 focus:ring-[#0a1142] dark:focus:ring-indigo-500 border-gray-300 dark:border-slate-600 dark:bg-slate-800 cursor-pointer disabled:opacity-40"
                       />
                     </label>
                   </td>
                   <td className="py-3 px-4">
-                    <span className="font-bold text-[#0a1142] block">
+                    <span className="font-bold text-[#0a1142] dark:text-slate-100 block">
                       {row.student_name}
                     </span>
-                    <span className="text-[11px] text-gray-500">{row.student_id}</span>
+                    <span className="text-[11px] text-gray-500 dark:text-slate-400">{row.student_id}</span>
                   </td>
-                  <td className="py-3 px-4 font-mono text-xs font-semibold text-gray-800">
+                  <td className="py-3 px-4 font-mono text-xs font-semibold text-gray-800 dark:text-slate-300">
                     {row.matric_number}
                   </td>
-                  <td className="py-3 px-4 text-xs text-gray-700">
+                  <td className="py-3 px-4 text-xs text-gray-700 dark:text-slate-300">
                     {row.programme_name}
                   </td>
-                  <td className="py-3 px-4 font-bold text-xs text-gray-800">
+                  <td className="py-3 px-4 font-bold text-xs text-gray-800 dark:text-slate-200">
                     {row.current_gpa || '—'}
                   </td>
                   <td className="py-3 px-4">
-                    <span className="font-extrabold text-[#0a1142] text-xs">
+                    <span className="font-extrabold text-[#0a1142] dark:text-[#ffb81c] text-xs">
                       {row.total_units} Units
                     </span>
                   </td>
@@ -127,12 +127,12 @@ export function CohortLedgerTable({
                     <span
                       className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
                         row.status === 'ADVISOR_APPROVED'
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
                           : row.status === 'SUBMITTED'
-                          ? 'bg-amber-100 text-amber-800'
+                          ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
                           : row.status === 'REJECTED'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-gray-100 text-gray-800'
+                          ? 'bg-red-100 dark:bg-red-950/50 text-red-800 dark:text-red-300'
+                          : 'bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-300'
                       }`}
                     >
                       {row.status}
@@ -143,7 +143,7 @@ export function CohortLedgerTable({
                       <button
                         type="button"
                         onClick={() => onInspect(row)}
-                        className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-gray-500 hover:text-[#0a1142] hover:bg-gray-100 transition-colors touch-manipulation flex items-center justify-center"
+                        className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-gray-500 dark:text-slate-400 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors touch-manipulation flex items-center justify-center"
                         title="Inspect Registered Modules"
                         aria-label={`Inspect ${row.student_name}'s modules`}
                       >

@@ -60,19 +60,19 @@ export function QuizSubmissionModal({
       aria-describedby="quiz-submit-modal-description"
       className="m-auto rounded-2xl p-0 bg-transparent backdrop:bg-black/60 backdrop:backdrop-blur-sm max-w-md w-full shadow-2xl border-0 overflow-hidden"
     >
-      <div className="bg-white p-6 sm:p-8 space-y-6 border border-gray-200 rounded-2xl">
+      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 space-y-6 border border-gray-200 dark:border-slate-800 rounded-2xl text-slate-900 dark:text-slate-100">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h2
               id="quiz-submit-modal-title"
-              className="text-xl font-bold text-[#0a1142] font-display"
+              className="text-xl font-bold text-[#0a1142] dark:text-[#ffb81c] font-display"
             >
               Confirm Quiz Submission
             </h2>
             <p
               id="quiz-submit-modal-description"
-              className="text-xs text-gray-600 leading-relaxed"
+              className="text-xs text-gray-600 dark:text-slate-400 leading-relaxed"
             >
               Once you submit, your answers will be committed permanently to the academic records ledger and cannot be modified.
             </p>
@@ -82,22 +82,22 @@ export function QuizSubmissionModal({
             onClick={onClose}
             disabled={isSubmitting}
             aria-label="Close modal"
-            className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 disabled:opacity-40 transition-colors"
+            className="p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors"
           >
             <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         {/* Checklist */}
-        <div className="p-4 bg-gray-50 rounded-xl space-y-2 text-xs">
-          <div className="flex items-center justify-between font-semibold text-gray-700">
+        <div className="p-4 bg-gray-50 dark:bg-slate-800/70 border border-gray-100 dark:border-slate-700/80 rounded-xl space-y-2 text-xs">
+          <div className="flex items-center justify-between font-semibold text-gray-700 dark:text-slate-300">
             <span>Questions Answered:</span>
-            <span className="text-[#0a1142] font-bold">
+            <span className="text-[#0a1142] dark:text-[#ffb81c] font-bold">
               {answeredCount} of {totalQuestions}
             </span>
           </div>
           {unansweredCount > 0 && (
-            <p className="text-amber-700 text-[11px] font-medium pt-1">
+            <p className="text-amber-700 dark:text-amber-400 text-[11px] font-medium pt-1">
               ⚠️ You have {unansweredCount} unanswered {unansweredCount === 1 ? 'question' : 'questions'} remaining.
             </p>
           )}
@@ -118,7 +118,7 @@ export function QuizSubmissionModal({
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="px-4 py-2.5 min-h-[44px] rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:opacity-50 touch-manipulation transition-colors"
+            className="px-4 py-2.5 min-h-[44px] rounded-xl border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 touch-manipulation transition-colors"
           >
             Return to Attempt
           </button>

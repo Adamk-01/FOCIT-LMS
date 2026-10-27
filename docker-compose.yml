@@ -67,6 +67,26 @@ services:
       - redis
       - moodle-mock
 
+  bff-worker:
+    image: node:20-alpine
+    working_dir: /app/packages/bff
+    environment:
+      - DATABASE_URL=postgresql://focit_user:focit_password@postgres:5432/focit_db
+      - REDIS_URL=redis://redis:6379
+      - MOODLE_URL=http://moodle-mock:4000
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/packages/bff/node_modules
+      - /app/packages/frontend/node_modules
+    command: npm run dev:worker
+    networks:
+      - focit-net
+    depends_on:
+      - postgres
+      - redis
+      - moodle-mock
+
   frontend:
     image: node:20-alpine
     working_dir: /app/packages/frontend

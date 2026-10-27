@@ -255,7 +255,7 @@ test.describe('Phase 11: Moodle Integration & Student Dashboard Doctrine', { con
 
     assert.ok(dashboardData.student, 'Student record must exist');
     assert.strictEqual(dashboardData.student.student_id, 'student1');
-    assert.strictEqual(dashboardData.student.matric_number, 'FOCIT/2024/0042');
+    assert.strictEqual(dashboardData.student.matric_number, '2024/0042');
 
     // MTH101 is 3 units completed in seed
     assert.strictEqual(dashboardData.metrics.completed_units, 3, 'Completed units must be calculated directly from completed enrollments');

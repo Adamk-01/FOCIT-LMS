@@ -25,12 +25,12 @@ export function QuestionNavigationPalette({
 
   return (
     <aside className="space-y-6">
-      <section className="bg-white rounded-2xl p-6 border border-gray-200 shadow-card space-y-5">
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h2 className="text-sm font-bold text-[#0a1142] font-display">
+      <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-card space-y-5">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
+          <h2 className="text-sm font-bold text-[#0a1142] dark:text-[#ffb81c] font-display">
             Quiz Navigation
           </h2>
-          <span className="text-xs text-gray-500 font-semibold">
+          <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold">
             {answeredCount}/{totalQuestions} Answered
           </span>
         </div>
@@ -54,11 +54,11 @@ export function QuestionNavigationPalette({
                 aria-current={isCurrent ? 'true' : undefined}
                 className={`
                   min-w-[44px] min-h-[44px] aspect-square rounded-xl text-xs font-extrabold flex items-center justify-center transition-all relative
-                  touch-manipulation focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:ring-offset-2
-                  ${isCurrent ? 'ring-2 ring-offset-2 ring-[#0a1142] z-10' : ''}
+                  touch-manipulation focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:ring-offset-2
+                  ${isCurrent ? 'ring-2 ring-offset-2 ring-[#0a1142] dark:ring-[#ffb81c] z-10' : ''}
                   ${hasAnswered
-                    ? 'bg-[#0a1142] text-white shadow-sm hover:bg-[#16258f]'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}
+                    ? 'bg-[#0a1142] dark:bg-indigo-600 text-white shadow-sm hover:bg-[#16258f] dark:hover:bg-indigo-500'
+                    : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'}
                 `}
               >
                 {idx + 1}
@@ -68,13 +68,13 @@ export function QuestionNavigationPalette({
         </div>
 
         {/* Progress Metric */}
-        <div className="p-3 bg-gray-50 rounded-xl space-y-1 text-xs text-gray-600">
+        <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-1 text-xs text-gray-600 dark:text-slate-400">
           <div className="flex items-center justify-between">
             <span>Completed:</span>
-            <span className="font-bold text-[#0a1142]">{percentComplete}%</span>
+            <span className="font-bold text-[#0a1142] dark:text-[#ffb81c]">{percentComplete}%</span>
           </div>
           <div
-            className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mt-1"
+            className="w-full h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden mt-1"
             role="progressbar"
             aria-valuenow={percentComplete}
             aria-valuemin={0}
@@ -93,7 +93,7 @@ export function QuestionNavigationPalette({
           type="button"
           onClick={onOpenFinishModal}
           disabled={isSubmitting}
-          className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-gray-100 hover:bg-[#0a1142] text-gray-800 hover:text-white text-xs font-bold transition-all border border-gray-200 disabled:opacity-50 touch-manipulation flex items-center justify-center"
+          className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-gray-100 dark:bg-slate-800 hover:bg-[#0a1142] dark:hover:bg-indigo-600 text-gray-800 dark:text-slate-200 hover:text-white text-xs font-bold transition-all border border-gray-200 dark:border-slate-700 disabled:opacity-50 touch-manipulation flex items-center justify-center"
         >
           Finish attempt...
         </button>

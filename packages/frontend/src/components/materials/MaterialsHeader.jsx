@@ -19,24 +19,24 @@ export function MaterialsHeader({
     <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
       <div>
         <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-[#0a1142] font-display">Course Materials</h1>
+          <h1 className="text-3xl font-bold text-[#0a1142] dark:text-slate-100 font-display">Course Materials</h1>
           {isRevalidating && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" aria-hidden="true" />
               Syncing in background...
             </span>
           )}
         </div>
-        <p className="text-gray-500 mt-1 text-sm font-medium">Securely streamed via FOCIT LMS</p>
+        <p className="text-gray-500 dark:text-slate-400 mt-1 text-sm font-medium">Securely streamed via FOCIT LMS</p>
       </div>
 
       <div className="relative max-w-md w-full">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <Search size={18} className="text-gray-400" aria-hidden="true" />
+          <Search size={18} className="text-gray-400 dark:text-slate-500" aria-hidden="true" />
         </div>
         <input
           type="text"
-          className="block w-full min-h-[44px] pl-10 pr-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142] transition-colors text-sm"
+          className="block w-full min-h-[44px] pl-10 pr-3 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 focus:border-transparent transition-colors text-sm"
           placeholder="Search lectures, slides..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}

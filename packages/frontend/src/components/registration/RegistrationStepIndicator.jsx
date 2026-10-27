@@ -27,17 +27,17 @@ export function RegistrationStepIndicator({
   semesterName = 'Active Session',
 }) {
   return (
-    <header className="bg-white rounded-2xl p-5 sm:p-6 border border-gray-200/80 shadow-sm shrink-0 space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-5">
+    <header className="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 border border-gray-200/80 dark:border-slate-800 shadow-sm shrink-0 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 dark:border-slate-800 pb-5">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#0a1142]/10 text-[#0a1142] mb-1">
-            <ShieldCheck size={14} className="text-[#0a1142]" aria-hidden="true" />
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#0a1142]/10 dark:bg-blue-900/30 text-[#0a1142] dark:text-blue-300 mb-1">
+            <ShieldCheck size={14} className="text-[#0a1142] dark:text-blue-400" aria-hidden="true" />
             <span>FOCIT Academic Administration</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0a1142] font-display tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-black text-[#0a1142] dark:text-blue-400 font-display tracking-tight">
             Course Registration & Senate Clearance
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5 font-sans">
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 font-sans">
             Select accredited curriculum modules for {semesterName}.
           </p>
         </div>
@@ -45,16 +45,16 @@ export function RegistrationStepIndicator({
         {/* Telemetry Credit Load Badge (Outfit font) */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <div className="text-left sm:text-right">
-            <span className="text-[10px] uppercase font-bold text-gray-500 block font-sans tracking-wider">
+            <span className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-400 block font-sans tracking-wider">
               Enrolled Load
             </span>
             <span
               className={`text-lg font-black font-display ${
                 isUnderMinimum
-                  ? 'text-amber-600'
+                  ? 'text-amber-600 dark:text-amber-400'
                   : isOverMaximum
-                  ? 'text-red-600'
-                  : 'text-emerald-700'
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-emerald-700 dark:text-emerald-400'
               }`}
             >
               {totalUnits} / {maxCeiling} Units
@@ -81,13 +81,13 @@ export function RegistrationStepIndicator({
                   onClick={() => setStep(step.id)}
                   disabled={isDisabled}
                   aria-current={isCurrent ? 'step' : undefined}
-                  className="flex items-center gap-2.5 min-h-[44px] py-1 px-1.5 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-[#0a1142] disabled:opacity-40 disabled:cursor-not-allowed group transition-all"
+                  className="flex items-center gap-2.5 min-h-[44px] py-1 px-1.5 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed group transition-all"
                 >
                   <span
                     className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black font-display transition-colors ${
                       isCompleted || isCurrent
-                        ? 'bg-[#0a1142] text-[#ffb81c]'
-                        : 'bg-gray-100 text-gray-400'
+                        ? 'bg-[#0a1142] dark:bg-blue-600 text-[#ffb81c] dark:text-white'
+                        : 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500'
                     }`}
                   >
                     {step.id}
@@ -95,10 +95,10 @@ export function RegistrationStepIndicator({
                   <span
                     className={`text-xs font-bold font-sans transition-colors ${
                       isCurrent
-                        ? 'text-[#0a1142]'
+                        ? 'text-[#0a1142] dark:text-blue-400'
                         : isCompleted
-                        ? 'text-gray-700'
-                        : 'text-gray-400'
+                        ? 'text-gray-700 dark:text-slate-300'
+                        : 'text-gray-400 dark:text-slate-500'
                     }`}
                   >
                     {step.shortLabel}
@@ -108,7 +108,7 @@ export function RegistrationStepIndicator({
                 {idx < STEPS.length - 1 && (
                   <div
                     className={`flex-1 h-0.5 mx-3 transition-colors ${
-                      activeStep > step.id ? 'bg-[#0a1142]' : 'bg-gray-200'
+                      activeStep > step.id ? 'bg-[#0a1142] dark:bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'
                     }`}
                     aria-hidden="true"
                   />
@@ -120,18 +120,18 @@ export function RegistrationStepIndicator({
       </nav>
 
       {/* Dynamic Visual Unit Gauge */}
-      <div className="pt-2 border-t border-gray-100">
+      <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
         <div className="flex items-center justify-between text-xs mb-2 font-sans">
-          <div className="flex items-center gap-2 font-bold text-gray-700">
-            <BookOpen size={15} className="text-[#0a1142]" aria-hidden="true" />
+          <div className="flex items-center gap-2 font-bold text-gray-700 dark:text-slate-300">
+            <BookOpen size={15} className="text-[#0a1142] dark:text-blue-400" aria-hidden="true" />
             <span>Senate Unit Meter:</span>
             <span
               className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                 isUnderMinimum
-                  ? 'bg-amber-100 text-amber-800'
+                  ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
                   : isOverMaximum
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-emerald-100 text-emerald-800'
+                  ? 'bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-300'
+                  : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
               }`}
             >
               {isUnderMinimum
@@ -141,13 +141,13 @@ export function RegistrationStepIndicator({
                 : 'Optimal Unit Range (15 - 24 units)'}
             </span>
           </div>
-          <span className="text-gray-500 font-bold font-display">{totalUnits} / {maxCeiling} Units</span>
+          <span className="text-gray-500 dark:text-slate-400 font-bold font-display">{totalUnits} / {maxCeiling} Units</span>
         </div>
 
         {/* Visual Progress Bar */}
-        <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden relative border border-gray-200">
+        <div className="w-full h-2.5 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden relative border border-gray-200 dark:border-slate-700">
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-10"
+            className="absolute top-0 bottom-0 w-0.5 bg-gray-400 dark:bg-slate-500 z-10"
             style={{ left: `${(minFloor / maxCeiling) * 100}%` }}
             title="15 Units Minimum Senate Threshold"
           />

@@ -14,11 +14,14 @@ import {
   ChevronRight, 
   ShieldCheck, 
   UserCog, 
+  Calendar,
+  Library,
   X 
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
   {
+    id: 'dashboard',
     name: 'Dashboard',
     to: '/dashboard',
     icon: LayoutDashboard,
@@ -26,6 +29,7 @@ export const NAV_ITEMS = [
     screenNumber: '1',
   },
   {
+    id: 'courses',
     name: 'My Courses',
     to: '/courses',
     icon: BookOpen,
@@ -33,41 +37,68 @@ export const NAV_ITEMS = [
     screenNumber: '2',
   },
   {
-    name: 'Learning Materials',
-    to: '/courses?focus=materials',
-    icon: FileText,
-    badge: 'Moodle',
+    id: 'materials',
+    name: 'Digital Library',
+    to: '/library',
+    icon: Library,
+    badge: 'Vault',
     screenNumber: '3',
+    resolveRoute: () => '/library',
+    resolveBadge: () => 'Vault',
   },
   {
+    id: 'quizzes',
     name: 'Quiz Assessment',
     to: '/courses?focus=quizzes',
     icon: HelpCircle,
     badge: 'Active',
     screenNumber: '4',
+    resolveRoute: (courseId) => courseId 
+      ? `/courses/${encodeURIComponent(courseId)}?tab=quizzes`
+      : '/courses?focus=quizzes',
+    resolveBadge: () => 'Active',
   },
   {
-    name: 'Question Bank & AI',
-    to: '/question-bank',
-    icon: Sparkles,
-    badge: 'AI',
+    id: 'timetable',
+    name: 'Timetable & Calendar',
+    to: '/calendar',
+    icon: Calendar,
+    badge: null,
     screenNumber: '5',
   },
   {
+    id: 'question-bank',
+    name: 'Question Bank & AI',
+    to: '/question-bank',
+    icon: Sparkles,
+    badge: 'Faculty',
+    screenNumber: '5A',
+    lecturerOnly: true,
+  },
+  {
+    id: 'gradebook',
     name: 'Gradebook',
     to: '/courses?focus=grades',
     icon: Award,
     badge: null,
     screenNumber: '6',
+    resolveRoute: (courseId) => courseId 
+      ? `/courses/${encodeURIComponent(courseId)}?tab=grades`
+      : '/courses?focus=grades',
   },
   {
+    id: 'forum',
     name: 'Discussion Forum',
     to: '/courses?focus=forum',
     icon: MessagesSquare,
     badge: null,
     screenNumber: '7',
+    resolveRoute: (courseId) => courseId 
+      ? `/courses/${encodeURIComponent(courseId)}?tab=forum`
+      : '/courses?focus=forum',
   },
   {
+    id: 'registration',
     name: 'Course Registration',
     to: '/registration',
     icon: ClipboardCheck,
@@ -75,13 +106,16 @@ export const NAV_ITEMS = [
     screenNumber: '8',
   },
   {
+    id: 'advisor-review',
     name: 'Level Advisor Review',
     to: '/advisor/registrations',
     icon: ShieldCheck,
     badge: 'Advisor',
     screenNumber: '8A',
+    advisorOnly: true,
   },
   {
+    id: 'profile',
     name: 'Profile & Settings',
     to: '/profile',
     icon: UserCog,
@@ -121,94 +155,30 @@ export const Sidebar = ({
     return null;
   }, [location.pathname]);
 
-  const navItems = [
-    {
-      name: 'Dashboard',
-      to: '/dashboard',
-      icon: LayoutDashboard,
-      badge: null,
-      screenNumber: '1',
-    },
-    {
-      name: 'My Courses',
-      to: '/courses',
-      icon: BookOpen,
-      badge: null,
-      screenNumber: '2',
-    },
-    {
-      name: 'Learning Materials',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=materials`
-        : '/courses?focus=materials',
-      icon: FileText,
-      badge: contextualCourseId || 'Moodle',
-      screenNumber: '3',
-    },
-    {
-      name: 'Quiz Assessment',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=quizzes`
-        : '/courses?focus=quizzes',
-      icon: HelpCircle,
-      badge: 'Active',
-      screenNumber: '4',
-    },
-    {
-      name: 'Question Bank & AI',
-      to: '/question-bank',
-      icon: Sparkles,
-      badge: 'AI',
-      screenNumber: '5',
-    },
-    {
-      name: 'Gradebook',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=grades`
-        : '/courses?focus=grades',
-      icon: Award,
-      badge: null,
-      screenNumber: '6',
-    },
-    {
-      name: 'Discussion Forum',
-      to: contextualCourseId 
-        ? `/courses/${encodeURIComponent(contextualCourseId)}?tab=forum`
-        : '/courses?focus=forum',
-      icon: MessagesSquare,
-      badge: null,
-      screenNumber: '7',
-    },
-    {
-      name: 'Course Registration',
-      to: '/registration',
-      icon: ClipboardCheck,
-      badge: 'FOCIT',
-      screenNumber: '8',
-    },
-    {
-      name: 'Level Advisor Review',
-      to: '/advisor/registrations',
-      icon: ShieldCheck,
-      badge: 'Advisor',
-      screenNumber: '8A',
-      advisorOnly: true,
-    },
-    {
-      name: 'Profile & Settings',
-      to: '/profile',
-      icon: UserCog,
-      badge: null,
-      screenNumber: '9',
-    },
-  ];
+  // Single Source of Truth Derivation: dynamically inject routes, badges & role barriers
+  const visibleNavItems = React.useMemo(() => {
+    const role = String(user?.role || 'STUDENT').toUpperCase();
 
-  // Role defense: Hide advisor menu for regular student sessions
-  const visibleNavItems = navItems.filter((item) => {
-    if (!item.advisorOnly) return true;
-    const role = String(user?.role || '').toUpperCase();
-    return ['ADVISOR', 'ADMIN', 'LECTURER', 'STAFF'].includes(role);
-  });
+    return NAV_ITEMS
+      .filter((item) => {
+        if (item.lecturerOnly) {
+          return ['LECTURER', 'FACULTY', 'ADMIN'].includes(role);
+        }
+        if (item.advisorOnly) {
+          return ['ADVISOR', 'ADMIN', 'LECTURER', 'STAFF'].includes(role);
+        }
+        return true;
+      })
+      .map((item) => {
+        const resolvedTo = item.resolveRoute ? item.resolveRoute(contextualCourseId) : item.to;
+        const resolvedBadge = item.resolveBadge ? item.resolveBadge(contextualCourseId) : item.badge;
+        return {
+          ...item,
+          to: resolvedTo,
+          badge: resolvedBadge,
+        };
+      });
+  }, [user?.role, contextualCourseId]);
 
   const isItemActive = (itemTo) => {
     const [targetPath, targetQuery] = itemTo.split('?');

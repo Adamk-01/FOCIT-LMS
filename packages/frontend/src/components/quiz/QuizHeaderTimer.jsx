@@ -28,21 +28,21 @@ export function QuizHeaderTimer({
   return (
     <div className="flex flex-col gap-4">
       {/* 1. Breadcrumbs */}
-      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500">
+      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500 dark:text-slate-400">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/dashboard" className="hover:text-[#0a1142] transition-colors">
+            <Link to="/dashboard" className="hover:text-[#0a1142] dark:hover:text-slate-100 transition-colors">
               Dashboard
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
           <li>
-            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] transition-colors">
+            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] dark:hover:text-slate-100 transition-colors">
               {courseCode}
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-          <li className="text-[#0a1142] font-bold" aria-current="page">
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
+          <li className="text-[#0a1142] dark:text-[#ffb81c] font-bold" aria-current="page">
             {quizTitle}
           </li>
         </ol>

@@ -24,13 +24,14 @@ test.describe('Phase 12: Course Rep Ingestion Doctrine', { concurrency: 1 }, () 
   // ----------------------------------------------------------------------------
   test('Catch 1 Invariant: Re-ingesting student resurrects FAILED outbox event with fresh payload and resets retry counter', async () => {
     const testMatric = 'FOCIT/2026/9001';
-    const testStudentId = 'focit_2026_9001';
+    const normalizedMatric = ingestionService.normalizeMatricNumber(testMatric);
+    const testStudentId = ingestionService.canonicalizeStudentId(normalizedMatric);
     const outboxIdempotencyKey = `moodle_provision:${testStudentId}`;
 
-    // Clean any prior artifacts
-    await pool.query(`DELETE FROM integration_outbox_events WHERE idempotency_key = $1`, [outboxIdempotencyKey]);
-    await pool.query(`DELETE FROM student_profiles WHERE student_id = $1`, [testStudentId]);
-    await pool.query(`DELETE FROM students WHERE student_id = $1`, [testStudentId]);
+    // Clean any prior artifacts (both loose and canonical IDs)
+    await pool.query(`DELETE FROM integration_outbox_events WHERE idempotency_key IN ($1, $2)`, [outboxIdempotencyKey, `moodle_provision:focit_2026_9001`]);
+    await pool.query(`DELETE FROM student_profiles WHERE student_id IN ($1, 'focit_2026_9001')`, [testStudentId]);
+    await pool.query(`DELETE FROM students WHERE student_id IN ($1, 'focit_2026_9001') OR matric_number IN ($2, 'FOCIT/2026/9001', '2026/9001')`, [testStudentId, testMatric]);
 
     // 1. Initial Ingestion: Student with poisoned/bad email
     const initialBatch = [
@@ -133,9 +134,11 @@ test.describe('Phase 12: Course Rep Ingestion Doctrine', { concurrency: 1 }, () 
 
     // Ingest a brand new student and verify credentials bootstrap
     const newMatric = 'FOCIT/2026/8888';
-    const newStudentId = 'focit_2026_8888';
-    await pool.query(`DELETE FROM student_profiles WHERE student_id = $1`, [newStudentId]);
-    await pool.query(`DELETE FROM students WHERE student_id = $1`, [newStudentId]);
+    const normalizedNewMatric = ingestionService.normalizeMatricNumber(newMatric);
+    const newStudentId = ingestionService.canonicalizeStudentId(normalizedNewMatric);
+    await pool.query(`DELETE FROM integration_outbox_events WHERE aggregate_id IN ($1, 'focit_2026_8888')`, [newStudentId]);
+    await pool.query(`DELETE FROM student_profiles WHERE student_id IN ($1, 'focit_2026_8888')`, [newStudentId]);
+    await pool.query(`DELETE FROM students WHERE student_id IN ($1, 'focit_2026_8888') OR matric_number IN ($2, '2026/8888')`, [newStudentId, newMatric]);
 
     const newBatch = [
       {
@@ -160,9 +163,9 @@ test.describe('Phase 12: Course Rep Ingestion Doctrine', { concurrency: 1 }, () 
 
     // Clean up
     await pool.query(`UPDATE students SET full_name = 'John Doe' WHERE student_id = 'student1'`);
-    await pool.query(`DELETE FROM integration_outbox_events WHERE aggregate_id = $1`, [newStudentId]);
-    await pool.query(`DELETE FROM student_profiles WHERE student_id = $1`, [newStudentId]);
-    await pool.query(`DELETE FROM students WHERE student_id = $1`, [newStudentId]);
+    await pool.query(`DELETE FROM integration_outbox_events WHERE aggregate_id IN ($1, 'focit_2026_8888')`, [newStudentId]);
+    await pool.query(`DELETE FROM student_profiles WHERE student_id IN ($1, 'focit_2026_8888')`, [newStudentId]);
+    await pool.query(`DELETE FROM students WHERE student_id IN ($1, 'focit_2026_8888') OR matric_number IN ($2, '2026/8888')`, [newStudentId, newMatric]);
   });
 
   // ----------------------------------------------------------------------------
@@ -299,7 +302,7 @@ test.describe('Phase 12: Course Rep Ingestion Doctrine', { concurrency: 1 }, () 
     const { validBatch, errors } = ingestionService.sanitizeStudentBatch(malformedBatch);
 
     assert.strictEqual(validBatch.length, 1, 'Only row 4 (Damilola Lawal) is fully valid');
-    assert.strictEqual(validBatch[0].matric_number, 'FOCIT/2024/0077');
+    assert.strictEqual(validBatch[0].matric_number, '2024/0077');
     assert.strictEqual(errors.length, 4, '4 rows must be quarantined with descriptive reasons');
     assert.ok(errors.some(e => e.reason.includes('Invalid matriculation number format')));
     assert.ok(errors.some(e => e.reason.includes('Invalid programme code')));

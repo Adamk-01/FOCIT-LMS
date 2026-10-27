@@ -14,21 +14,21 @@ export function CourseDetailHero({
   return (
     <>
       {/* 1. Dynamic Breadcrumbs */}
-      <nav aria-label="Course Breadcrumbs" className="text-xs font-semibold text-gray-500">
+      <nav aria-label="Course Breadcrumbs" className="text-xs font-semibold text-gray-500 dark:text-slate-400">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/dashboard" className="hover:text-[#0a1142] transition-colors">
+            <Link to="/dashboard" className="hover:text-[#0a1142] dark:hover:text-slate-100 transition-colors">
               Dashboard
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
           <li>
-            <Link to="/courses" className="hover:text-[#0a1142] transition-colors">
+            <Link to="/courses" className="hover:text-[#0a1142] dark:hover:text-slate-100 transition-colors">
               My courses
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-          <li className="text-[#0a1142] font-bold" aria-current="page">
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
+          <li className="text-[#0a1142] dark:text-slate-200 font-bold" aria-current="page">
             {course?.code || 'CSC 204'}
           </li>
         </ol>

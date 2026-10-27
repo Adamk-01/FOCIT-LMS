@@ -56,12 +56,12 @@ export function BatchRejectionDialog({
       aria-labelledby="rejection-dialog-title"
       className="m-auto rounded-2xl p-0 bg-transparent backdrop:bg-black/60 backdrop:backdrop-blur-sm max-w-lg w-full shadow-2xl border-0 overflow-hidden"
     >
-      <div className="bg-white rounded-2xl flex flex-col border border-gray-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl flex flex-col border border-gray-200 dark:border-slate-800 text-slate-900 dark:text-slate-100">
         {/* Header */}
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-red-50/50">
+        <div className="p-5 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between bg-red-50/50 dark:bg-red-950/20">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={20} className="text-red-600" aria-hidden="true" />
-            <h3 id="rejection-dialog-title" className="text-base font-bold text-red-950">
+            <AlertTriangle size={20} className="text-red-600 dark:text-red-400" aria-hidden="true" />
+            <h3 id="rejection-dialog-title" className="text-base font-bold text-red-950 dark:text-red-200">
               Return Registration to Student
             </h3>
           </div>
@@ -70,7 +70,7 @@ export function BatchRejectionDialog({
             onClick={onClose}
             disabled={isPending}
             aria-label="Close dialog"
-            className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-red-100/50 flex items-center justify-center transition-colors disabled:opacity-40 touch-manipulation"
+            className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-gray-400 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:bg-red-100/50 dark:hover:bg-slate-800 flex items-center justify-center transition-colors disabled:opacity-40 touch-manipulation"
           >
             <X size={20} aria-hidden="true" />
           </button>
@@ -78,9 +78,9 @@ export function BatchRejectionDialog({
 
         {/* Form Body */}
         <div className="p-5 space-y-4">
-          <p className="text-xs text-gray-600 leading-relaxed">
+          <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
             Rejecting this batch releases reserved seat capacity and returns the registration to{' '}
-            <strong>{target.student_name}</strong> for modification. Mandatory descriptive remarks are written to the immutable Senate audit ledger.
+            <strong className="text-slate-900 dark:text-slate-100">{target.student_name}</strong> for modification. Mandatory descriptive remarks are written to the immutable Senate audit ledger.
           </p>
 
           {error && (
@@ -95,13 +95,13 @@ export function BatchRejectionDialog({
             <div className="flex items-center justify-between mb-2">
               <label
                 htmlFor="rejection-remarks"
-                className="block text-xs font-bold text-gray-700 uppercase tracking-wider"
+                className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider"
               >
                 Senate Audit Remarks *
               </label>
               <span
                 className={`text-[11px] font-semibold ${
-                  isValidRemarks ? 'text-emerald-600' : 'text-gray-400'
+                  isValidRemarks ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-slate-500'
                 }`}
               >
                 {trimmedLength} / 5 chars minimum
@@ -114,18 +114,18 @@ export function BatchRejectionDialog({
               disabled={isPending}
               onChange={(e) => onChangeRemarks(e.target.value)}
               placeholder="e.g. Please add core GST 204 Entrepreneurship before approval."
-              className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#0a1142] focus:border-transparent outline-none resize-none transition-all disabled:opacity-50"
+              className="w-full text-xs p-3 border border-gray-300 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 focus:border-transparent outline-none resize-none transition-all disabled:opacity-50"
             />
           </div>
         </div>
 
         {/* Actions */}
-        <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+        <div className="p-4 bg-gray-50 dark:bg-slate-800/60 border-t border-gray-100 dark:border-slate-800 flex items-center justify-end gap-2">
           <button
             type="button"
             disabled={isPending}
             onClick={onClose}
-            className="min-h-[44px] px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-bold hover:bg-gray-100 disabled:opacity-50 transition-colors touch-manipulation"
+            className="min-h-[44px] px-4 py-2 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors touch-manipulation"
           >
             Cancel
           </button>

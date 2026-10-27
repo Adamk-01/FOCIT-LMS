@@ -127,9 +127,9 @@ export function StudentProfilePage() {
   if (isLoading) {
     return (
       <div className="max-w-6xl mx-auto flex flex-col gap-6 p-4 sm:p-6 animate-pulse" aria-busy="true">
-        <div className="h-32 bg-slate-200 rounded-2xl" />
-        <div className="h-12 bg-slate-200 rounded-xl w-72" />
-        <div className="h-96 bg-slate-200 rounded-2xl" />
+        <div className="h-32 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
+        <div className="h-12 bg-slate-200 dark:bg-slate-800 rounded-xl w-72" />
+        <div className="h-96 bg-slate-200 dark:bg-slate-800 rounded-2xl" />
       </div>
     );
   }

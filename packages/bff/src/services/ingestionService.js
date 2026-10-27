@@ -13,6 +13,7 @@
 import { pool } from '../db/index.js';
 import { hashPassword } from '../lib/passwords.js';
 import { logger } from '../lib/logger.js';
+import { canonicalizeMatricNumber } from '../utils/matricNormalizer.js';
 
 export const INSTITUTIONAL_PROGRAMMES = new Set([
   'BSC_CSC', // Computer Science
@@ -37,19 +38,12 @@ export class IngestionService {
       throw new Error('Matriculation number is required');
     }
 
-    let cleaned = raw.trim().toUpperCase().replace(/[-_]/g, '/');
-    if (!cleaned.startsWith('FOCIT/')) {
-      // If student omitted institutional faculty prefix (e.g. '2024/0042')
-      cleaned = `FOCIT/${cleaned}`;
+    const { valid, value } = canonicalizeMatricNumber(raw);
+    if (!valid) {
+      throw new Error(`Invalid matriculation number format: "${raw}". Expected Senate Standard YYYY/NNNNN (e.g. 2024/28682)`);
     }
 
-    // Must match FOCIT/YYYY/XXXX or FOCIT/YYYY/XXXXX
-    const matricRegex = /^FOCIT\/\d{4}\/\d{3,5}$/;
-    if (!matricRegex.test(cleaned)) {
-      throw new Error(`Invalid matriculation number format: "${raw}". Must match FOCIT/YYYY/NNNN`);
-    }
-
-    return cleaned;
+    return value;
   }
 
   /**

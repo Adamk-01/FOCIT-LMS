@@ -8,16 +8,14 @@
 
 import express from 'express';
 import { pool } from '../db/index.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 
 const router = express.Router();
 
-// Ephemeral in-memory spam bucket: 1 post per 15s per student
-const spamBucket = new Map();
-
 /**
  * GET /api/courses/:courseId/forum
- * Thread Aggregator for Screen 7
+ * Thread Aggregator for Screen 7 with author profile picture joins
  */
 router.get('/:courseId/forum', async (req, res, next) => {
   const { courseId } = req.params;
@@ -35,9 +33,11 @@ router.get('/:courseId/forum', async (req, res, next) => {
         f.last_post_at,
         f.created_at,
         c.code AS course_code,
-        c.title AS course_title
+        c.title AS course_title,
+        sp.avatar_url
       FROM forum_threads f
       JOIN courses c ON c.course_id = f.course_id
+      LEFT JOIN student_profiles sp ON sp.student_id = f.student_id
       WHERE f.course_id = $1
       ORDER BY f.last_post_at DESC;
     `, [courseId]);
@@ -49,6 +49,7 @@ router.get('/:courseId/forum', async (req, res, next) => {
       author: {
         name: row.author_name,
         role: row.author_role,
+        avatarUrl: row.avatar_url || null,
         initials: row.author_name
           .split(' ')
           .map((n) => n[0])
@@ -77,8 +78,215 @@ router.get('/:courseId/forum', async (req, res, next) => {
 });
 
 /**
+ * GET /api/courses/:courseId/forum/threads/:threadId/replies
+ * Retrieves all replies for a discussion thread with author profile pictures
+ */
+router.get('/:courseId/forum/threads/:threadId/replies', async (req, res, next) => {
+  const { courseId, threadId } = req.params;
+
+  try {
+    const threadCheck = await pool.query(
+      `SELECT thread_id, title, course_id FROM forum_threads WHERE thread_id = $1 AND course_id = $2 LIMIT 1`,
+      [threadId, courseId]
+    );
+
+    if (threadCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Discussion thread not found for this course',
+        code: 'THREAD_NOT_FOUND',
+      });
+    }
+
+    const repliesRes = await pool.query(
+      `
+      SELECT 
+        r.reply_id,
+        r.thread_id,
+        r.student_id,
+        r.author_name,
+        r.author_role,
+        r.body,
+        r.created_at,
+        sp.avatar_url
+      FROM forum_replies r
+      LEFT JOIN student_profiles sp ON sp.student_id = r.student_id
+      WHERE r.thread_id = $1
+      ORDER BY r.created_at ASC;
+      `,
+      [threadId]
+    );
+
+    const replies = repliesRes.rows.map((row) => ({
+      id: row.reply_id,
+      threadId: row.thread_id,
+      body: row.body,
+      createdAt: row.created_at,
+      author: {
+        id: row.student_id,
+        name: row.author_name,
+        role: row.author_role,
+        avatarUrl: row.avatar_url || null,
+        initials: row.author_name
+          .split(' ')
+          .map((n) => n[0])
+          .slice(0, 2)
+          .join('')
+          .toUpperCase(),
+      },
+    }));
+
+    return res.status(200).json({
+      threadId,
+      totalReplies: replies.length,
+      replies,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, courseId, threadId }, '[Forum] Fetch replies error');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/courses/:courseId/forum/threads/:threadId/replies
+ * Atomic Thread Reply Creation with anti-spam check and avatar propagation
+ */
+router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next) => {
+  const { courseId, threadId } = req.params;
+  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const { body } = req.body || {};
+
+  if (!body || !body.trim()) {
+    return res.status(400).json({
+      error: 'Reply message cannot be empty',
+      code: 'INVALID_REPLY_PAYLOAD',
+    });
+  }
+
+  // Distributed Anti-Spam Rate Limit Check: Redis Fast-Path (<2ms)
+  const redisReplyKey = `spam:forum:reply:${studentId}`;
+  try {
+    if (redis && typeof redis.set === 'function') {
+      const acquired = await redis.set(redisReplyKey, '1', 'EX', 5, 'NX');
+      if (!acquired) {
+        const ttl = await redis.ttl(redisReplyKey);
+        const waitSec = ttl > 0 ? ttl : 5;
+        return res.status(429).json({
+          error: `Please wait ${waitSec} second(s) before posting another reply`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfterSeconds: waitSec,
+        });
+      }
+    }
+  } catch (_) {
+    // Non-fatal: PostgreSQL relational check acts as authoritative fallback
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger
+    const rateCheck = await client.query(
+      `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
+       FROM forum_replies
+       WHERE student_id = $1;`,
+      [studentId]
+    );
+
+    const elapsed = rateCheck.rows[0]?.elapsed_seconds;
+    if (elapsed !== null && elapsed !== undefined && elapsed < 5) {
+      await client.query('ROLLBACK');
+      const waitSec = 5 - elapsed;
+      return res.status(429).json({
+        error: `Please wait ${waitSec} second(s) before posting another reply`,
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfterSeconds: waitSec,
+      });
+    }
+
+    // 1. Verify thread exists and lock it
+    const threadCheck = await client.query(
+      `SELECT thread_id, course_id, replies_count FROM forum_threads WHERE thread_id = $1 AND course_id = $2 FOR UPDATE;`,
+      [threadId, courseId]
+    );
+
+    if (threadCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Discussion thread not found for this course',
+        code: 'THREAD_NOT_FOUND',
+      });
+    }
+
+    // 2. Fetch author identity and avatar
+    const studentQuery = await client.query(
+      `SELECT s.full_name, sp.avatar_url 
+       FROM students s 
+       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+       WHERE s.student_id = $1 LIMIT 1;`,
+      [studentId]
+    );
+
+    const authorName = studentQuery.rows[0]?.full_name || 'Student Participant';
+    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
+
+    // 3. Insert reply
+    const insertRes = await client.query(
+      `INSERT INTO forum_replies (
+         thread_id,
+         student_id,
+         author_name,
+         author_role,
+         body,
+         created_at
+       ) VALUES ($1, $2, $3, 'STUDENT', $4, NOW())
+       RETURNING *;`,
+      [threadId, studentId, authorName, body.trim()]
+    );
+
+    // 4. Increment replies count and update last_post_at on parent thread
+    await client.query(
+      `UPDATE forum_threads
+       SET replies_count = replies_count + 1,
+           last_post_at = NOW()
+       WHERE thread_id = $1;`,
+      [threadId]
+    );
+
+    await client.query('COMMIT');
+
+    const newReply = insertRes.rows[0];
+
+    return res.status(201).json({
+      id: newReply.reply_id,
+      threadId: newReply.thread_id,
+      body: newReply.body,
+      createdAt: newReply.created_at,
+      author: {
+        id: studentId,
+        name: authorName,
+        role: 'STUDENT',
+        avatarUrl,
+        initials: authorName
+          .split(' ')
+          .map((n) => n[0])
+          .slice(0, 2)
+          .join('')
+          .toUpperCase(),
+      },
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    logger.error({ err: err?.message || err, courseId, threadId, studentId }, '[Forum] Reply creation error');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
+/**
  * POST /api/courses/:courseId/forum/threads
- * Thread Creation with anti-spam check
+ * Thread Creation with anti-spam check and avatar join
  */
 router.post('/:courseId/forum/threads', async (req, res, next) => {
   const { courseId } = req.params;
@@ -92,24 +300,52 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
     });
   }
 
-  // Anti-Spam Rate Limit Check
-  const lastPost = spamBucket.get(studentId);
-  const now = Date.now();
-  if (lastPost && now - lastPost < 15000) {
-    const waitSec = Math.ceil((15000 - (now - lastPost)) / 1000);
-    return res.status(429).json({
-      error: `Please wait ${waitSec} seconds before starting another discussion topic`,
-      code: 'RATE_LIMIT_EXCEEDED',
-      retryAfterSeconds: waitSec,
-    });
+  // Distributed Anti-Spam Rate Limit Check for Threads: 15s interval
+  const redisThreadKey = `spam:forum:thread:${studentId}`;
+  try {
+    if (redis && typeof redis.set === 'function') {
+      const acquired = await redis.set(redisThreadKey, '1', 'EX', 15, 'NX');
+      if (!acquired) {
+        const ttl = await redis.ttl(redisThreadKey);
+        const waitSec = ttl > 0 ? ttl : 15;
+        return res.status(429).json({
+          error: `Please wait ${waitSec} seconds before starting another discussion topic`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfterSeconds: waitSec,
+        });
+      }
+    }
+  } catch (_) {
+    // Non-fatal: PostgreSQL relational check acts as authoritative fallback
   }
 
   try {
+    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger
+    const rateCheck = await pool.query(
+      `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
+       FROM forum_threads
+       WHERE student_id = $1;`,
+      [studentId]
+    );
+
+    const elapsed = rateCheck.rows[0]?.elapsed_seconds;
+    if (elapsed !== null && elapsed !== undefined && elapsed < 15) {
+      const waitSec = 15 - elapsed;
+      return res.status(429).json({
+        error: `Please wait ${waitSec} seconds before starting another discussion topic`,
+        code: 'RATE_LIMIT_EXCEEDED',
+        retryAfterSeconds: waitSec,
+      });
+    }
     const studentQuery = await pool.query(
-      'SELECT full_name FROM students WHERE student_id = $1 LIMIT 1',
+      `SELECT s.full_name, sp.avatar_url 
+       FROM students s 
+       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+       WHERE s.student_id = $1 LIMIT 1`,
       [studentId]
     );
     const authorName = studentQuery.rows[0]?.full_name || 'John Doe';
+    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
 
     const insertResult = await pool.query(`
       INSERT INTO forum_threads (
@@ -126,8 +362,6 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       RETURNING *;
     `, [courseId, studentId, authorName, title.trim(), body.trim()]);
 
-    spamBucket.set(studentId, now);
-
     const newThread = insertResult.rows[0];
 
     return res.status(201).json({
@@ -137,6 +371,7 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       author: {
         name: newThread.author_name,
         role: newThread.author_role,
+        avatarUrl,
         initials: newThread.author_name
           .split(' ')
           .map((n) => n[0])

@@ -43,14 +43,14 @@ export function QuestionBankPage() {
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto flex flex-col gap-6 pb-16 animate-pulse" aria-busy="true">
-        <div className="w-48 h-4 bg-gray-200 rounded" />
-        <div className="h-32 bg-gray-200 rounded-2xl" />
+        <div className="w-48 h-4 bg-gray-200 dark:bg-slate-700 rounded" />
+        <div className="h-32 bg-gray-200 dark:bg-slate-800 rounded-2xl" />
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-24 bg-gray-100 rounded-2xl" />
+            <div key={i} className="h-24 bg-gray-100 dark:bg-slate-800/60 rounded-2xl" />
           ))}
         </div>
-        <div className="h-96 bg-gray-100 rounded-2xl" />
+        <div className="h-96 bg-gray-100 dark:bg-slate-800/60 rounded-2xl" />
       </div>
     );
   }
@@ -67,21 +67,21 @@ export function QuestionBankPage() {
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-6 pb-16 animate-fade-in">
       {/* 1. Dynamic Breadcrumbs */}
-      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500">
+      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500 dark:text-slate-400">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/dashboard" className="hover:text-[#0a1142] transition-colors">
+            <Link to="/dashboard" className="hover:text-[#0a1142] dark:hover:text-[#ffb81c] transition-colors">
               Dashboard
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
           <li>
-            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] transition-colors">
+            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] dark:hover:text-[#ffb81c] transition-colors">
               {courseCode}
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-          <li className="text-[#0a1142] font-bold" aria-current="page">
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
+          <li className="text-[#0a1142] dark:text-slate-100 font-bold" aria-current="page">
             Question Bank
           </li>
         </ol>

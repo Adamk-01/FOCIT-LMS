@@ -53,13 +53,13 @@ export function NewTopicDialog({
       aria-labelledby="forum-modal-title"
       className="m-auto rounded-2xl p-0 bg-transparent backdrop:bg-black/60 backdrop:backdrop-blur-sm max-w-lg w-full shadow-2xl border-0 overflow-hidden"
     >
-      <div className="bg-white rounded-2xl p-6 sm:p-8 space-y-6 border border-gray-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 space-y-6 border border-gray-200 dark:border-slate-800 text-slate-900 dark:text-slate-100">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <h3 id="forum-modal-title" className="text-xl font-bold text-[#0a1142] font-display">
+            <h3 id="forum-modal-title" className="text-xl font-bold text-[#0a1142] dark:text-[#ffb81c] font-display">
               New Discussion Topic
             </h3>
-            <p className="text-xs text-gray-600">
+            <p className="text-xs text-gray-600 dark:text-slate-400">
               Post an academic question or discussion prompt to the {courseCode} community.
             </p>
           </div>
@@ -68,7 +68,7 @@ export function NewTopicDialog({
             onClick={onClose}
             disabled={isPosting}
             aria-label="Close dialog"
-            className="min-w-[44px] min-h-[44px] p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 disabled:opacity-40 transition-colors flex items-center justify-center touch-manipulation"
+            className="min-w-[44px] min-h-[44px] p-2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors flex items-center justify-center touch-manipulation"
           >
             <X size={20} aria-hidden="true" />
           </button>
@@ -78,7 +78,7 @@ export function NewTopicDialog({
           <div>
             <label
               htmlFor="topic-title"
-              className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5"
+              className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider mb-1.5"
             >
               Subject / Topic Title *
             </label>
@@ -90,14 +90,14 @@ export function NewTopicDialog({
               placeholder="e.g. Asymptotic Bounds on Hash Table Probing"
               value={title}
               onChange={(e) => onChangeTitle(e.target.value)}
-              className="w-full min-h-[44px] px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:bg-white transition-all font-medium disabled:opacity-50"
+              className="w-full min-h-[44px] px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-800 transition-all font-medium disabled:opacity-50"
             />
           </div>
 
           <div>
             <label
               htmlFor="topic-body"
-              className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5"
+              className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider mb-1.5"
             >
               Message Body *
             </label>
@@ -109,7 +109,7 @@ export function NewTopicDialog({
               placeholder="Elaborate on your question or discussion context..."
               value={body}
               onChange={(e) => onChangeBody(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0a1142] focus:bg-white transition-all font-medium resize-none disabled:opacity-50"
+              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 focus:bg-white dark:focus:bg-slate-800 transition-all font-medium resize-none disabled:opacity-50"
             />
           </div>
 
@@ -126,7 +126,7 @@ export function NewTopicDialog({
               type="button"
               onClick={onClose}
               disabled={isPosting}
-              className="min-h-[44px] px-4 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:opacity-50 transition-colors touch-manipulation"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors touch-manipulation"
             >
               Cancel
             </button>
@@ -134,7 +134,7 @@ export function NewTopicDialog({
               type="submit"
               disabled={isPosting || !title.trim() || !body.trim()}
               className={`
-                min-h-[44px] px-6 py-2.5 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 touch-manipulation
+                min-h-[44px] px-6 py-2.5 rounded-xl bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 touch-manipulation
                 ${isPosting ? 'opacity-70 cursor-not-allowed pointer-events-none' : ''}
               `}
             >

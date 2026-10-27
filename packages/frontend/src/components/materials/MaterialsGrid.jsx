@@ -27,13 +27,13 @@ export function MaterialsGrid({
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" aria-label="Loading materials">
         {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col items-start gap-4">
-            <div className="w-12 h-12 bg-gray-200 rounded-xl animate-pulse" />
-            <div className="w-3/4 h-5 bg-gray-200 rounded animate-pulse" />
-            <div className="w-1/2 h-4 bg-gray-100 rounded animate-pulse mb-4" />
+          <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-100 dark:border-slate-800 shadow-sm flex flex-col items-start gap-4">
+            <div className="w-12 h-12 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+            <div className="w-3/4 h-5 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
+            <div className="w-1/2 h-4 bg-gray-100 dark:bg-slate-800 rounded animate-pulse mb-4" />
             <div className="flex gap-2 w-full mt-auto">
-              <div className="h-11 bg-gray-100 rounded-xl flex-1 animate-pulse" />
-              <div className="h-11 bg-gray-100 rounded-xl w-12 animate-pulse" />
+              <div className="h-11 bg-gray-100 dark:bg-slate-800 rounded-xl flex-1 animate-pulse" />
+              <div className="h-11 bg-gray-100 dark:bg-slate-800 rounded-xl w-12 animate-pulse" />
             </div>
           </div>
         ))}
@@ -45,11 +45,11 @@ export function MaterialsGrid({
   if (!isPending && materials?.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-6 text-gray-400">
+        <div className="w-20 h-20 bg-gray-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6 text-gray-400 dark:text-slate-500">
           <FileText size={32} aria-hidden="true" />
         </div>
-        <h3 className="text-xl font-bold text-gray-900 mb-2">No materials found</h3>
-        <p className="text-gray-500 max-w-sm text-sm">
+        <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2">No materials found</h3>
+        <p className="text-gray-500 dark:text-slate-400 max-w-sm text-sm">
           {searchQuery
             ? `No documents matched your search "${searchQuery}".`
             : 'Your instructor has not published any materials for this module yet.'}
@@ -69,21 +69,21 @@ export function MaterialsGrid({
         return (
           <article
             key={material.id}
-            className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col"
+            className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow group flex flex-col"
           >
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-[#0a1142]/5 rounded-xl text-[#0a1142]">
+              <div className="p-3 bg-[#0a1142]/5 dark:bg-slate-800 rounded-xl text-[#0a1142] dark:text-indigo-400">
                 <FileText size={24} aria-hidden="true" />
               </div>
-              <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full">
+              <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 rounded-full">
                 {(material.type || 'PDF').toUpperCase()}
               </span>
             </div>
 
-            <h3 className="font-bold text-gray-900 text-base mb-1 line-clamp-2" title={material.title}>
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 text-base mb-1 line-clamp-2" title={material.title}>
               {material.title}
             </h3>
-            <p className="text-xs text-gray-500 mb-6">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-6">
               Added {material.createdAt ? new Date(material.createdAt).toLocaleDateString() : 'Recently'}
             </p>
 
@@ -92,7 +92,7 @@ export function MaterialsGrid({
                 type="button"
                 onClick={() => onView(material)}
                 disabled={isCurrentPdfLoading}
-                className="flex-1 min-h-[44px] flex items-center justify-center gap-2 bg-[#0a1142] hover:bg-[#16258f] text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-70 touch-manipulation"
+                className="flex-1 min-h-[44px] flex items-center justify-center gap-2 bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-70 touch-manipulation"
                 aria-label={`View ${material.title}`}
               >
                 {isCurrentPdfLoading ? (
@@ -110,7 +110,7 @@ export function MaterialsGrid({
                   type="button"
                   onClick={() => onDownload(material)}
                   disabled={isCurrentDownloading}
-                  className="min-w-[44px] min-h-[44px] p-2.5 border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-600 rounded-xl transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                  className="min-w-[44px] min-h-[44px] p-2.5 border border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-slate-300 rounded-xl transition-colors focus:ring-2 focus:ring-[#ffb81c] focus:outline-none disabled:opacity-50 touch-manipulation flex items-center justify-center"
                   aria-label={`Download ${material.title}`}
                   title="Download PDF"
                 >

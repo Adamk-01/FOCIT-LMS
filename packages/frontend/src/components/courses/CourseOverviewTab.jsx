@@ -18,11 +18,11 @@ export function CourseOverviewTab({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in">
       {/* Left Column: Course Information & Description */}
       <div className="lg:col-span-2 space-y-6">
-        <section className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200 shadow-sm space-y-5">
-          <h2 className="text-lg font-bold text-[#0a1142] font-display">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-gray-200 dark:border-slate-800 shadow-sm space-y-5">
+          <h2 className="text-lg font-bold text-[#0a1142] dark:text-slate-100 font-display">
             Course Information
           </h2>
-          <p className="text-sm text-gray-600 leading-relaxed font-sans">
+          <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed font-sans">
             {course?.description || 
               'This course covers fundamental data structures and algorithms including arrays, linked lists, stacks, queues, hash tables, balanced binary search trees, heaps, priority queues, and graph representations with Big-O time and space complexity evaluations.'}
           </p>
@@ -39,7 +39,7 @@ export function CourseOverviewTab({
               <span>Join Zoom Meeting</span>
               <ExternalLink size={14} className="text-gray-300" aria-hidden="true" />
             </a>
-            <p className="text-xs text-gray-400 mt-2 font-sans">
+            <p className="text-xs text-gray-400 dark:text-slate-500 mt-2 font-sans">
               Scheduled: {zoom?.schedule || 'Tuesdays & Thursdays • 10:00 AM - 12:00 PM'}
             </p>
           </div>
@@ -49,37 +49,37 @@ export function CourseOverviewTab({
       {/* Right Column: Course Progress & Upcoming Activities */}
       <aside className="space-y-6">
         {/* Course Progress Card */}
-        <section className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[#0a1142]">Course Progress</h3>
-            <span className="text-lg font-extrabold text-[#0a1142]">{progressPercent}%</span>
+            <h3 className="text-sm font-bold text-[#0a1142] dark:text-slate-100">Course Progress</h3>
+            <span className="text-lg font-extrabold text-[#0a1142] dark:text-slate-100">{progressPercent}%</span>
           </div>
 
-          <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
+          <div className="w-full h-3 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5">
             <div 
               className="h-full bg-gradient-to-r from-[#0a1142] to-[#16258f] rounded-full transition-all duration-500"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
 
-          <p className="text-xs text-gray-500 font-sans">
+          <p className="text-xs text-gray-500 dark:text-slate-400 font-sans">
             You have completed 4 out of 9 core syllabus modules.
           </p>
         </section>
 
         {/* Upcoming Activities Card */}
-        <section className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-            <h3 className="text-sm font-bold text-[#0a1142]">Upcoming Activities</h3>
-            <span className="text-[11px] text-gray-500 font-medium">Headless Moodle</span>
+        <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
+            <h3 className="text-sm font-bold text-[#0a1142] dark:text-slate-100">Upcoming Activities</h3>
+            <span className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">Headless Moodle</span>
           </div>
 
           <div className="space-y-3">
             {upcomingActivities.map((act) => (
-              <div key={act.id} className="p-3.5 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-between gap-3">
+              <div key={act.id} className="p-3.5 rounded-xl bg-gray-50 dark:bg-slate-800/70 border border-gray-100 dark:border-slate-700/80 flex items-center justify-between gap-3">
                 <div className="space-y-0.5 min-w-0">
-                  <p className="font-bold text-xs text-[#0a1142] truncate font-sans">{act.title}</p>
-                  <p className="text-[11px] text-gray-500 flex items-center gap-1 font-sans">
+                  <p className="font-bold text-xs text-[#0a1142] dark:text-slate-100 truncate font-sans">{act.title}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400 flex items-center gap-1 font-sans">
                     <Clock size={11} className="shrink-0" aria-hidden="true" />
                     <span>Due: {act.due_date}</span>
                   </p>

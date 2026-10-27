@@ -28,6 +28,7 @@ export class UnifiedOutboxWorker {
     this.workerId = workerId;
     this.isRunning = false;
     this.timerId = null;
+    this.currentBatchPromise = null;
   }
 
   start() {
@@ -37,21 +38,34 @@ export class UnifiedOutboxWorker {
     this.scheduleNext();
   }
 
-  stop() {
+  async stop() {
     this.isRunning = false;
-    if (this.timerId) clearTimeout(this.timerId);
-    logger.info({ workerId: this.workerId }, '[UnifiedOutbox] Worker process stopped');
+    if (this.timerId) {
+      clearTimeout(this.timerId);
+      this.timerId = null;
+    }
+    logger.info({ workerId: this.workerId }, '[UnifiedOutbox] Worker process stop initiated, awaiting active in-flight batch...');
+    if (this.currentBatchPromise) {
+      await this.currentBatchPromise.catch(() => {});
+    }
+    logger.info({ workerId: this.workerId }, '[UnifiedOutbox] Worker process stopped cleanly');
   }
 
   scheduleNext() {
     if (!this.isRunning) return;
     this.timerId = setTimeout(async () => {
+      this.timerId = null;
+      if (!this.isRunning) return;
+      this.currentBatchPromise = this.sweepBatch();
       try {
-        await this.sweepBatch();
+        await this.currentBatchPromise;
       } catch (err) {
         logger.error({ err: err?.message || err }, '[UnifiedOutbox] Unexpected sweep error');
       } finally {
-        this.scheduleNext();
+        this.currentBatchPromise = null;
+        if (this.isRunning) {
+          this.scheduleNext();
+        }
       }
     }, POLL_INTERVAL_MS);
   }

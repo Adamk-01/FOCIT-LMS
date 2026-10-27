@@ -10,7 +10,7 @@
 import express from 'express';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
-import { singleFlight } from '../lib/singleFlight.js';
+import { distributedSingleFlight } from '../lib/distributedSingleFlight.js';
 
 const router = express.Router();
 
@@ -138,8 +138,8 @@ router.get('/:courseId/grades', async (req, res, next) => {
     res.set('X-Cache', 'HIT-STALE');
     res.set('Warning', '110 - "Response is Stale"');
 
-    // Asynchronous background revalidation coalesced via Single-Flight
-    singleFlight
+    // Asynchronous background revalidation coalesced via Distributed Single-Flight
+    distributedSingleFlight
       .do(`gradebook:${cacheKey}`, () => fetchCourseGrades(courseId, studentId))
       .then((freshData) => setCachedGradebook(cacheKey, freshData))
       .catch((err) => logger.warn({ err: err?.message, cacheKey }, '[Gradebook] Background SWR failed'));
@@ -147,10 +147,10 @@ router.get('/:courseId/grades', async (req, res, next) => {
     return res.status(200).json(cache.data);
   }
 
-  // 2. Cache MISS: Single-Flight Coalescing
+  // 2. Cache MISS: Distributed Single-Flight Coalescing
   res.set('X-Cache', 'MISS');
   try {
-    const gradeData = await singleFlight.do(`gradebook:${cacheKey}`, () =>
+    const gradeData = await distributedSingleFlight.do(`gradebook:${cacheKey}`, () =>
       fetchCourseGrades(courseId, studentId)
     );
 

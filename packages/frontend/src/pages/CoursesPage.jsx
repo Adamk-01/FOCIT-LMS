@@ -129,13 +129,13 @@ export function CoursesPage() {
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-8 pb-16 animate-fade-in">
       {/* 1. Dynamic Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="text-xs font-semibold text-gray-500">
+      <nav aria-label="Breadcrumb" className="text-xs font-semibold text-gray-500 dark:text-slate-400">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/dashboard" className="hover:text-[#0a1142] transition-colors">Portal</Link>
+            <Link to="/dashboard" className="hover:text-[#0a1142] dark:hover:text-[#ffb81c] transition-colors">Portal</Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-          <li className="text-[#0a1142] font-bold" aria-current="page">My Courses</li>
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
+          <li className="text-[#0a1142] dark:text-slate-100 font-bold" aria-current="page">My Courses</li>
         </ol>
       </nav>
 
@@ -174,7 +174,7 @@ export function CoursesPage() {
 
       {/* 6. Authoritative Registered Courses Grid */}
       {!isLoading && filteredCourses.length > 0 && (
-        <section aria-label="Registered Courses List" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <section aria-label="Registered Courses List" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-7">
           {filteredCourses.map((course) => (
             <CourseCard 
               key={course.course_id || course.id} 

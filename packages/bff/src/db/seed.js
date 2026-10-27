@@ -117,6 +117,35 @@ async function runSeed() {
     logger.info('[DB Seed] Executing Migration 013 Timetable GiST Exclusion transaction...');
     await client.query(phase13Sql);
     logger.info('[DB Seed] Migration 013 transaction committed successfully.');
+
+    const phase10EnhancePath = path.resolve(__dirname, 'migrations', '010_phase10_student_enhancements.sql');
+    logger.info({ path: phase10EnhancePath }, '[DB Seed] Reading Migration 010 Phase 10 Student Enhancements SQL file...');
+    const phase10EnhanceSql = await fs.readFile(phase10EnhancePath, 'utf8');
+    await client.query(phase10EnhanceSql);
+    logger.info('[DB Seed] Migration 010 Phase 10 Enhancements committed successfully.');
+
+    const phase10ForumPath = path.resolve(__dirname, 'migrations', '011_phase10_forum_replies.sql');
+    logger.info({ path: phase10ForumPath }, '[DB Seed] Reading Migration 011 Phase 10 Forum Replies SQL file...');
+    const phase10ForumSql = await fs.readFile(phase10ForumPath, 'utf8');
+    await client.query(phase10ForumSql);
+    logger.info('[DB Seed] Migration 011 Phase 10 Forum Replies committed successfully.');
+
+    const phase11AssignmentHardeningPath = path.resolve(__dirname, 'migrations', '014_phase11_assignment_hardening.sql');
+    logger.info({ path: phase11AssignmentHardeningPath }, '[DB Seed] Reading Migration 014 Phase 11A Assignment Hardening SQL file...');
+    const phase11AssignmentHardeningSql = await fs.readFile(phase11AssignmentHardeningPath, 'utf8');
+    await client.query(phase11AssignmentHardeningSql);
+    logger.info('[DB Seed] Migration 014 Phase 11A Assignment Hardening committed successfully.');
+
+    const phase12LibraryPath = path.resolve(__dirname, 'migrations', '015_digital_library_catalog_and_pqs.sql');
+    logger.info({ path: phase12LibraryPath }, '[DB Seed] Reading Migration 015 Digital Library & PQs SQL file...');
+    const phase12LibrarySql = await fs.readFile(phase12LibraryPath, 'utf8');
+    await client.query(phase12LibrarySql);
+    logger.info('[DB Seed] Migration 015 Digital Library committed successfully.');
+
+    // Seed Digital Library Items & Binary PDFs
+    const { seedDigitalLibrary } = await import('./seedLibrary.js');
+    await seedDigitalLibrary();
+
     // Audit and verify seeded table records
     const deptsCount = await client.query('SELECT COUNT(*) FROM departments');
     const progsCount = await client.query('SELECT COUNT(*) FROM programmes');

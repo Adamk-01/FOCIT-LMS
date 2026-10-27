@@ -46,31 +46,31 @@ function getCategoryBadge(category) {
     case 'REGISTRATION':
       return {
         icon: ClipboardCheck,
-        bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        bg: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
         label: 'Registration',
       };
     case 'ASSESSMENT':
       return {
         icon: HelpCircle,
-        bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+        bg: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800',
         label: 'Assessment',
       };
     case 'ACADEMIC':
       return {
         icon: BookOpen,
-        bg: 'bg-blue-50 text-[#0a1142] border-blue-200',
+        bg: 'bg-blue-50 text-[#0a1142] border-blue-200 dark:bg-blue-950/40 dark:text-[#ffb81c] dark:border-blue-800',
         label: 'Coursework',
       };
     case 'SECURITY':
       return {
         icon: Lock,
-        bg: 'bg-amber-50 text-amber-700 border-amber-200',
+        bg: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
         label: 'Security',
       };
     default:
       return {
         icon: Bell,
-        bg: 'bg-gray-50 text-gray-700 border-gray-200',
+        bg: 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700',
         label: 'General',
       };
   }
@@ -204,17 +204,17 @@ function SwipeableNotificationItem({ item, onClick, onClear }) {
           transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
           opacity: isDismissing ? 0 : 1,
         }}
-        className={`relative p-4 rounded-xl border cursor-pointer z-10 transition-shadow ${
+        className={`relative p-4 rounded-xl border cursor-pointer z-10 transition-all ${
           item.is_read 
-            ? 'bg-white border-gray-200 hover:border-gray-300' 
-            : 'bg-blue-50/50 border-blue-200 shadow-sm hover:border-blue-300'
+            ? 'bg-white dark:bg-slate-800/80 border-gray-200 dark:border-slate-700/80 hover:border-gray-300 dark:hover:border-slate-600' 
+            : 'bg-blue-50/50 dark:bg-slate-800 border-blue-200 dark:border-blue-900/60 shadow-sm hover:border-blue-300 dark:hover:border-blue-700'
         }`}
       >
         {/* Unread indicator dot */}
         {!item.is_read && (
           <span 
             aria-label="Unread notification"
-            className="absolute top-4 right-10 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-white" 
+            className="absolute top-4 right-10 w-2 h-2 rounded-full bg-blue-600 dark:bg-[#ffb81c] ring-2 ring-white dark:ring-slate-800" 
           />
         )}
 
@@ -224,7 +224,7 @@ function SwipeableNotificationItem({ item, onClick, onClear }) {
           onClick={handleDirectClear}
           title="Clear notification (or slide right)"
           aria-label={`Clear notification: ${item.title}`}
-          className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors z-20"
+          className="absolute top-3 right-3 p-1.5 text-gray-400 dark:text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors z-20"
         >
           <Trash2 size={15} />
         </button>
@@ -241,7 +241,7 @@ function SwipeableNotificationItem({ item, onClick, onClear }) {
               </span>
               <time 
                 dateTime={item.created_at} 
-                className="text-[11px] text-gray-400 font-medium flex items-center gap-1"
+                className="text-[11px] text-gray-400 dark:text-gray-500 font-medium flex items-center gap-1"
               >
                 <Clock size={10} />
                 <span>{formatRelativeTime(item.created_at)}</span>
@@ -249,25 +249,25 @@ function SwipeableNotificationItem({ item, onClick, onClear }) {
             </div>
 
             <h4 className={`text-xs font-bold leading-snug line-clamp-1 ${
-              item.is_read ? 'text-gray-800' : 'text-[#0a1142]'
+              item.is_read ? 'text-gray-800 dark:text-gray-200' : 'text-[#0a1142] dark:text-[#ffb81c]'
             }`}>
               {item.title}
             </h4>
 
-            <p className="text-xs text-gray-600 mt-1 line-clamp-2 leading-relaxed">
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2 leading-relaxed">
               {item.body}
             </p>
 
             <div className="mt-2 flex items-center justify-between text-[11px]">
               {item.action_url ? (
-                <div className="flex items-center gap-1 font-bold text-[#0a1142] group-hover:text-[#16258f]">
+                <div className="flex items-center gap-1 font-bold text-[#0a1142] dark:text-[#ffb81c] group-hover:text-[#16258f] dark:group-hover:text-yellow-300">
                   <span>View Details</span>
                   <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
                 </div>
               ) : (
                 <span />
               )}
-              <span className="text-[10px] text-gray-400 hidden sm:inline-block">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 hidden sm:inline-block">
                 Slide right ➔ to clear
               </span>
             </div>
@@ -379,24 +379,24 @@ export function NotificationDrawer({ isOpen, onClose }) {
         aria-modal="true"
         aria-label="Notification Center"
         onClick={(e) => e.stopPropagation()}
-        className="fixed inset-y-0 right-0 w-full sm:max-w-md bg-white shadow-2xl flex flex-col z-50 h-[100dvh] contain-layout-paint isolate transform transition-transform duration-300 ease-in-out border-l border-gray-200"
+        className="fixed inset-y-0 right-0 w-full sm:max-w-md bg-white dark:bg-slate-900 shadow-2xl flex flex-col z-50 h-[100dvh] contain-layout-paint isolate transform transition-transform duration-300 ease-in-out border-l border-gray-200 dark:border-slate-800 text-slate-900 dark:text-slate-100"
       >
         {/* 1. Header Toolbar */}
-        <header className="px-5 py-4 border-b border-gray-200 flex items-center justify-between shrink-0 bg-white">
+        <header className="px-5 py-4 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0a1142] text-[#ffb81c] flex items-center justify-center shadow-sm">
+            <div className="w-8 h-8 rounded-lg bg-[#0a1142] dark:bg-[#ffb81c] text-[#ffb81c] dark:text-[#0a1142] flex items-center justify-center shadow-sm">
               <Bell size={18} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-[#0a1142] leading-tight font-display">
+                <h2 className="text-base font-bold text-[#0a1142] dark:text-[#ffb81c] leading-tight font-display">
                   Notifications
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-[#0a1142]/10 text-[#0a1142]">
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-[#0a1142]/10 dark:bg-[#ffb81c]/20 text-[#0a1142] dark:text-[#ffb81c]">
                   {notifications.length}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 font-medium">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
                 {unreadCount > 0 
                   ? `${unreadCount} unread • ${notifications.length} total` 
                   : `${notifications.length} update${notifications.length === 1 ? '' : 's'} • all caught up`}
@@ -412,12 +412,12 @@ export function NotificationDrawer({ isOpen, onClose }) {
                 disabled={isMarkingAllAsRead}
                 aria-label="Mark all notifications as read"
                 title="Mark all as read"
-                className="px-2.5 py-1.5 text-xs font-semibold text-[#0a1142] hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                className="px-2.5 py-1.5 text-xs font-semibold text-[#0a1142] dark:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
               >
                 {isMarkingAllAsRead ? (
-                  <RefreshCw size={13} className="animate-spin text-[#0a1142]" />
+                  <RefreshCw size={13} className="animate-spin text-[#0a1142] dark:text-[#ffb81c]" />
                 ) : (
-                  <CheckCheck size={14} className="text-emerald-600" />
+                  <CheckCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
                 )}
                 <span className="hidden sm:inline">Read All</span>
               </button>
@@ -430,10 +430,10 @@ export function NotificationDrawer({ isOpen, onClose }) {
                 disabled={isClearingAll}
                 aria-label="Clear all notifications"
                 title="Clear all notifications"
-                className="px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                className="px-2.5 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
               >
                 {isClearingAll ? (
-                  <RefreshCw size={13} className="animate-spin text-rose-600" />
+                  <RefreshCw size={13} className="animate-spin text-rose-600 dark:text-rose-400" />
                 ) : (
                   <Trash2 size={13} />
                 )}
@@ -445,7 +445,7 @@ export function NotificationDrawer({ isOpen, onClose }) {
               type="button"
               onClick={onClose}
               aria-label="Close notification panel"
-              className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors ml-1"
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors ml-1"
             >
               <X size={20} />
             </button>
@@ -453,7 +453,7 @@ export function NotificationDrawer({ isOpen, onClose }) {
         </header>
 
         {/* 2. Categorical Filter Tabs (URL-Synced) */}
-        <nav aria-label="Notification Categories" className="px-4 py-2 border-b border-gray-100 shrink-0 bg-gray-50/70 overflow-x-auto no-scrollbar">
+        <nav aria-label="Notification Categories" className="px-4 py-2 border-b border-gray-100 dark:border-slate-800 shrink-0 bg-gray-50/70 dark:bg-slate-800/60 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-1.5 min-w-max">
             {CATEGORY_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -465,8 +465,8 @@ export function NotificationDrawer({ isOpen, onClose }) {
                   aria-pressed={isActive}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     isActive 
-                      ? 'bg-[#0a1142] text-white shadow-sm' 
-                      : 'bg-white text-gray-600 hover:text-[#0a1142] hover:bg-gray-100 border border-gray-200'
+                      ? 'bg-[#0a1142] dark:bg-[#ffb81c] text-white dark:text-[#0a1142] shadow-sm' 
+                      : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700'
                   }`}
                 >
                   {tab.label}
@@ -483,12 +483,12 @@ export function NotificationDrawer({ isOpen, onClose }) {
 
         {/* Slide-Right Tip Banner */}
         {notifications.length > 0 && (
-          <div className="px-5 py-2 bg-blue-50/60 border-b border-blue-100 text-[11px] text-[#0a1142] flex items-center justify-between">
+          <div className="px-5 py-2 bg-blue-50/60 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/60 text-[11px] text-[#0a1142] dark:text-blue-200 flex items-center justify-between">
             <span className="flex items-center gap-1.5 font-medium">
               <span>💡</span>
               <span>Slide right <strong>(swipe ➔)</strong> or tap the trash icon to clear.</span>
             </span>
-            <span className="text-gray-400 font-mono text-[10px]">
+            <span className="text-gray-400 dark:text-gray-500 font-mono text-[10px]">
               {notifications.length} item{notifications.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -503,13 +503,13 @@ export function NotificationDrawer({ isOpen, onClose }) {
           {isLoading && (
             <div className="space-y-3" aria-busy="true" aria-label="Loading notifications">
               {[1, 2, 3, 4].map((idx) => (
-                <div key={idx} className="p-4 rounded-xl border border-gray-100 bg-white animate-pulse space-y-2">
+                <div key={idx} className="p-4 rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-800 animate-pulse space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="w-20 h-4 bg-gray-200 rounded" />
-                    <div className="w-12 h-3 bg-gray-200 rounded" />
+                    <div className="w-20 h-4 bg-gray-200 dark:bg-slate-700 rounded" />
+                    <div className="w-12 h-3 bg-gray-200 dark:bg-slate-700 rounded" />
                   </div>
-                  <div className="w-3/4 h-4 bg-gray-300 rounded" />
-                  <div className="w-full h-3 bg-gray-100 rounded" />
+                  <div className="w-3/4 h-4 bg-gray-300 dark:bg-slate-600 rounded" />
+                  <div className="w-full h-3 bg-gray-100 dark:bg-slate-700 rounded" />
                 </div>
               ))}
             </div>
@@ -517,15 +517,15 @@ export function NotificationDrawer({ isOpen, onClose }) {
 
           {/* B. Error State */}
           {isError && !isLoading && (
-            <div className="p-6 text-center rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 space-y-3">
-              <AlertCircle size={28} className="mx-auto text-amber-600" />
+            <div className="p-6 text-center rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 space-y-3">
+              <AlertCircle size={28} className="mx-auto text-amber-600 dark:text-amber-400" />
               <p className="text-xs font-semibold leading-relaxed">
                 {getUserFriendlyErrorMessage(error, 'Unable to load your notifications right now. Please verify your connection.')}
               </p>
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="px-3.5 py-1.5 bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                className="px-3.5 py-1.5 bg-[#0a1142] dark:bg-[#ffb81c] hover:bg-[#16258f] dark:hover:bg-yellow-400 text-white dark:text-[#0a1142] text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-1.5 shadow-sm"
               >
                 <RefreshCw size={12} />
                 <span>Retry Connection</span>
@@ -535,14 +535,14 @@ export function NotificationDrawer({ isOpen, onClose }) {
 
           {/* C. Empty State */}
           {!isLoading && !isError && notifications.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-3 text-gray-500 min-h-[300px]">
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-[#0a1142] flex items-center justify-center">
-                <Bell size={24} className="text-[#0a1142]/60" />
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-3 text-gray-500 dark:text-gray-400 min-h-[300px]">
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-slate-800 text-[#0a1142] dark:text-[#ffb81c] flex items-center justify-center">
+                <Bell size={24} className="text-[#0a1142]/60 dark:text-[#ffb81c]/60" />
               </div>
-              <h3 className="text-sm font-bold text-[#0a1142]">
+              <h3 className="text-sm font-bold text-[#0a1142] dark:text-[#ffb81c]">
                 {isUnreadOnly ? 'No unread notifications' : 'No notifications in this category'}
               </h3>
-              <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+              <p className="text-xs text-gray-400 dark:text-gray-400 max-w-xs leading-relaxed">
                 You are completely up to date with faculty announcements, course registrations, and assessment deadlines.
               </p>
             </div>
@@ -565,11 +565,11 @@ export function NotificationDrawer({ isOpen, onClose }) {
                 type="button"
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="w-full py-2.5 px-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-[#0a1142] text-xs font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-4 bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-[#0a1142] dark:text-[#ffb81c] text-xs font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isFetchingNextPage ? (
                   <>
-                    <RefreshCw size={13} className="animate-spin text-[#0a1142]" />
+                    <RefreshCw size={13} className="animate-spin text-[#0a1142] dark:text-[#ffb81c]" />
                     <span>Loading more updates...</span>
                   </>
                 ) : (

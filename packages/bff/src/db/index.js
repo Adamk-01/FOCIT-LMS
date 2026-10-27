@@ -11,11 +11,14 @@
  */
 
 import pg from 'pg';
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
 
-const { Pool } = pg;
+// Configure Neon WebSocket transport for Node.js environments (bypasses port 5432 ISP firewalls)
+neonConfig.webSocketConstructor = ws;
 
 // Ephemeral Async Context Storage for Request Trace Propagation
 export const traceStorage = new AsyncLocalStorage();
@@ -30,14 +33,26 @@ export function getActiveTraceId() {
 }
 
 // Bounded PostgreSQL Connection Pool configuration
+const rawUrl = process.env.DATABASE_URL || 'postgresql://focit_user:focit_password@127.0.0.1:5432/focit_db';
+const isNeon = rawUrl.includes('neon.tech');
+
 const poolConfig = {
-  connectionString: process.env.DATABASE_URL || 'postgresql://focit_user:focit_password@127.0.0.1:5432/focit_db',
-  max: 20,                          // Little's Law capacity ceiling
+  connectionString: rawUrl,
+  max: 20,                          // Little's Law capacity ceiling per process
   idleTimeoutMillis: 30000,         // Purge idle sockets after 30s
-  connectionTimeoutMillis: 5000,    // Fail fast if pool is exhausted
+  connectionTimeoutMillis: 10000,   // 10s to absorb Neon compute cold-start if scale-to-zero is active
+  query_timeout: 10000,             // Client-side circuit breaker (2s buffer above server 8s statement_timeout)
+  allowExitOnIdle: false,
 };
 
-export const pool = new Pool(poolConfig);
+// Use Neon Serverless Pool when target is Neon (port 443 WebSocket traversal)
+// or standard pg.Pool for local/direct PostgreSQL
+export const pool = isNeon ? new NeonPool(poolConfig) : new pg.Pool(poolConfig);
+
+// Direct pool dedicated for DDL / migrations / seed scripts (bypasses PgBouncer transaction mode)
+const directUrl = process.env.DIRECT_DATABASE_URL || rawUrl.replace('-pooler', '');
+const directIsNeon = directUrl.includes('neon.tech');
+export const directPool = directIsNeon ? new NeonPool({ connectionString: directUrl }) : new pg.Pool({ connectionString: directUrl });
 
 pool.on('error', (err) => {
   logger.error({ err: err?.message || err }, '[PostgreSQL] Unexpected error on idle client');
@@ -100,17 +115,18 @@ export class DatabaseAdapter {
    * @param {(client: import('pg').PoolClient) => Promise<T>} workFn
    * @returns {Promise<T>}
    */
-  async transaction(workFn) {
+  async transaction(workFn, timeoutMs = 8000) {
     const client = await this.pool.connect();
     const traceId = getActiveTraceId();
+    const sanitizedTimeout = Number(timeoutMs) || 8000;
 
     try {
       if (traceId) {
         const sanitizedTrace = traceId.replace(/[^a-zA-Z0-9_-]/g, '');
         // Pipelined multi-statement: Exactly 1 network RTT, zero transaction overhead
-        await client.query(`BEGIN; SET LOCAL application_name = 'focit_bff:${sanitizedTrace}'`);
+        await client.query(`BEGIN; SET LOCAL statement_timeout = '${sanitizedTimeout}ms'; SET LOCAL application_name = 'focit_bff:${sanitizedTrace}';`);
       } else {
-        await client.query('BEGIN');
+        await client.query(`BEGIN; SET LOCAL statement_timeout = '${sanitizedTimeout}ms';`);
       }
 
       const result = await workFn(client);
@@ -144,4 +160,12 @@ export class DatabaseAdapter {
 }
 
 export const db = new DatabaseAdapter(pool);
+
+/**
+ * Transaction helper enforcing PgBouncer transaction-mode safety
+ */
+export async function withTransaction(callback, timeoutMs = 8000) {
+  return db.transaction(callback, timeoutMs);
+}
+
 export default db;

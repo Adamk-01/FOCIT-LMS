@@ -15,7 +15,7 @@ export const PROFILE_TABS = [
  */
 export function ProfileTabsNav({ activeTab = 'overview', onTabChange }) {
   return (
-    <nav aria-label="Profile Sections" className="border-b border-gray-200">
+    <nav aria-label="Profile Sections" className="border-b border-gray-200 dark:border-slate-800">
       <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         {PROFILE_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -28,11 +28,11 @@ export function ProfileTabsNav({ activeTab = 'overview', onTabChange }) {
               className={`
                 flex items-center gap-2 min-h-[44px] px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all whitespace-nowrap
                 ${isActive
-                  ? 'border-[#0a1142] text-[#0a1142]'
-                  : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'}
+                  ? 'border-[#0a1142] dark:border-[#ffb81c] text-[#0a1142] dark:text-[#ffb81c]'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-slate-700'}
               `}
             >
-              <Icon size={16} className={isActive ? 'text-[#0a1142]' : 'text-gray-400'} aria-hidden="true" />
+              <Icon size={16} className={isActive ? 'text-[#0a1142] dark:text-[#ffb81c]' : 'text-gray-400 dark:text-gray-500'} aria-hidden="true" />
               <span>{tab.label}</span>
             </button>
           );

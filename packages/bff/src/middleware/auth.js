@@ -42,6 +42,11 @@ export async function authMiddleware(req, res, next) {
     return next();
   }
 
+  // Public calendar feed bypass authenticated exclusively via high-entropy capability token (?token=...)
+  if (req.method === 'GET' && (req.path.endsWith('/timetable/calendar.ics') || req.path.includes('/timetable/calendar.ics'))) {
+    return next();
+  }
+
   // 1. Extract Ambient Cookie Token & Ephemeral Header/Query Nonce (EventSource transport support)
   const token = req.cookies?.focit_token || extractBearerToken(req);
   const clientNonce = req.headers['x-session-nonce'] || req.query?.nonce || req.query?.sessionNonce;

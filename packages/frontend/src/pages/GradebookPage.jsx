@@ -39,8 +39,8 @@ export function GradebookPage() {
   if (isLoading) {
     return (
       <div className="max-w-6xl mx-auto p-12 text-center space-y-4">
-        <RefreshCw size={36} className="animate-spin text-[#0a1142] mx-auto" aria-hidden="true" />
-        <p className="text-gray-600 font-medium">Aggregating gradebook items from Headless Moodle...</p>
+        <RefreshCw size={36} className="animate-spin text-[#0a1142] dark:text-[#ffb81c] mx-auto" aria-hidden="true" />
+        <p className="text-gray-600 dark:text-slate-400 font-medium">Aggregating gradebook items from Headless Moodle...</p>
       </div>
     );
   }

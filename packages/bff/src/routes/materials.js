@@ -13,7 +13,7 @@ import { Router } from 'express';
 import { enrollmentCheck } from '../middleware/auth.js';
 import { listRateLimit } from '../middleware/rateLimiter.js';
 import { getCourseContents } from '../lib/moodleApi.js';
-import { singleFlight } from '../lib/singleFlight.js';
+import { distributedSingleFlight } from '../lib/distributedSingleFlight.js';
 import { materialsCache } from '../lib/materialsCache.js';
 import { logger } from '../lib/logger.js';
 import { pool } from '../db/index.js';
@@ -42,8 +42,8 @@ export async function resolveCourseRecord(rawIdentifier) {
     return cached.data;
   }
 
-  // 2. Coalesced Miss: Single-Flight PostgreSQL Lookup
-  return singleFlight.do(cacheKey, async () => {
+  // 2. Coalesced Miss: Two-Layer Distributed Single-Flight PostgreSQL Lookup
+  return distributedSingleFlight.do(cacheKey, async () => {
     const query = `
       SELECT 
         course_id, 
@@ -313,8 +313,11 @@ router.get(
 function triggerBackgroundRevalidation(courseId, moodleCourseId) {
   const flightKey = `course_materials:${moodleCourseId}`;
 
-  singleFlight
-    .do(flightKey, (signal) => fetchAndTransformMaterials(moodleCourseId, signal), UPSTREAM_FETCH_TIMEOUT_MS)
+  distributedSingleFlight
+    .do(flightKey, (signal) => fetchAndTransformMaterials(moodleCourseId, signal), {
+      timeoutMs: UPSTREAM_FETCH_TIMEOUT_MS,
+      l2TtlSeconds: 300,
+    })
     .then((freshMaterials) => {
       materialsCache.set(courseId, freshMaterials);
       logger.debug({ courseId, moodleCourseId }, '[SWR] Background revalidation succeeded; cache updated');
@@ -379,13 +382,16 @@ router.get(
       });
     }
 
-    // 1C. Cache MISS: Coalesce via Single-Flight with decoupled Ingress vs. Upstream timeout
+    // 1C. Cache MISS: Coalesce via Two-Layer Distributed Single-Flight
     res.set('X-Cache', 'MISS');
     const flightKey = `course_materials:${moodleCourseId}`;
 
-    // Upstream Single-Flight task (persists up to UPSTREAM_FETCH_TIMEOUT_MS)
-    const upstreamPromise = singleFlight
-      .do(flightKey, (signal) => fetchAndTransformMaterials(moodleCourseId, signal), UPSTREAM_FETCH_TIMEOUT_MS)
+    // Upstream Distributed Single-Flight task (persists up to UPSTREAM_FETCH_TIMEOUT_MS)
+    const upstreamPromise = distributedSingleFlight
+      .do(flightKey, (signal) => fetchAndTransformMaterials(moodleCourseId, signal), {
+        timeoutMs: UPSTREAM_FETCH_TIMEOUT_MS,
+        l2TtlSeconds: 300,
+      })
       .then((materials) => {
         // Populate cache upon resolution (even if client ingress timed out)
         materialsCache.set(courseId, materials);

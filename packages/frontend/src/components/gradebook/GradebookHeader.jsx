@@ -24,37 +24,37 @@ export function GradebookHeader({
   return (
     <div className="space-y-4">
       {/* 1. Breadcrumbs */}
-      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500">
+      <nav aria-label="Breadcrumb Navigation" className="text-xs font-semibold text-gray-500 dark:text-slate-400">
         <ol className="flex items-center gap-2">
           <li>
-            <Link to="/dashboard" className="hover:text-[#0a1142] transition-colors">
+            <Link to="/dashboard" className="hover:text-[#0a1142] dark:hover:text-[#ffb81c] transition-colors">
               Dashboard
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
           <li>
-            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] transition-colors">
+            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] dark:hover:text-[#ffb81c] transition-colors">
               {courseCode}
             </Link>
           </li>
-          <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-          <li className="text-[#0a1142] font-bold" aria-current="page">
+          <ChevronRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" aria-hidden="true" />
+          <li className="text-[#0a1142] dark:text-slate-100 font-bold" aria-current="page">
             Gradebook
           </li>
         </ol>
       </nav>
 
       {/* 2. Top Header & Metric Banner */}
-      <header className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <header className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-gray-200 dark:border-slate-800 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] border border-[#ffb81c]/30">
-            <Award size={14} className="text-[#0a1142]" aria-hidden="true" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] dark:text-[#ffb81c] border border-[#ffb81c]/30">
+            <Award size={14} className="text-[#0a1142] dark:text-[#ffb81c]" aria-hidden="true" />
             <span>OFFICIAL ACADEMIC TRANSCRIPT RECORD</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] dark:text-slate-100 font-display">
             User Report: {courseCode} — {courseTitle}
           </h1>
-          <p className="text-xs sm:text-sm text-gray-500 font-medium">
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 font-medium">
             Student: {studentName} {studentMatric ? `(${studentMatric})` : ''} • Rain Semester 2026/2027
           </p>
         </div>

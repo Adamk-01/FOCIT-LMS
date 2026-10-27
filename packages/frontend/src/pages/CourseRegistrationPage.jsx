@@ -34,8 +34,8 @@ export const CourseRegistrationPage = () => {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
-        <RefreshCw size={36} className="animate-spin text-[#0a1142]" aria-hidden="true" />
-        <p className="text-sm font-bold text-gray-700 font-sans">
+        <RefreshCw size={36} className="animate-spin text-[#0a1142] dark:text-blue-400" aria-hidden="true" />
+        <p className="text-sm font-bold text-gray-700 dark:text-slate-300 font-sans">
           Loading academic curriculum and registration profile...
         </p>
       </div>
@@ -65,16 +65,16 @@ export const CourseRegistrationPage = () => {
     <div className="flex flex-col gap-6 max-w-6xl mx-auto h-full animate-fade-in">
       {/* Rejection Alert Banner */}
       {isRejected && (
-        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 shadow-sm flex items-start gap-3">
-          <AlertTriangle size={24} className="text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 shadow-sm flex items-start gap-3">
+          <AlertTriangle size={24} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="flex-1 min-w-0 font-sans">
-            <h3 className="text-sm font-black text-amber-950 font-display">
+            <h3 className="text-sm font-black text-amber-950 dark:text-amber-100 font-display">
               Registration Returned for Modification by Level Advisor
             </h3>
-            <p className="text-xs text-amber-800 mt-1">
+            <p className="text-xs text-amber-800 dark:text-amber-300 mt-1">
               <strong>Remarks:</strong> {rejectionRemarks || 'Please review curriculum requirements.'}
             </p>
-            <p className="text-xs text-amber-700 mt-2">
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
               Your previous seat reservations have been safely reverted. Modify your course selection below and resubmit for approval.
             </p>
           </div>

@@ -71,7 +71,54 @@ export function useForumThreads({ courseId }) {
     );
   }, [threads, searchQuery]);
 
-  // 2. Mutation for creating a new topic
+  // 2. Fetch Replies for Selected Thread
+  const [selectedThread, setSelectedThread] = useState(null);
+
+  const {
+    data: repliesData,
+    isLoading: isLoadingReplies,
+    error: repliesError,
+  } = useQuery({
+    queryKey: ['forum-thread-replies', courseId, selectedThread?.id],
+    queryFn: async () => {
+      const res = await apiClient.get(`/courses/${courseId}/forum/threads/${selectedThread.id}/replies`);
+      return res.data;
+    },
+    enabled: Boolean(courseId && selectedThread?.id),
+  });
+
+  const replies = useMemo(() => repliesData?.replies || [], [repliesData?.replies]);
+
+  // 3. Mutation for posting a reply
+  const postReplyMutation = useMutation({
+    mutationFn: async ({ threadId, body }) => {
+      const res = await apiClient.post(`/courses/${courseId}/forum/threads/${threadId}/replies`, {
+        body,
+      });
+      return res.data;
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['forum-thread-replies', courseId, variables.threadId] });
+      queryClient.invalidateQueries({ queryKey: ['course-forum', courseId] });
+    },
+  });
+
+  const handlePostReply = useCallback(
+    (body, onSuccessCallback) => {
+      if (!selectedThread?.id || !body?.trim()) return;
+      postReplyMutation.mutate(
+        { threadId: selectedThread.id, body: body.trim() },
+        {
+          onSuccess: () => {
+            if (onSuccessCallback) onSuccessCallback();
+          },
+        }
+      );
+    },
+    [selectedThread, postReplyMutation]
+  );
+
+  // 4. Mutation for creating a new topic
   const createTopicMutation = useMutation({
     mutationFn: async ({ title, body }) => {
       const res = await apiClient.post(`/courses/${courseId}/forum/threads`, {
@@ -117,6 +164,14 @@ export function useForumThreads({ courseId }) {
     createTopicMutation,
     isPosting: createTopicMutation.isPending,
     postError: createTopicMutation.error,
+    selectedThread,
+    setSelectedThread,
+    replies,
+    isLoadingReplies,
+    repliesError,
+    handlePostReply,
+    isPostingReply: postReplyMutation.isPending,
+    postReplyError: postReplyMutation.error?.response?.data?.error || postReplyMutation.error?.message || null,
     isLoading,
     isError,
     error,

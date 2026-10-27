@@ -17,6 +17,7 @@
 
 import { logger } from './logger.js';
 import { singleFlight } from './singleFlight.js';
+import { distributedSingleFlight } from './distributedSingleFlight.js';
 
 let isShuttingDown = false;
 const activeRequests = new Set();
@@ -192,16 +193,20 @@ export function setupGracefulShutdown({
       // =====================================================================
       // PHASE 4: Drain Active In-Flight Requests & SingleFlight Tasks
       // =====================================================================
-      // Poll activeRequests and singleFlight registry until all queries settle.
+      // Poll activeRequests and singleFlight / distributedSingleFlight registry until all settle.
       // Periodically invoke server.closeIdleConnections() as requests finish.
       logger.info(
-        { activeRequests: activeRequests.size, inFlightSingleFlight: singleFlight.activeKeys },
+        {
+          activeRequests: activeRequests.size,
+          inFlightSingleFlight: singleFlight.activeKeys,
+          inFlightDistributed: distributedSingleFlight.activeKeys,
+        },
         '[Shutdown] Phase 4: Awaiting in-flight queries and Single-Flight promises...'
       );
 
       const drainStart = Date.now();
       while (
-        (activeRequests.size > 0 || singleFlight.activeKeys.length > 0) &&
+        (activeRequests.size > 0 || singleFlight.activeKeys.length > 0 || distributedSingleFlight.activeKeys.length > 0) &&
         Date.now() - drainStart < maxDrainWaitMs
       ) {
         if (typeof server.closeIdleConnections === 'function') {
@@ -214,9 +219,13 @@ export function setupGracefulShutdown({
       // If stubborn sockets remain open after maxDrainWaitMs, invoke native closeAllConnections()
       // to forcibly terminate lingering sockets before closing database connections.
       if (!isServerClosed) {
-        if (activeRequests.size > 0 || singleFlight.activeKeys.length > 0) {
+        if (activeRequests.size > 0 || singleFlight.activeKeys.length > 0 || distributedSingleFlight.activeKeys.length > 0) {
           logger.warn(
-            { remainingRequests: activeRequests.size, remainingSingleFlight: singleFlight.activeKeys.length },
+            {
+              remainingRequests: activeRequests.size,
+              remainingSingleFlight: singleFlight.activeKeys.length,
+              remainingDistributed: distributedSingleFlight.activeKeys.length,
+            },
             '[Shutdown] Drain deadline reached. Invoking server.closeAllConnections() to force-close stubborn sockets...'
           );
         }
@@ -260,7 +269,14 @@ export function setupGracefulShutdown({
         }
       }
 
-      // 2. Redis Session Store Connection
+      // 2. Redis Session Store Connection & Distributed Single-Flight Teardown
+      try {
+        await distributedSingleFlight.close();
+        logger.info('[Shutdown] Distributed Single-Flight subscriber closed cleanly');
+      } catch (sfErr) {
+        logger.debug({ err: sfErr?.message }, '[Shutdown] Distributed Single-Flight close notice');
+      }
+
       if (redis && typeof redis.quit === 'function') {
         logger.info('[Shutdown] Phase 5b: Closing Redis client connection...');
         try {
