@@ -24,10 +24,10 @@ import { PublishOfficialTestModal } from '../components/questionBank/PublishOffi
 export function QuestionBankPage() {
   const { courseId: paramCourseId } = useParams();
   const navigate = useNavigate();
-  const { data: courses = [] } = useLecturerCourses();
+  const { data: courses = [], isLoading: isLoadingCourses } = useLecturerCourses();
 
-  // Resolve target course: URL param or first allocated course or default to CSC204
-  const courseId = paramCourseId || (courses.length > 0 ? courses[0].course_id : 'CSC204');
+  // Wait for useLecturerCourses to resolve before falling back to CSC204
+  const resolvedCourseId = paramCourseId || (isLoadingCourses ? null : (courses[0]?.course_id || 'CSC204'));
 
   const [showAuthoringCard, setShowAuthoringCard] = useState(false);
   const [showPublishTestModal, setShowPublishTestModal] = useState(false);
@@ -41,16 +41,18 @@ export function QuestionBankPage() {
     filteredQuestions,
     selectedTypeFilter,
     handleFilterChange,
-    isLoading,
+    isLoading: isQuestionBankLoading,
     error,
     refetch,
     addQuestionMutation,
     publishMutation,
     publishOfficialTestMutation,
-  } = useQuestionBank(courseId);
+  } = useQuestionBank(resolvedCourseId);
+
+  const isLoading = isQuestionBankLoading || (!paramCourseId && isLoadingCourses);
 
   // Unhappy Path: Loading Skeleton
-  if (isLoading) {
+  if (isLoading || !resolvedCourseId) {
     return (
       <div className="max-w-7xl mx-auto flex flex-col gap-6 pb-16 animate-pulse" aria-busy="true">
         <div className="w-48 h-4 bg-gray-200 rounded" />
@@ -86,7 +88,7 @@ export function QuestionBankPage() {
           </li>
           <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
           <li>
-            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] transition-colors">
+            <Link to={`/courses/${resolvedCourseId}`} className="hover:text-[#0a1142] transition-colors">
               {courseCode}
             </Link>
           </li>
@@ -109,7 +111,7 @@ export function QuestionBankPage() {
         onToggleAuthoring={() => setShowAuthoringCard((prev) => !prev)}
         onOpenPublishTestModal={() => setShowPublishTestModal(true)}
         courses={courses}
-        selectedCourseId={courseId}
+        selectedCourseId={resolvedCourseId}
         onSelectCourse={(newId) => navigate(`/courses/${encodeURIComponent(newId)}/question-bank`)}
       />
 
@@ -142,7 +144,7 @@ export function QuestionBankPage() {
       <PublishOfficialTestModal
         isOpen={showPublishTestModal}
         onClose={() => setShowPublishTestModal(false)}
-        courseId={courseId}
+        courseId={resolvedCourseId}
         courseCode={courseCode}
         totalAvailableQuestions={questions.length}
         onPublishTest={(payload) => {

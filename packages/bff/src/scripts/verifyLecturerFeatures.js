@@ -165,6 +165,27 @@ async function runVerification() {
   assert.ok(Array.isArray(qbBody.questions));
   console.log(`   ✔ Question Bank retrieved: ${qbBody.questions.length} questions`);
 
+  // 12.1 Ensure at least one question exists in the question bank before publishing
+  console.log('12.1 Testing Manual Question Authoring into Question Bank...');
+  const addQRes = await apiFetch(`/api/courses/${encodeURIComponent(targetCourseId)}/question-bank/questions`, {
+    method: 'POST',
+    body: JSON.stringify({
+      prompt: `Sample Verification Question (${Date.now()})`,
+      type: 'MULTIPLE_CHOICE',
+      options: [
+        { id: 'opt_a', text: 'Option A' },
+        { id: 'opt_b', text: 'Option B' },
+        { id: 'opt_c', text: 'Option C' },
+        { id: 'opt_d', text: 'Option D' },
+      ],
+      correctOptionId: 'opt_a',
+      points: 1.0,
+    }),
+  });
+  const addQBody = await addQRes.json();
+  assert.equal(addQRes.status, 201, `Failed to add question to bank: ${JSON.stringify(addQBody)}`);
+  console.log('   ✔ Successfully authored question into question bank');
+
   // 13. Publish Official Midterm Test (POST /api/courses/:courseId/tests/publish)
   console.log('13. Testing Official Summative Test Publishing...');
   const testTitle = `CSC 204 Midterm Assessment (${Date.now()})`;
