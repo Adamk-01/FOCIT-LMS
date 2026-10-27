@@ -16,10 +16,102 @@ import { logger } from '../lib/logger.js';
 const router = express.Router();
 
 /**
+ * Zero-Trust Authorization Barrier for Question Bank & Test Authoring:
+ * Strictly restricts access to academic staff allocated to the course,
+ * the Department HOD, or Administrators.
+ * Prevents Student Answer Key Leakage (CWE-200) and BOLA/IDOR (CWE-639).
+ */
+async function requireLecturerForCourse(req, res, next) {
+  try {
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const isAcademicStaff = ['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'].includes(userRole);
+
+    if (!isAcademicStaff) {
+      return res.status(403).json({
+        error: 'Forbidden: Question Bank access and assessment authoring is strictly restricted to academic faculty.',
+        code: 'FORBIDDEN_NOT_FACULTY',
+      });
+    }
+
+    if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+      req.facultyScope = {
+        advisor_id: req.user?.id || 'admin',
+        full_name: 'Administrator',
+        role: userRole,
+        isSystemAdmin: true,
+      };
+      return next();
+    }
+
+    const { courseId } = req.params;
+    const identifier = req.user?.email || req.user?.username || req.user?.id || req.user?.student_id;
+
+    const { rows: staffRows } = await pool.query(
+      `SELECT advisor_id, staff_number, full_name, email, department_id, role
+       FROM staff_advisors
+       WHERE email = $1 OR advisor_id = $1 OR staff_number = $1
+       LIMIT 1`,
+      [identifier]
+    );
+
+    if (staffRows.length === 0) {
+      return res.status(403).json({
+        error: 'Staff academic record not found',
+        code: 'STAFF_RECORD_NOT_FOUND',
+      });
+    }
+
+    const staff = staffRows[0];
+
+    // Check course existence
+    const { rows: courseRows } = await pool.query(
+      `SELECT course_id, code, department_id FROM courses WHERE course_id = $1 LIMIT 1`,
+      [courseId]
+    );
+
+    if (courseRows.length === 0) {
+      return res.status(404).json({
+        error: 'Course not found in academic catalog',
+        code: 'COURSE_NOT_FOUND',
+      });
+    }
+
+    const course = courseRows[0];
+
+    // Department HOD has managerial oversight of all courses within their department
+    if (staff.role === 'HOD' && staff.department_id === course.department_id) {
+      req.facultyScope = staff;
+      return next();
+    }
+
+    // Must be officially allocated to teach this course in current active semester
+    const { rows: allocRows } = await pool.query(
+      `SELECT 1 FROM hod_course_allocations
+       WHERE course_id = $1 AND lecturer_id = $2
+       LIMIT 1`,
+      [courseId, staff.advisor_id]
+    );
+
+    if (allocRows.length === 0) {
+      return res.status(403).json({
+        error: 'Forbidden: You are not officially allocated to teach this course.',
+        code: 'COURSE_NOT_ALLOCATED',
+      });
+    }
+
+    req.facultyScope = staff;
+    next();
+  } catch (err) {
+    logger.error({ err: err?.message || err }, '[QuestionBank] Authorization check failure');
+    next(err);
+  }
+}
+
+/**
  * GET /api/courses/:courseId/question-bank
  * Retrieves questions, revision status, and metrics for the Lecturer View (Screen 5).
  */
-router.get('/:courseId/question-bank', async (req, res, next) => {
+router.get('/:courseId/question-bank', requireLecturerForCourse, async (req, res, next) => {
   const { courseId } = req.params;
 
   try {
@@ -127,10 +219,10 @@ router.get('/:courseId/question-bank', async (req, res, next) => {
  * Guarantees that only ONE revision holds is_active_for_new_attempts = TRUE,
  * eliminating split-brain states and concurrent lecturer publication collisions.
  */
-router.post('/:courseId/question-bank/publish', async (req, res, next) => {
+router.post('/:courseId/question-bank/publish', requireLecturerForCourse, async (req, res, next) => {
   const { courseId } = req.params;
   const { targetQuizId, expectedPreviousQuizId } = req.body;
-  const lecturerId = req.user?.username || req.user?.id || 'lecturer1';
+  const lecturerId = req.facultyScope?.advisor_id || req.user?.username || req.user?.id || 'lecturer1';
 
   // 1. Syntactic Ingress Guard
   if (!targetQuizId) {
@@ -199,7 +291,7 @@ router.post('/:courseId/question-bank/publish', async (req, res, next) => {
 
     // 6. Verify Target Revision Eligibility
     const targetQuizResult = await client.query(`
-      SELECT quiz_id, course_id, version, status, is_active_for_new_attempts
+      SELECT quiz_id, course_id, version, status, is_active_for_new_attempts, quiz_type
       FROM quizzes
       WHERE quiz_id = $1 AND course_id = $2
       FOR NO KEY UPDATE;
@@ -242,13 +334,15 @@ router.post('/:courseId/question-bank/publish', async (req, res, next) => {
     }
 
     // 8. The Atomic Non-Key Pointer Swap
-    // Step 8A: Retire any currently active revisions for this course
+    // Step 8A: Retire any currently active revisions for this course OF THE SAME QUIZ_TYPE
+    // Invariant: Publishing a SELF_PRACTICE quiz does NOT deactivate an ongoing OFFICIAL_TEST (and vice versa)
     await client.query(`
       UPDATE quizzes 
       SET is_active_for_new_attempts = FALSE 
       WHERE course_id = $1 
+        AND quiz_type = $2
         AND is_active_for_new_attempts = TRUE;
-    `, [courseId]);
+    `, [courseId, targetQuiz.quiz_type]);
 
     // Step 8B: Promote the target revision to active
     const activateResult = await client.query(`
@@ -325,18 +419,44 @@ router.post('/:courseId/question-bank/publish', async (req, res, next) => {
  * POST /api/courses/:courseId/question-bank/questions
  * Creates a manual question with database-enforced option membership.
  */
-router.post('/:courses/:courseId/question-bank/questions', async (req, res, next) => {
+router.post('/:courseId/question-bank/questions', requireLecturerForCourse, async (req, res, next) => {
   const { courseId } = req.params;
   const { quizId, questionNumber, prompt, options, correctOptionId, points = 1.0, type = 'MULTIPLE_CHOICE' } = req.body;
 
-  if (!quizId || !prompt || !options || !correctOptionId) {
+  if (!prompt || !options || !correctOptionId) {
     return res.status(400).json({
-      error: 'quizId, prompt, options, and correctOptionId are required',
+      error: 'prompt, options, and correctOptionId are required',
       code: 'MISSING_FIELDS',
     });
   }
 
   try {
+    let effectiveQuizId = quizId;
+    if (!effectiveQuizId) {
+      // Find or lazily initialize practice quiz for this course
+      const existing = await pool.query(
+        `SELECT quiz_id FROM quizzes WHERE course_id = $1 AND quiz_type = 'SELF_PRACTICE' LIMIT 1`,
+        [courseId]
+      );
+      if (existing.rows.length > 0) {
+        effectiveQuizId = existing.rows[0].quiz_id;
+      } else {
+        effectiveQuizId = `practice_${courseId.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+        await pool.query(
+          `INSERT INTO quizzes (quiz_id, course_id, title, description, duration_minutes, total_points, status, quiz_type, auto_zero, is_active_for_new_attempts)
+           VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE', 'SELF_PRACTICE', FALSE, TRUE)
+           ON CONFLICT (quiz_id) DO NOTHING`,
+          [effectiveQuizId, courseId, `${courseId} Practice Assessment`, 'Formative practice questions']
+        );
+      }
+    }
+
+    let qNum = questionNumber;
+    if (!qNum) {
+      const countRes = await pool.query(`SELECT COUNT(*)::int AS count FROM quiz_questions WHERE quiz_id = $1`, [effectiveQuizId]);
+      qNum = (countRes.rows[0]?.count || 0) + 1;
+    }
+
     const questionId = `q_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     const result = await pool.query(`
@@ -354,11 +474,11 @@ router.post('/:courses/:courseId/question-bank/questions', async (req, res, next
       RETURNING *;
     `, [
       questionId,
-      quizId,
-      questionNumber || 1,
+      effectiveQuizId,
+      qNum,
       type,
       prompt,
-      JSON.stringify(options),
+      typeof options === 'string' ? options : JSON.stringify(options),
       correctOptionId,
       points,
     ]);
@@ -387,19 +507,9 @@ router.post('/:courses/:courseId/question-bank/questions', async (req, res, next
  * Creates an OFFICIAL_TEST quiz with auto_zero = true, strict duration, window,
  * and attaches designated questions or copies all questions from the current practice pool.
  */
-router.post('/:courseId/tests/publish', async (req, res, next) => {
+router.post('/:courseId/tests/publish', requireLecturerForCourse, async (req, res, next) => {
   const { courseId } = req.params;
-  const lecturerId = req.user?.username || req.user?.id || 'lecturer1';
-  const callerRole = String(req.user?.role || '').toUpperCase();
-
-  // Finding 7.1: Restrict official-test publishing strictly to lecturer or administrator roles
-  const allowedRoles = ['LECTURER', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'];
-  if (!allowedRoles.includes(callerRole)) {
-    return res.status(403).json({
-      error: 'Forbidden: Only academic faculty (Lecturer, HOD, Admin) can publish official tests.',
-      code: 'FORBIDDEN_TEST_AUTHORING',
-    });
-  }
+  const lecturerId = req.facultyScope?.advisor_id || req.user?.username || req.user?.id || 'lecturer1';
 
   const {
     title,

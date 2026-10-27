@@ -10,9 +10,10 @@
  */
 
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useQuestionBank } from '../hooks/useQuestionBank';
+import { useLecturerCourses } from '../hooks/useLecturerDashboard';
 import { QuestionBankHeader } from '../components/questionBank/QuestionBankHeader';
 import { QuestionMetricsSummary } from '../components/questionBank/QuestionMetricsSummary';
 import { QuestionFormDialog } from '../components/questionBank/QuestionFormDialog';
@@ -21,7 +22,13 @@ import { ErrorStateView } from '../components/ErrorStateView';
 import { PublishOfficialTestModal } from '../components/questionBank/PublishOfficialTestModal';
 
 export function QuestionBankPage() {
-  const { courseId = 'CSC204' } = useParams();
+  const { courseId: paramCourseId } = useParams();
+  const navigate = useNavigate();
+  const { data: courses = [] } = useLecturerCourses();
+
+  // Resolve target course: URL param or first allocated course or default to CSC204
+  const courseId = paramCourseId || (courses.length > 0 ? courses[0].course_id : 'CSC204');
+
   const [showAuthoringCard, setShowAuthoringCard] = useState(false);
   const [showPublishTestModal, setShowPublishTestModal] = useState(false);
 
@@ -101,6 +108,9 @@ export function QuestionBankPage() {
         showAuthoringCard={showAuthoringCard}
         onToggleAuthoring={() => setShowAuthoringCard((prev) => !prev)}
         onOpenPublishTestModal={() => setShowPublishTestModal(true)}
+        courses={courses}
+        selectedCourseId={courseId}
+        onSelectCourse={(newId) => navigate(`/courses/${encodeURIComponent(newId)}/question-bank`)}
       />
 
       {/* 3. Metrics Summary Cards */}

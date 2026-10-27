@@ -16,13 +16,31 @@ export function QuestionBankHeader({
   showAuthoringCard,
   onToggleAuthoring,
   onOpenPublishTestModal,
+  courses = [],
+  selectedCourseId,
+  onSelectCourse,
 }) {
   return (
     <header className="bg-white rounded-2xl p-6 sm:p-8 border border-gray-200 shadow-card flex flex-col md:flex-row md:items-center justify-between gap-6">
       <div className="space-y-1">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] border border-[#ffb81c]/30">
-          <ShieldCheck size={14} className="text-[#0a1142]" />
-          <span>TOPIC PRACTICE & REVISION POOL</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-[#ffb81c]/20 text-[#0a1142] border border-[#ffb81c]/30">
+            <ShieldCheck size={14} className="text-[#0a1142]" />
+            <span>TOPIC PRACTICE & REVISION POOL</span>
+          </div>
+          {courses.length > 1 && onSelectCourse && (
+            <select
+              value={selectedCourseId}
+              onChange={(e) => onSelectCourse(e.target.value)}
+              className="text-xs font-bold bg-blue-50 text-[#0a1142] border border-blue-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
+            >
+              {courses.map((c) => (
+                <option key={c.course_id} value={c.course_id}>
+                  {c.code} — {c.title}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
           Question Bank: {courseCode} — {courseTitle}
