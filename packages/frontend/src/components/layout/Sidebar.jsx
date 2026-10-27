@@ -239,13 +239,6 @@ export const Sidebar = ({
         screenNumber: '5',
       },
       {
-        name: 'Advisor Review',
-        to: '/advisor/registrations',
-        icon: ShieldCheck,
-        badge: 'Advisor',
-        screenNumber: '8A',
-      },
-      {
         name: 'Profile & Security',
         to: '/admin/profile',
         icon: UserCog,

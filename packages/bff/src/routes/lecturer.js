@@ -96,12 +96,12 @@ router.get('/overview', async (req, res, next) => {
         COUNT(DISTINCT hca.course_id)::int AS assigned_courses_count,
         COALESCE(COUNT(DISTINCT e.student_id), 0)::int AS total_students_taught,
         COALESCE(COUNT(DISTINCT q.quiz_id), 0)::int AS active_quizzes_count,
-        COALESCE(COUNT(DISTINCT a.id), 0)::int AS active_assignments_count
+        COALESCE(COUNT(DISTINCT a.assignment_id), 0)::int AS active_assignments_count
       FROM hod_course_allocations hca
       JOIN courses c ON c.course_id = hca.course_id
       LEFT JOIN enrollments e ON e.course_id = hca.course_id AND e.semester_id = hca.semester_id AND e.status = 'ENROLLED'
       LEFT JOIN quizzes q ON q.course_id = hca.course_id AND q.status = 'ACTIVE'
-      LEFT JOIN course_assignments a ON a.course_id = hca.course_id AND a.is_published = TRUE
+      LEFT JOIN course_assignments a ON a.course_id = hca.course_id AND a.status = 'PUBLISHED'
       WHERE (
         hca.lecturer_id = $1 
         OR ($2 = TRUE AND ($4::varchar IS NULL OR c.department_id = $4::varchar))

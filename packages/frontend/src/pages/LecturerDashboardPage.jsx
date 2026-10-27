@@ -206,10 +206,41 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
   const students = rosterData?.students ?? [];
   const currentCourse = rosterData?.course;
 
-  const handleDownloadCsv = () => {
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+
+  const handleDownloadCsv = async () => {
     if (!selectedCourseId) return;
-    const url = `/api/lecturer/courses/${encodeURIComponent(selectedCourseId)}/roster/export`;
-    window.open(url, '_blank');
+    setIsExportingCsv(true);
+    try {
+      const nonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('session_nonce') : null;
+      const res = await fetch(`/api/lecturer/courses/${encodeURIComponent(selectedCourseId)}/roster/export`, {
+        credentials: 'include',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(nonce ? { 'x-session-nonce': nonce } : {}),
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to export roster: HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const safeCode = (currentCourse?.code || selectedCourseId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${safeCode}_Official_Roster.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      console.error('[ClassRoster] Export error:', err);
+      alert('Failed to download exam roster. Please ensure your session is active.');
+    } finally {
+      setIsExportingCsv(false);
+    }
   };
 
   return (
@@ -262,10 +293,10 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
         <div className="self-end md:self-auto">
           <button
             onClick={handleDownloadCsv}
-            disabled={!selectedCourseId || students.length === 0}
+            disabled={!selectedCourseId || students.length === 0 || isExportingCsv}
             className="inline-flex items-center gap-2 bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded hover:bg-emerald-800 disabled:opacity-50"
           >
-            <span>📥</span> Export Official Exam Roster (CSV)
+            <span>📥</span> {isExportingCsv ? 'Exporting Roster...' : 'Export Official Exam Roster (CSV)'}
           </button>
         </div>
       </div>

@@ -41,6 +41,47 @@ async function resolveAttendanceActor(req, res, next) {
   next();
 }
 
+async function verifyAttendanceAccess(actor, courseId, semesterId) {
+  const actorId = actor.userId;
+  const role = actor.role;
+
+  if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return { role: 'ADMIN' };
+
+  // Check Course Rep
+  const repCheck = await pool.query(
+    `SELECT 1 FROM course_representatives WHERE course_id = $1 AND student_id = $2 AND semester_id = $3 LIMIT 1`,
+    [courseId, actorId, semesterId]
+  );
+  if (repCheck.rows.length > 0) return { role: 'COURSE_REP' };
+
+  // Check Lecturer Allocation
+  const allocCheck = await pool.query(
+    `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 AND semester_id = $3 LIMIT 1`,
+    [courseId, actorId, semesterId]
+  );
+  if (allocCheck.rows.length > 0) return { role: 'LECTURER' };
+
+  // Check Department HOD
+  if (role === 'HOD') {
+    const hodCheck = await pool.query(
+      `SELECT 1 FROM staff_advisors sa 
+       JOIN courses c ON c.department_id = sa.department_id 
+       WHERE sa.advisor_id = $1 AND c.course_id = $2 LIMIT 1`,
+      [actorId, courseId]
+    );
+    if (hodCheck.rows.length > 0) return { role: 'HOD' };
+  }
+
+  // Check Enrolled Student
+  const enrolledCheck = await pool.query(
+    `SELECT 1 FROM enrollments WHERE course_id = $1 AND student_id = $2 AND (semester_id = $3 OR semester_id IS NULL) AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS') LIMIT 1`,
+    [courseId, actorId, semesterId]
+  );
+  if (enrolledCheck.rows.length > 0) return { role: 'STUDENT', studentId: actorId };
+
+  return null;
+}
+
 router.use(resolveAttendanceActor);
 
 // ─── 1. Upload Scanned Attendance Sheet (Mode 4 Workflow) ────────────────────
@@ -51,6 +92,7 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
   const sheet_image_urls = req.body?.sheet_image_urls ?? req.body?.sheetImageUrls ?? [];
   const extracted_matric_numbers = req.body?.extracted_matric_numbers ?? req.body?.extractedMatricNumbers ?? [];
   const raw_extracted_text = req.body?.raw_extracted_text ?? req.body?.rawExtractedText ?? '';
+  const notes = req.body?.notes ?? '';
 
   const actorId = req.attendanceActor.userId;
 
@@ -105,13 +147,14 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
     const sessionRes = await client.query(`
       INSERT INTO attendance_sessions (
         course_id, semester_id, week_number, session_date, session_mode, 
-        created_by, is_locked, sheet_image_urls, raw_extracted_text
+        created_by, is_locked, sheet_image_urls, raw_extracted_text, notes
       )
-      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7)
+      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7, $8)
       ON CONFLICT (course_id, semester_id, week_number) 
       DO UPDATE SET
         sheet_image_urls = EXCLUDED.sheet_image_urls,
         raw_extracted_text = EXCLUDED.raw_extracted_text,
+        notes = COALESCE(EXCLUDED.notes, attendance_sessions.notes),
         updated_at = NOW()
       RETURNING *;
     `, [
@@ -122,6 +165,7 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       actorId,
       JSON.stringify(sheet_image_urls),
       raw_extracted_text,
+      notes || null,
     ]);
 
     const session = sessionRes.rows[0];
@@ -229,6 +273,14 @@ router.get('/courses/:courseId/sessions', async (req, res, next) => {
     );
     const semesterId = reqSemesterId || termRes.rows[0]?.id || '2026_RAIN';
 
+    const access = await verifyAttendanceAccess(req.attendanceActor, courseId, semesterId);
+    if (!access) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to view attendance sessions for this course.',
+        code: 'FORBIDDEN_ATTENDANCE_ACCESS',
+      });
+    }
+
     const { rows: sessions } = await pool.query(`
       SELECT 
         s.session_id,
@@ -237,6 +289,7 @@ router.get('/courses/:courseId/sessions', async (req, res, next) => {
         s.week_number,
         s.session_date,
         s.session_mode,
+        s.notes,
         s.is_locked,
         s.locked_by,
         s.locked_at,
@@ -253,10 +306,15 @@ router.get('/courses/:courseId/sessions', async (req, res, next) => {
       ORDER BY s.week_number ASC;
     `, [courseId, semesterId]);
 
+    // Redact raw photo signatures from enrolled students (only staff & reps see sheets)
+    const sanitizedSessions = access.role === 'STUDENT'
+      ? sessions.map((sess) => ({ ...sess, sheet_image_urls: [] }))
+      : sessions;
+
     res.json({
       courseId,
       semesterId,
-      sessions,
+      sessions: sanitizedSessions,
     });
   } catch (err) {
     next(err);
@@ -491,6 +549,14 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
     );
     const semesterId = reqSemesterId || termRes.rows[0]?.id || '2026_RAIN';
 
+    const access = await verifyAttendanceAccess(req.attendanceActor, courseId, semesterId);
+    if (!access) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to view attendance eligibility for this course.',
+        code: 'FORBIDDEN_ATTENDANCE_ACCESS',
+      });
+    }
+
     // 1. Total locked sessions held (official NUC audit requires finalized sessions)
     const sessionCountRes = await pool.query(`
       SELECT COUNT(*)::int AS total_sessions
@@ -532,7 +598,7 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
 
     const { rows } = await pool.query(query, [courseId, semesterId, totalSessions]);
 
-    const students = rows.map((r) => ({
+    let students = rows.map((r) => ({
       studentId: r.student_id,
       matricNumber: r.matric_number,
       fullName: r.full_name,
@@ -545,13 +611,18 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
       isEligible: Boolean(r.is_exam_eligible),
     }));
 
+    // Student Privacy Barrier: enrolled students see only their own row
+    if (access.role === 'STUDENT') {
+      students = students.filter((s) => s.studentId === access.studentId);
+    }
+
     res.json({
       courseId,
       semesterId,
       totalLockedSessions: totalSessions,
       totalSessionsHeld: totalSessions,
       students,
-      summary: rows,
+      summary: access.role === 'STUDENT' ? rows.filter((r) => r.student_id === access.studentId) : rows,
     });
   } catch (err) {
     next(err);
