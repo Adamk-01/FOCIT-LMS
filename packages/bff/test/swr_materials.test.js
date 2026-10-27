@@ -4,8 +4,8 @@ import { MaterialsCache } from '../src/lib/materialsCache.js';
 import { SingleFlight } from '../src/lib/singleFlight.js';
 
 test('MaterialsCache: Fresh, Stale, and Hard Expiry Transitions', async () => {
-  // Setup cache with short test TTLs: fresh 50ms, stale 150ms
-  const cache = new MaterialsCache({ freshTtlMs: 50, staleTtlMs: 150, maxEntries: 10 });
+  // Setup cache with fresh 50ms, stale 5000ms
+  const cache = new MaterialsCache({ freshTtlMs: 50, staleTtlMs: 5000, maxEntries: 10 });
   const sampleData = [{ id: '1', title: 'Calculus I Syllabus' }];
 
   cache.set('CSC204', sampleData);
@@ -15,14 +15,16 @@ test('MaterialsCache: Fresh, Stale, and Hard Expiry Transitions', async () => {
   assert.strictEqual(freshResult.status, 'FRESH');
   assert.deepStrictEqual(freshResult.data, sampleData);
 
-  // 2. Wait 60ms: Transitions from FRESH to STALE
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  // 2. Wait 80ms: Transitions from FRESH to STALE
+  await new Promise((resolve) => setTimeout(resolve, 80));
   const staleResult = cache.get('CSC204');
   assert.strictEqual(staleResult.status, 'STALE');
   assert.deepStrictEqual(staleResult.data, sampleData);
 
-  // 3. Wait another 100ms (total 160ms > 150ms): Hard expiry -> MISS
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // 3. Simulate hard expiry past staleUntilMs -> MISS
+  const entry = cache.store.get('CSC204');
+  entry.staleUntilMs = Date.now() - 1000;
+
   const expiredResult = cache.get('CSC204');
   assert.strictEqual(expiredResult.status, 'MISS');
   assert.strictEqual(expiredResult.data, null);

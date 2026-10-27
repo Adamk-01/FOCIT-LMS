@@ -11,8 +11,10 @@
  * Undici Pool is the correct primitive for bounded connection management.
  */
 
+import os from 'node:os';
 import { Pool } from 'undici';
 import config from '../config.js';
+import { logger } from './logger.js';
 
 function getValidOrigin(url) {
   if (!url || typeof url !== 'string') return 'http://127.0.0.1:3001';
@@ -23,8 +25,36 @@ function getValidOrigin(url) {
   return trimmed;
 }
 
+// Multi-Core & Horizontal Container Detection (CAP-4)
+const detectedCpus = os.cpus()?.length || 1;
+const clusterWorkers = parseInt(
+  process.env.CLUSTER_WORKERS || process.env.WEB_CONCURRENCY || String(detectedCpus),
+  10
+);
+const estimatedContainers = parseInt(process.env.ESTIMATED_CONTAINERS || '1', 10);
+const configuredTotal = parseInt(
+  process.env.MOODLE_GLOBAL_MAX_CONNS || String(config.pool?.maxConnections || 50),
+  10
+);
+
+// Total active workers across all cluster containers
+const totalClusterWorkers = Math.max(1, clusterWorkers * estimatedContainers);
+// Bounded partition per worker with a safety floor of 5 connections
+const partitionedConnections = Math.max(5, Math.floor(configuredTotal / totalClusterWorkers));
+
+logger.info(
+  {
+    clusterWorkers,
+    estimatedContainers,
+    totalClusterWorkers,
+    configuredTotal,
+    partitionedConnections,
+  },
+  '[MoodlePool] Bounded connection pool initialized'
+);
+
 const moodlePool = new Pool(getValidOrigin(config.moodle.baseUrl), {
-  connections: config.pool.maxConnections,  // Hard ceiling on concurrent TCP sockets
+  connections: partitionedConnections,       // Dynamically partitioned per worker process
   pipelining: 1,                             // No HTTP pipelining (safer for binary streams)
   connect: {
     timeout: config.pool.connectTimeoutMs,   // 10s to establish TCP connection

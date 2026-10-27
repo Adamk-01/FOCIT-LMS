@@ -1,20 +1,21 @@
 services:
-  # 1. FOCIT BFF Proxy (Express API + Transactional Outbox Worker)
+  # 1. FOCIT BFF Stateless Web Gateway (Express API)
   - type: web
     name: focit-bff
     runtime: node
-    plan: free
+    region: frankfurt # Co-located with Neon AWS eu-central-1 (<2ms RTT)
+    plan: starter
     buildCommand: npm install
-    startCommand: npm run db:seed -w packages/bff && npm run start -w packages/bff
+    startCommand: npm run start -w packages/bff
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: focit-db
-          property: connectionString
+        sync: false # Neon Pooled Connection URL (-pooler.eu-central-1.aws.neon.tech)
+      - key: DIRECT_DATABASE_URL
+        sync: false # Neon Direct Connection URL (for DDL/migrations)
       - key: REDIS_URL
-        sync: false # Connect to Upstash Redis or Render Redis
+        sync: false # Upstash Redis (Frankfurt)
       - key: MOODLE_BASE_URL
         fromService:
           type: web
@@ -30,18 +31,45 @@ services:
         value: focit-materials
       - key: FRONTEND_ORIGIN
         sync: false # Set to your Vercel URL (e.g. https://focit-lms.vercel.app)
+      - key: EDGE_TICKET_SECRET
+        generateValue: true
+      - key: CLUSTER_WORKERS
+        value: "4"
+      - key: ESTIMATED_CONTAINERS
+        value: "1"
+      - key: MOODLE_GLOBAL_MAX_CONNS
+        value: "50"
 
-  # 2. Mock Moodle Web Services Server
+  # 2. FOCIT BFF Dedicated Background Worker (Outbox & Telemetry Persister)
+  - type: worker
+    name: focit-worker
+    runtime: node
+    region: frankfurt # Co-located with Neon AWS eu-central-1 (<2ms RTT)
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm run start:worker -w packages/bff
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Neon Pooled Connection URL (-pooler.eu-central-1.aws.neon.tech)
+      - key: DIRECT_DATABASE_URL
+        sync: false # Neon Direct Connection URL
+      - key: REDIS_URL
+        sync: false # Upstash Redis (Frankfurt)
+      - key: MOODLE_BASE_URL
+        fromService:
+          type: web
+          name: focit-mock-moodle
+          property: host
+      - key: MOODLE_WS_TOKEN
+        value: mock_dev_token_do_not_use_in_production
+
+  # 3. Mock Moodle Web Services Server
   - type: web
     name: focit-mock-moodle
     runtime: node
+    region: frankfurt
     plan: free
     buildCommand: npm install
     startCommand: npm run start -w packages/mock-moodle
-
-databases:
-  # Managed PostgreSQL Database
-  - name: focit-db
-    plan: free
-    databaseName: focit_db
-    user: focit_user
