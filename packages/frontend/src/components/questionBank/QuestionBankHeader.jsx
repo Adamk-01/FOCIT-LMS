@@ -43,7 +43,7 @@ export function QuestionBankHeader({
           )}
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0a1142] font-display">
-          Question Bank: {courseCode} — {courseTitle}
+          Question Bank: {courseCode}{courseTitle ? ` — ${courseTitle}` : ''}
         </h1>
         <p className="text-xs sm:text-sm text-gray-500 font-medium">
           Active Practice Drill: Version {activeQuiz?.version || 1} • {activeQuiz?.durationMinutes || 45} Min Self-Paced Session

@@ -92,7 +92,11 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
   const sheet_image_urls = req.body?.sheet_image_urls ?? req.body?.sheetImageUrls ?? [];
   const extracted_matric_numbers = req.body?.extracted_matric_numbers ?? req.body?.extractedMatricNumbers ?? [];
   const raw_extracted_text = req.body?.raw_extracted_text ?? req.body?.rawExtractedText ?? '';
-  const notes = req.body?.notes ?? '';
+  const notesProvided = req.body && ('notes' in req.body);
+  const rawNotes = req.body?.notes;
+  const notesValue = (rawNotes === null || rawNotes === '' || (typeof rawNotes === 'string' && rawNotes.trim() === ''))
+    ? null
+    : String(rawNotes).trim();
 
   const actorId = req.attendanceActor.userId;
 
@@ -149,12 +153,12 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
         course_id, semester_id, week_number, session_date, session_mode, 
         created_by, is_locked, sheet_image_urls, raw_extracted_text, notes
       )
-      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7, $8)
+      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7, $9)
       ON CONFLICT (course_id, semester_id, week_number) 
       DO UPDATE SET
         sheet_image_urls = EXCLUDED.sheet_image_urls,
         raw_extracted_text = EXCLUDED.raw_extracted_text,
-        notes = COALESCE(EXCLUDED.notes, attendance_sessions.notes),
+        notes = CASE WHEN $8::boolean THEN EXCLUDED.notes ELSE attendance_sessions.notes END,
         updated_at = NOW()
       RETURNING *;
     `, [
@@ -165,7 +169,8 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       actorId,
       JSON.stringify(sheet_image_urls),
       raw_extracted_text,
-      notes || null,
+      notesProvided,
+      notesValue,
     ]);
 
     const session = sessionRes.rows[0];
