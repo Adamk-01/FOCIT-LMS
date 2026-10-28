@@ -10,18 +10,27 @@
  */
 
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useQuestionBank } from '../hooks/useQuestionBank';
+import { useLecturerCourses } from '../hooks/useLecturerDashboard';
 import { QuestionBankHeader } from '../components/questionBank/QuestionBankHeader';
 import { QuestionMetricsSummary } from '../components/questionBank/QuestionMetricsSummary';
 import { QuestionFormDialog } from '../components/questionBank/QuestionFormDialog';
 import { QuestionInventoryList } from '../components/questionBank/QuestionInventoryList';
 import { ErrorStateView } from '../components/ErrorStateView';
+import { PublishOfficialTestModal } from '../components/questionBank/PublishOfficialTestModal';
 
 export function QuestionBankPage() {
-  const { courseId = 'CSC204' } = useParams();
+  const { courseId: paramCourseId } = useParams();
+  const navigate = useNavigate();
+  const { data: courses = [], isLoading: isLoadingCourses } = useLecturerCourses();
+
+  // Wait for useLecturerCourses to resolve before falling back to CSC204
+  const resolvedCourseId = paramCourseId || (isLoadingCourses ? null : (courses[0]?.course_id || 'CSC204'));
+
   const [showAuthoringCard, setShowAuthoringCard] = useState(false);
+  const [showPublishTestModal, setShowPublishTestModal] = useState(false);
 
   const {
     courseCode,
@@ -32,15 +41,18 @@ export function QuestionBankPage() {
     filteredQuestions,
     selectedTypeFilter,
     handleFilterChange,
-    isLoading,
+    isLoading: isQuestionBankLoading,
     error,
     refetch,
     addQuestionMutation,
     publishMutation,
-  } = useQuestionBank(courseId);
+    publishOfficialTestMutation,
+  } = useQuestionBank(resolvedCourseId);
+
+  const isLoading = isQuestionBankLoading || (!paramCourseId && isLoadingCourses);
 
   // Unhappy Path: Loading Skeleton
-  if (isLoading) {
+  if (isLoading || !resolvedCourseId) {
     return (
       <div className="max-w-7xl mx-auto flex flex-col gap-6 pb-16 animate-pulse" aria-busy="true">
         <div className="w-48 h-4 bg-gray-200 rounded" />
@@ -76,7 +88,7 @@ export function QuestionBankPage() {
           </li>
           <ChevronRight size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
           <li>
-            <Link to={`/courses/${courseId}`} className="hover:text-[#0a1142] transition-colors">
+            <Link to={`/courses/${resolvedCourseId}`} className="hover:text-[#0a1142] transition-colors">
               {courseCode}
             </Link>
           </li>
@@ -97,6 +109,10 @@ export function QuestionBankPage() {
         onPublish={() => publishMutation.mutate()}
         showAuthoringCard={showAuthoringCard}
         onToggleAuthoring={() => setShowAuthoringCard((prev) => !prev)}
+        onOpenPublishTestModal={() => setShowPublishTestModal(true)}
+        courses={courses}
+        selectedCourseId={resolvedCourseId}
+        onSelectCourse={(newId) => navigate(`/courses/${encodeURIComponent(newId)}/question-bank`)}
       />
 
       {/* 3. Metrics Summary Cards */}
@@ -124,6 +140,20 @@ export function QuestionBankPage() {
         filteredQuestions={filteredQuestions}
         selectedTypeFilter={selectedTypeFilter}
         onFilterChange={handleFilterChange}
+      />
+      <PublishOfficialTestModal
+        isOpen={showPublishTestModal}
+        onClose={() => setShowPublishTestModal(false)}
+        courseId={resolvedCourseId}
+        courseCode={courseCode}
+        totalAvailableQuestions={questions.length}
+        onPublishTest={(payload) => {
+          publishOfficialTestMutation.mutate(payload, {
+            onSuccess: () => setShowPublishTestModal(false),
+          });
+        }}
+        isPublishing={publishOfficialTestMutation.isPending}
+        error={publishOfficialTestMutation.error?.response?.data?.error || publishOfficialTestMutation.error?.message}
       />
     </div>
   );
