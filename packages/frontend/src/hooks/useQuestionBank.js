@@ -42,15 +42,14 @@ export function useQuestionBank(courseId = 'CSC204') {
       const res = await apiClient.get(`/courses/${courseId}/question-bank`, { signal });
       return res.data;
     },
-    enabled: Boolean(courseId),
     staleTime: 30 * 1000,
   });
 
   const activeQuiz = bankData?.activeQuiz;
   const questions = bankData?.questions || [];
   const metrics = bankData?.metrics || { total: 0, mcq: 0, trueFalse: 0, shortAnswer: 0 };
-  const courseCode = bankData?.courseCode || (courseId ? courseId : '');
-  const courseTitle = bankData?.courseTitle || '';
+  const courseCode = bankData?.courseCode || 'CSC 204';
+  const courseTitle = bankData?.courseTitle || 'Data Structures and Algorithms';
 
   // Filter questions by type
   const filteredQuestions = questions.filter((q) => {
@@ -61,8 +60,10 @@ export function useQuestionBank(courseId = 'CSC204') {
   // 2. Add Question Mutation
   const addQuestionMutation = useMutation({
     mutationFn: async (payload) => {
+      if (!activeQuiz?.id) throw new Error('No active assessment bank resolved');
+
       const res = await apiClient.post(`/courses/${courseId}/question-bank/questions`, {
-        quizId: activeQuiz?.id,
+        quizId: activeQuiz.id,
         questionNumber: questions.length + 1,
         ...payload,
       });
@@ -103,15 +104,6 @@ export function useQuestionBank(courseId = 'CSC204') {
     refetch,
     addQuestionMutation,
     publishMutation,
-    publishOfficialTestMutation: useMutation({
-      mutationFn: async (testData) => {
-        const res = await apiClient.post(`/courses/${courseId}/tests/publish`, testData);
-        return res.data;
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['question-bank', courseId] });
-      },
-    }),
   };
 }
 

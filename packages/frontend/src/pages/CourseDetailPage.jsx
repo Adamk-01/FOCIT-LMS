@@ -16,7 +16,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import { MaterialsPage } from './MaterialsPage';
-import { CourseAssessmentsList } from '../components/quiz/CourseAssessmentsList';
 import { QuizAttemptPage } from './QuizAttemptPage';
 import { GradebookPage } from './GradebookPage';
 import { ForumPage } from './ForumPage';
@@ -132,7 +131,7 @@ export const CourseDetailPage = () => {
         )}
 
         {activeTab === 'quizzes' && (
-          <CourseAssessmentsList courseId={course?.course_id || courseId} />
+          <QuizAttemptPage />
         )}
 
         {activeTab === 'grades' && (

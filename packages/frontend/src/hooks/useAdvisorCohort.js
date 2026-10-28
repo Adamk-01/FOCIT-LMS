@@ -63,7 +63,7 @@ export function useAdvisorCohort() {
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams();
       if (selectedLevel) params.append('level', selectedLevel);
-      if (selectedStatus) params.append('status', selectedStatus);
+      if (selectedStatus && selectedStatus !== 'ALL') params.append('status', selectedStatus);
 
       const res = await apiClient.get(`/registration/advisor/cohort?${params.toString()}`, {
         signal,
