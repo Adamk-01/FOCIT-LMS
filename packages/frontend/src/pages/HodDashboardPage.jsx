@@ -1,24 +1,19 @@
 import React, { useState } from 'react';
 import {
   useHodAllocations,
-  useHodEscalations,
   useHodAnalytics,
   useHodLecturers,
   useHodMutations,
 } from '../hooks/useHodDashboard';
 import {
-  Users,
   BookOpen,
   TrendingUp,
   AlertTriangle,
   Award,
   CheckCircle2,
   Clock,
-  Layers,
-  ChevronRight,
   ShieldCheck,
   ArrowUpRight,
-  UserCheck,
 } from 'lucide-react';
 
 export function HodDashboardPage() {
@@ -39,7 +34,7 @@ export function HodDashboardPage() {
             HOD Academic Governance Desk
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Manage course lecturer allocations, credit overload escalations, and cohort CGPA portfolio health.
+            Manage course lecturer allocations and monitor cohort CGPA portfolio health across the department.
           </p>
         </div>
 
@@ -48,7 +43,6 @@ export function HodDashboardPage() {
           {[
             ['allocations', 'Course Allocations', BookOpen],
             ['analytics', 'Cohort Analytics Terminal', TrendingUp],
-            ['clearance', 'Overload Clearance Desk', AlertTriangle],
           ].map(([k, label, Icon]) => (
             <button
               key={k}
@@ -69,7 +63,6 @@ export function HodDashboardPage() {
       {/* Main Tab Panels */}
       {tab === 'allocations' && <AllocationMatrix />}
       {tab === 'analytics' && <AnalyticsTerminal />}
-      {tab === 'clearance' && <ClearanceDesk />}
     </div>
   );
 }
@@ -534,122 +527,6 @@ function AnalyticsTerminal() {
             </table>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. Clearance Desk (Credit Overload Escalations > 24 Units)
-// ─────────────────────────────────────────────────────────────────────────────
-function ClearanceDesk() {
-  const { data = [], isLoading, error } = useHodEscalations();
-  const { decide } = useHodMutations();
-  const [remarks, setRemarks] = useState({});
-
-  if (isLoading) {
-    return (
-      <div className="bg-white rounded-2xl p-12 text-center text-gray-500 border border-gray-200 shadow-sm animate-pulse">
-        Loading escalated overload registrations...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-50 text-red-700 p-6 rounded-2xl border border-red-200 text-sm font-medium">
-        {error.detail || error.message || 'Failed to load clearance escalations'}
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl p-12 text-center text-gray-500 border border-gray-200 shadow-card">
-        <CheckCircle2 size={36} className="text-emerald-500 mx-auto mb-2" />
-        <h4 className="font-bold text-base text-gray-800">Escalation Queue Clear</h4>
-        <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-          No pending credit overload registrations exceeding 24 units require departmental clearance.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <AlertTriangle className="text-amber-600" size={20} />
-          <h3 className="font-bold text-sm text-[#0a1142]">
-            Credit Overload Clearance Desk ({data.length} Pending)
-          </h3>
-        </div>
-
-        <div className="space-y-4">
-          {data.map((e) => {
-            const comment = remarks[e.batch_id] || '';
-            const canSubmit = comment.trim().length >= 5 && !decide.isPending;
-
-            return (
-              <div key={e.batch_id} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <span className="font-bold text-gray-900 text-sm">{e.full_name}</span>
-                    <span className="text-xs font-mono text-gray-500 ml-2">({e.matric_number})</span>
-                    <span className="ml-2 text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded">
-                      {e.level}L
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-red-600 font-extrabold bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 font-mono">
-                      {e.total_units} Units Requested
-                    </span>
-                    <span className="text-xs font-semibold text-gray-500">[{e.status}]</span>
-                  </div>
-                </div>
-
-                <textarea
-                  className="w-full bg-white border border-gray-200 rounded-xl p-3 text-xs outline-none focus:border-[#0a1142] transition-colors"
-                  placeholder="Enter official departmental clearance remarks (min 5 characters)..."
-                  rows={2}
-                  value={comment}
-                  onChange={(ev) =>
-                    setRemarks((r) => ({ ...r, [e.batch_id]: ev.target.value }))
-                  }
-                />
-
-                <div className="flex justify-end gap-2">
-                  <button
-                    disabled={!canSubmit}
-                    onClick={() =>
-                      decide.mutate({
-                        batchId: e.batch_id,
-                        decision: 'REJECTED',
-                        remarks: comment,
-                      })
-                    }
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
-                    Reject Overload
-                  </button>
-                  <button
-                    disabled={!canSubmit}
-                    onClick={() =>
-                      decide.mutate({
-                        batchId: e.batch_id,
-                        decision: 'HOD_CLEARED',
-                        remarks: comment,
-                      })
-                    }
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors"
-                  >
-                    Approve Clearance
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
     </div>
   );
