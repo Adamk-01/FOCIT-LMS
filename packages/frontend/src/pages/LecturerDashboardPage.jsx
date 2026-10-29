@@ -392,6 +392,7 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                       )}
                     </td>
                     <td className="py-2.5 px-4">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
                         {student.enrollment_status}
                       </span>
                     </td>
