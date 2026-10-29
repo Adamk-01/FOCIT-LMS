@@ -65,7 +65,11 @@ export function useHodAllocations(semesterId) {
     queryFn: async ({ signal }) => {
       const q = semesterId ? `?semesterId=${encodeURIComponent(semesterId)}` : '';
       const data = await getJson(`/hod/allocations${q}`, signal);
-      return data?.allocations ?? [];
+      const allocations = data?.allocations ?? [];
+      allocations.semesterId = data?.semesterId;
+      allocations.departmentName = data?.departmentName;
+      allocations.departmentCode = data?.departmentCode;
+      return allocations;
     },
     staleTime: 30 * 1000,
   });

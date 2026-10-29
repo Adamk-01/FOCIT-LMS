@@ -18,6 +18,10 @@ import {
 
 export function HodDashboardPage() {
   const [tab, setTab] = useState('allocations');
+  const { data: allocations = [] } = useHodAllocations();
+  const departmentLabel = allocations.departmentName && allocations.departmentCode
+    ? `${allocations.departmentName} (${allocations.departmentCode})`
+    : 'Department Control Plane';
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -28,7 +32,7 @@ export function HodDashboardPage() {
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0a1142] text-white tracking-wider uppercase">
               Department Control Plane
             </span>
-            <span className="text-xs text-gray-400 font-mono">Computer Science (CSC)</span>
+            <span className="text-xs text-gray-400 font-mono">{departmentLabel}</span>
           </div>
           <h1 className="text-2xl font-bold text-[#0a1142] mt-1.5 font-display">
             HOD Academic Governance Desk
@@ -71,11 +75,14 @@ export function HodDashboardPage() {
 // 1. Course Allocation Matrix (Interactive Assign Dropdown)
 // ─────────────────────────────────────────────────────────────────────────────
 function AllocationMatrix() {
-  const { data: allocations = [], isLoading, error } = useHodAllocations();
+  const [selectedSemester, setSelectedSemester] = useState('');
+  const { data: allocations = [], isLoading, error } = useHodAllocations(selectedSemester || undefined);
   const { data: lecturers = [] } = useHodLecturers();
   const { allocate } = useHodMutations();
   const [savingCourseId, setSavingCourseId] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+
+  const activeSemester = selectedSemester || allocations.semesterId || '2026_RAIN';
 
   const handleAssignLecturer = async (courseId, lecturerId) => {
     if (!lecturerId) return;
@@ -84,7 +91,7 @@ function AllocationMatrix() {
     try {
       await allocate.mutateAsync({
         courseId,
-        semesterId: '2026_RAIN',
+        semesterId: activeSemester,
         lecturerId,
       });
       setSuccessMsg(`Lecturer successfully allocated!`);
@@ -167,7 +174,7 @@ function AllocationMatrix() {
             </p>
           </div>
           <span className="text-xs font-bold text-[#0a1142] bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
-            Semester: 2026_RAIN
+            Semester: {allocations.semesterId || selectedSemester || 'Active Semester'}
           </span>
         </div>
 

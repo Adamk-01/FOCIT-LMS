@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../lib/api';
 
@@ -29,6 +29,26 @@ export function ContinuousAssessmentIngestModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
   const fileInputRef = useRef(null);
+
+  const resetState = () => {
+    setFile(null);
+    setParsedRows([]);
+    setParseErrors([]);
+    setIsSubmitting(false);
+    setSubmissionResult(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      resetState();
+    }
+  }, [isOpen]);
+
+  const handleClose = () => {
+    resetState();
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -76,9 +96,9 @@ export function ContinuousAssessmentIngestModal({
     }
 
     const matricCol = headerCols.findIndex((c) => c.includes('matric') || c.includes('studentid'));
-    const caCol = headerCols.findIndex((c) => c === 'ca' || c.includes('continuous') || c.includes('test'));
-    const examCol = headerCols.findIndex((c) => c === 'exam' || c.includes('examination'));
-    const totalCol = headerCols.findIndex((c) => c === 'total' || c === 'grade' || c.includes('final'));
+    const caCol = headerCols.findIndex((c) => c.includes('ca') || c.includes('continuous') || c.includes('test') || c.includes('assessment'));
+    const examCol = headerCols.findIndex((c) => c.includes('exam') || c.includes('examination'));
+    const totalCol = headerCols.findIndex((c) => c.includes('total') || c.includes('grade') || c.includes('final'));
 
     const records = [];
     const errs = [];
@@ -117,7 +137,7 @@ export function ContinuousAssessmentIngestModal({
     setParseErrors(errs);
   };
 
-  // Helper to split CSV row respecting quoted fields
+  // Helper to split CSV row respecting RFC 4180 double-quoted fields
   const splitCsvLine = (line) => {
     const result = [];
     let current = '';
@@ -125,8 +145,13 @@ export function ContinuousAssessmentIngestModal({
 
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
-      if (char === '"' || char === "'") {
-        inQuotes = !inQuotes;
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++; // skip escaped double quote
+        } else {
+          inQuotes = !inQuotes;
+        }
       } else if (char === ',' && !inQuotes) {
         result.push(current.trim());
         current = '';
@@ -182,7 +207,7 @@ export function ContinuousAssessmentIngestModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
           >
             <X size={18} />
@@ -220,7 +245,7 @@ export function ContinuousAssessmentIngestModal({
                 </button>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-5 py-2 bg-[#0a1142] text-white text-xs font-bold rounded-xl hover:bg-[#16258f]"
                 >
                   Close & Refresh Roster
@@ -349,7 +374,7 @@ export function ContinuousAssessmentIngestModal({
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors"
             >

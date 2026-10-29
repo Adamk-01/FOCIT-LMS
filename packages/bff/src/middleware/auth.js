@@ -125,7 +125,8 @@ export async function authMiddleware(req, res, next) {
     }
 
     // Edge Case: CSRF / Nonce mismatch using constant-time evaluation
-    const isDevelopment = config.nodeEnv === 'development' || process.env.NODE_ENV === 'development';
+    const isProduction = process.env.NODE_ENV === 'production' || config.nodeEnv === 'production';
+    const isDevelopment = !isProduction && (config.nodeEnv === 'development' || process.env.NODE_ENV === 'development');
     const allowPermissiveDevSync = isDevelopment && process.env.ALLOW_DEV_NONCE_SYNC === 'true';
     if (!safeTimingCompare(storedNonce, clientNonce)) {
       if (allowPermissiveDevSync) {

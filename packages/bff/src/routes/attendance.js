@@ -613,8 +613,16 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       DO UPDATE SET
         session_mode = 'CODE_OTP',
         updated_at = NOW()
+      WHERE attendance_sessions.is_locked = FALSE
       RETURNING *;
     `, [courseId, semesterId, week_number, actorId]);
+
+    if (sessionRes.rows.length === 0) {
+      return res.status(409).json({
+        error: `Cannot generate passcode: Attendance session for week ${week_number} has already been approved and locked.`,
+        code: 'SESSION_LOCKED',
+      });
+    }
 
     const session = sessionRes.rows[0];
 
@@ -767,7 +775,7 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
     } catch (_) {}
     if (!otpData) otpData = memoryOtpStore.get(courseId);
 
-    if (!otpData || Date.now() > otpData.expiresAt) {
+    if (!otpData || otpData.courseId !== courseId || Date.now() > otpData.expiresAt) {
       return res.json({ active: false });
     }
 
