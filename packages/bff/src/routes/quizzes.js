@@ -15,6 +15,33 @@ import { submitQuizAttemptHandler } from '../controllers/quizSubmissionControlle
 const router = express.Router();
 
 /**
+ * Deterministic pseudo-random number generator (PRNG) seeded per attempt.
+ * Ensures consistent question/option ordering upon browser reload within the same attempt,
+ * but completely permutes both question order and option choices across different attempts.
+ * (Anti-Memorization Engine for Formative Mastery Drills)
+ */
+function createSeededRandom(seedStr) {
+  let hash = 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+  }
+  return function() {
+    hash = (Math.imul(48271, hash) >>> 0) % 2147483647;
+    return hash / 2147483647;
+  };
+}
+
+function seededShuffle(array, rng) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+
+/**
  * GET /api/quizzes/:quizId/attempts/:attemptId
  * Rehydrates quiz attempt state, delivering masked questions and Cristian skew timestamps.
  */
@@ -35,6 +62,8 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         a.started_at,
         a.due_at,
         a.submitted_at,
+        a.is_practice,
+        q.quiz_type,
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
@@ -64,6 +93,7 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         qq.question_number,
         qq.prompt,
         qq.options,
+        qq.type,
         qq.points
       FROM quiz_questions qq
       WHERE qq.quiz_id = $1
@@ -86,6 +116,25 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
       };
     }
 
+    // Anti-Memorization Shuffling Engine for Practice Drills
+    let deliveredQuestions = questionsResult.rows;
+    if (attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE') {
+      const rng = createSeededRandom(attemptId);
+      deliveredQuestions = seededShuffle(deliveredQuestions, rng).map((q, idx) => ({
+        ...q,
+        question_number: idx + 1,
+        options: Array.isArray(q.options) ? seededShuffle(q.options, rng) : q.options,
+      }));
+    }
+
+    // Zero-Trust Information Barrier: Strip answer keys for SHORT_ANSWER questions delivered to students
+    deliveredQuestions = deliveredQuestions.map((q) => {
+      if (q.type === 'SHORT_ANSWER') {
+        return { ...q, options: [] };
+      }
+      return q;
+    });
+
     // 4. Return Authoritative Skew-Neutralizing Payload
     return res.status(200).json({
       attempt: {
@@ -107,13 +156,21 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
       },
-      questions: questionsResult.rows.map((q) => ({
-        id: q.question_id,
-        number: q.question_number,
-        prompt: q.prompt,
-        options: q.options,
-        points: q.points,
-      })),
+      questions: deliveredQuestions.map((q) => {
+        let safeOptions = q.options;
+        // Zero-Trust Security Invariant: Never send the short-answer key in options to students
+        if (q.type === 'SHORT_ANSWER') {
+          safeOptions = [];
+        }
+        return {
+          id: q.question_id,
+          number: q.question_number,
+          prompt: q.prompt,
+          type: q.type,
+          options: safeOptions,
+          points: q.points,
+        };
+      }),
       answers: answersMap,
     });
   } catch (err) {
@@ -232,5 +289,275 @@ router.post('/:quizId/attempts/:attemptId/save', async (req, res, next) => {
  * Atomic CAS & Outbox Submission Controller
  */
 router.post('/:quizId/attempts/:attemptId/submit', submitQuizAttemptHandler);
+
+/**
+ * GET /api/quizzes/course/:courseId
+ * Retrieves available assessments (Self-Practice vs Official Tests) for the given course,
+ * enriched with the requesting student's latest attempt status.
+ */
+router.get('/course/:courseId', async (req, res, next) => {
+  const { courseId } = req.params;
+  const studentId = req.user?.username || req.user?.id || req.user?.student_id || 'student1';
+
+  try {
+    const quizzesRes = await pool.query(`
+      SELECT 
+        q.quiz_id,
+        q.course_id,
+        q.title,
+        q.description,
+        q.duration_minutes,
+        q.total_points,
+        q.version,
+        q.status,
+        q.quiz_type,
+        q.auto_zero,
+        q.window_open_at,
+        q.window_close_at,
+        q.is_active_for_new_attempts,
+        (SELECT COUNT(*)::int FROM quiz_questions qq WHERE qq.quiz_id = q.quiz_id) AS question_count
+      FROM quizzes q
+      WHERE q.course_id = $1
+        AND q.status = 'ACTIVE'
+        AND (
+          (q.quiz_type = 'OFFICIAL_TEST' AND q.is_active_for_new_attempts = TRUE)
+          OR (q.quiz_type = 'SELF_PRACTICE' AND COALESCE(q.is_active_for_new_attempts, TRUE) = TRUE)
+        )
+      ORDER BY 
+        CASE WHEN q.quiz_type = 'SELF_PRACTICE' THEN 0 ELSE 1 END,
+        q.published_at DESC NULLS LAST,
+        q.created_at DESC;
+    `, [courseId]);
+
+    const quizIds = quizzesRes.rows.map((q) => q.quiz_id);
+
+    let attemptsByQuiz = {};
+    if (quizIds.length > 0) {
+      const attemptsRes = await pool.query(`
+        SELECT 
+          qa.attempt_id,
+          qa.quiz_id,
+          qa.status,
+          qa.score,
+          qa.total_points,
+          qa.started_at,
+          qa.due_at,
+          qa.submitted_at,
+          qa.is_practice
+        FROM quiz_attempts qa
+        WHERE qa.student_id = $1
+          AND qa.quiz_id = ANY($2::varchar[])
+        ORDER BY qa.started_at DESC;
+      `, [studentId, quizIds]);
+
+      for (const a of attemptsRes.rows) {
+        if (!attemptsByQuiz[a.quiz_id]) {
+          attemptsByQuiz[a.quiz_id] = [];
+        }
+        attemptsByQuiz[a.quiz_id].push(a);
+      }
+    }
+
+    const items = quizzesRes.rows.map((q) => {
+      const attempts = attemptsByQuiz[q.quiz_id] || [];
+      const latestAttempt = attempts[0] || null;
+      return {
+        ...q,
+        attemptsCount: attempts.length,
+        latestAttempt,
+      };
+    });
+
+    return res.status(200).json({
+      courseId,
+      quizzes: items,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, courseId, studentId }, '[Quizzes] Course assessments fetch failed');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/quizzes/:quizId/start
+ * Starts or re-anchors a student assessment attempt.
+ * For OFFICIAL_TEST: Enforces window, single-attempt invariant, and computes authoritative due_at.
+ * For SELF_PRACTICE: Allows unlimited attempts for continuous mastery drill.
+ */
+router.post('/:quizId/start', async (req, res, next) => {
+  const { quizId } = req.params;
+  const studentId = req.user?.username || req.user?.id || req.user?.student_id || 'student1';
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Verify Quiz Existence and Status
+    const quizRes = await client.query(`
+      SELECT 
+        quiz_id,
+        course_id,
+        title,
+        duration_minutes,
+        total_points,
+        status,
+        quiz_type,
+        auto_zero,
+        window_open_at,
+        window_close_at,
+        is_active_for_new_attempts
+      FROM quizzes
+      WHERE quiz_id = $1
+      FOR SHARE;
+    `, [quizId]);
+
+    if (quizRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Quiz not found',
+        code: 'QUIZ_NOT_FOUND',
+      });
+    }
+
+    const quiz = quizRes.rows[0];
+
+    // Finding 8.2: Check that the quiz is published, active, and student is enrolled
+    const isPracticeQuiz = quiz.quiz_type === 'SELF_PRACTICE';
+    const isActiveForAttempts = isPracticeQuiz
+      ? (quiz.is_active_for_new_attempts ?? true)
+      : quiz.is_active_for_new_attempts === true;
+    if (quiz.status !== 'ACTIVE' || !isActiveForAttempts) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'This assessment is not currently active for new attempts.',
+        code: 'TEST_NOT_ACTIVE',
+      });
+    }
+
+    const userRole = String(req.user?.role || 'STUDENT').toUpperCase();
+    const isStudent = userRole === 'STUDENT';
+    if (isStudent) {
+      const enrCheck = await client.query(
+        `SELECT 1 FROM enrollments 
+         WHERE course_id = $1 AND student_id = $2 
+           AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS') 
+         LIMIT 1`,
+        [quiz.course_id, studentId]
+      );
+      if (enrCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'Forbidden: You are not enrolled in this course.',
+          code: 'NOT_ENROLLED',
+        });
+      }
+    }
+
+    // 2. Check Assessment Window if OFFICIAL_TEST
+    const now = new Date();
+    if (quiz.quiz_type === 'OFFICIAL_TEST') {
+      if (quiz.window_open_at && now < new Date(quiz.window_open_at)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: `Test has not opened yet. Opens at ${new Date(quiz.window_open_at).toLocaleString()}`,
+          code: 'TEST_WINDOW_NOT_OPEN',
+        });
+      }
+      if (quiz.window_close_at && now > new Date(quiz.window_close_at)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: 'Test window has closed. No new attempts are permitted.',
+          code: 'TEST_WINDOW_CLOSED',
+        });
+      }
+    }
+
+    // 3. Check for existing attempts
+    const existingAttemptRes = await client.query(`
+      SELECT 
+        attempt_id,
+        quiz_id,
+        student_id,
+        status,
+        score,
+        total_points,
+        started_at,
+        due_at,
+        submitted_at,
+        is_practice
+      FROM quiz_attempts
+      WHERE quiz_id = $1 AND student_id = $2
+      ORDER BY started_at DESC
+      LIMIT 1;
+    `, [quizId, studentId]);
+
+    const existingAttempt = existingAttemptRes.rows[0];
+
+    // If an attempt is currently IN_PROGRESS, return it immediately (resume session)
+    if (existingAttempt && existingAttempt.status === 'IN_PROGRESS') {
+      await client.query('COMMIT');
+      return res.status(200).json({
+        status: 'RESUMED',
+        attempt: existingAttempt,
+        quiz,
+      });
+    }
+
+    // If official test and already completed or expired, reject new attempt
+    if (quiz.quiz_type === 'OFFICIAL_TEST' && existingAttempt && existingAttempt.status !== 'IN_PROGRESS') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'You have already completed this official test. Multiple attempts are strictly prohibited.',
+        code: 'OFFICIAL_TEST_ALREADY_COMPLETED',
+        attempt: existingAttempt,
+      });
+    }
+
+    // 4. Create new attempt (Strict <= 32 chars invariant)
+    const attemptId = (`att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`).slice(0, 32);
+    const isPractice = quiz.quiz_type === 'SELF_PRACTICE';
+    const durationMinutes = quiz.duration_minutes > 0 ? quiz.duration_minutes : 60;
+    const dueInterval = isPractice ? '24 hours' : `${durationMinutes} minutes`;
+
+    const createRes = await client.query(`
+      INSERT INTO quiz_attempts (
+        attempt_id,
+        quiz_id,
+        student_id,
+        status,
+        score,
+        total_points,
+        started_at,
+        due_at,
+        is_practice
+      ) VALUES (
+        $1,
+        $2,
+        $3,
+        'IN_PROGRESS',
+        0.00,
+        $4,
+        NOW(),
+        NOW() + INTERVAL '${dueInterval}',
+        $5
+      )
+      RETURNING *;
+    `, [attemptId, quizId, studentId, quiz.total_points, isPractice]);
+
+    await client.query('COMMIT');
+
+    return res.status(201).json({
+      status: 'STARTED',
+      attempt: createRes.rows[0],
+      quiz,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error({ err: err?.message || err, quizId, studentId }, '[Quizzes] Failed to start attempt');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
 
 export default router;

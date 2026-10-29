@@ -113,12 +113,16 @@ async function request(endpoint, options = {}) {
   // Defense-in-depth: Forces CORS preflight (OPTIONS) against untrusted origins
   headers.set('X-Requested-With', 'XMLHttpRequest');
 
-  // Ephemeral Session Nonce injection (Platform Phase 1 Proof)
+  // Ephemeral Session Nonce injection (Platform Phase 1 Proof with Cross-Tab Resilience)
+  let sessionNonce = null;
   if (typeof sessionStorage !== 'undefined') {
-    const sessionNonce = sessionStorage.getItem('session_nonce');
-    if (sessionNonce && !headers.has('X-Session-Nonce')) {
-      headers.set('X-Session-Nonce', sessionNonce);
-    }
+    sessionNonce = sessionStorage.getItem('session_nonce');
+  }
+  if (!sessionNonce && typeof localStorage !== 'undefined') {
+    sessionNonce = localStorage.getItem('session_nonce');
+  }
+  if (sessionNonce && !headers.has('X-Session-Nonce')) {
+    headers.set('X-Session-Nonce', sessionNonce);
   }
 
   // Ensure JSON content type on state-mutating requests
@@ -196,6 +200,13 @@ async function request(endpoint, options = {}) {
       continue; // Re-execute request transparently
     }
 
+    // Auto-heal desynced tab nonce if server issued synchronization header
+    const syncNonce = response.headers?.get?.('x-session-nonce-sync');
+    if (syncNonce) {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('session_nonce', syncNonce);
+      if (typeof localStorage !== 'undefined') localStorage.setItem('session_nonce', syncNonce);
+    }
+
     // Response Interception Pipeline
     if (!response.ok) {
       let errorData = null;
@@ -218,6 +229,9 @@ async function request(endpoint, options = {}) {
           code === 'JWT_EXPIRED' ||
           code === 'AUTH_TOKEN_EXPIRED' ||
           code === 'AUTH_MISSING_TOKEN' ||
+          code === 'AUTH_NONCE_MISMATCH' ||
+          code === 'AUTH_INVALID_SESSION' ||
+          code === 'AUTH_SESSION_TERMINATED' ||
           !code;
 
         if (isSessionTermination && !isEvicting) {
@@ -225,6 +239,7 @@ async function request(endpoint, options = {}) {
           sessionLifecycle.terminate('UPSTREAM_EXPIRED');
           sessionStorage.removeItem('session_nonce');
           sessionStorage.removeItem('shadow_auth');
+          localStorage.removeItem('session_nonce');
           localStorage.removeItem('shadow_auth');
           if (typeof window !== 'undefined') {
             window.location.replace('/login?reason=session_timeout');

@@ -125,15 +125,25 @@ export async function authMiddleware(req, res, next) {
     }
 
     // Edge Case: CSRF / Nonce mismatch using constant-time evaluation
+    const isDevelopment = config.nodeEnv === 'development' || process.env.NODE_ENV === 'development';
+    const allowPermissiveDevSync = isDevelopment && process.env.ALLOW_DEV_NONCE_SYNC === 'true';
     if (!safeTimingCompare(storedNonce, clientNonce)) {
-      logger.warn(
-        { userId: payload.sub, sessionId },
-        '[AuthBarrier] Ephemeral session nonce mismatch detected'
-      );
-      return res.status(401).json({
-        error: 'Invalid session nonce: request origin unverified',
-        code: 'AUTH_NONCE_MISMATCH',
-      });
+      if (allowPermissiveDevSync) {
+        logger.warn(
+          { userId: payload.sub, sessionId },
+          '[AuthBarrier] Local dev mode: Self-healing tab session nonce mismatch'
+        );
+        res.setHeader('X-Session-Nonce-Sync', storedNonce);
+      } else {
+        logger.warn(
+          { userId: payload.sub, sessionId },
+          '[AuthBarrier] Ephemeral session nonce mismatch detected'
+        );
+        return res.status(401).json({
+          error: 'Invalid session nonce: request origin unverified',
+          code: 'AUTH_NONCE_MISMATCH',
+        });
+      }
     }
 
     // 4. Zero-Trust Scoping: The RESET_ONLY Session Barrier
@@ -216,12 +226,12 @@ export function enrollmentCheck(courseIdParam = 'courseId') {
       return next();
     }
 
-    // Fast-path: If user object has enrolledCourses array populated (e.g. in test stubs)
+    // Test stub bypass: Only in automated test harness may token claims skip authoritative DB check
     const normalizedKey = String(rawCourseId).trim().toUpperCase().replace(/\s+/g, '');
     const isNumeric = /^\d+$/.test(rawCourseId);
     const numericId = isNumeric ? parseInt(rawCourseId, 10) : null;
 
-    if (Array.isArray(req.user?.enrolledCourses) && req.user.enrolledCourses.length > 0) {
+    if (config.nodeEnv === 'test' && Array.isArray(req.user?.enrolledCourses) && req.user.enrolledCourses.length > 0) {
       if (numericId && req.user.enrolledCourses.includes(numericId)) {
         return next();
       }

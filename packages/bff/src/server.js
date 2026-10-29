@@ -45,6 +45,9 @@ import forumsRouter from './routes/forums.js';
 import questionBankRouter from './routes/questionBank.js';
 import profileRouter from './routes/profile.js';
 import adminRouter from './routes/admin.js';
+import hodRouter from './routes/hod.js';
+import lecturerRouter from './routes/lecturer.js';
+import attendanceRouter from './routes/attendance.js';
 import notificationsRouter from './routes/notifications.js';
 import assignmentsRouter from './routes/assignments.js';
 import studentCoursesRouter from './routes/studentCourses.js';
@@ -101,14 +104,16 @@ app.use(cors({
     'X-RateLimit-Remaining',
     'X-RateLimit-Reset',
     'Retry-After',
+    'X-Session-Nonce-Sync',
   ],
 }));
 
 // ─── 2. Cookie Parser ────────────────────────────────────────
 app.use(cookieParser());
 
-// ─── 3. JSON Body Parser ─────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
+// ─── 3. JSON & URL-Encoded Body Parsers (2MB ingress limit) ───
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // ─── 4. Health Check (before auth — LB probes don't have JWTs) ──
 app.use('/health', healthRouter);
@@ -139,6 +144,9 @@ app.use('/api/student/courses', studentCoursesRouter);
 app.use('/api/student/notifications', notificationsRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/hod', hodRouter);
+app.use('/api/lecturer', lecturerRouter);
+app.use('/api/attendance', attendanceRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {
@@ -153,6 +161,18 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
+import { notificationBroadcaster } from './services/notificationBroadcaster.js';
+import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
+
+// ─── Network & Socket Resilience Handlers ───────────────────
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err: err?.stack || err, code: err?.code }, '[Process] Fatal uncaught exception encountered. Terminating process.');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.warn({ reason: reason?.message || reason }, '[Process] Unhandled promise rejection');
+});
 
 // ─── Start Server ────────────────────────────────────────────
 const server = app.listen(config.port, () => {
@@ -167,13 +187,17 @@ const server = app.listen(config.port, () => {
   
   // Start Unified Transactional Outbox Worker
   unifiedOutboxWorker.start();
+  // Start PostgreSQL Native LISTEN / NOTIFY Notification Broadcaster
+  notificationBroadcaster.start();
+  // Start Official Test Auto-Zero Countdown Sweeper
+  quizSweeperWorker.start();
 });
 
 // ─── Zero-Downtime Graceful Shutdown Lifecycle ───────────────
 setupGracefulShutdown({
   server,
   redis,
-  workers: [unifiedOutboxWorker],
+  workers: [unifiedOutboxWorker, notificationBroadcaster, quizSweeperWorker],
   options: {
     ingressDrainDelayMs: config.nodeEnv === 'production' ? 5000 : 500,
     maxDrainWaitMs: 15000,

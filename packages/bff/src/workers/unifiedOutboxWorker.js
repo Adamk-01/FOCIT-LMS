@@ -17,6 +17,7 @@ import { logger } from '../lib/logger.js';
 import { createMoodleUser, getMoodleUserByField } from '../integrations/moodle/moodle.users.js';
 import { enrolUserInCourse } from '../integrations/moodle/moodle.enrolments.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
+import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js';
 
 const BATCH_SIZE = 20;
 const LEASE_DURATION_SECONDS = 30;
@@ -257,6 +258,35 @@ export class UnifiedOutboxWorker {
               logger.warn({ studentId, moodleUserId, err: err?.message }, '[UnifiedOutbox] Moodle profile update warning');
             }
           }
+          break;
+        }
+
+        case 'MOODLE_QUIZ_SYNC':
+        case 'MOODLE_QUESTION_SYNC': {
+          let quizId = payload?.quizId || payload?.quiz_id;
+          if (!quizId && ev.aggregate_type === 'QUIZ') {
+            quizId = aggregate_id;
+          }
+          if (!quizId) {
+            // Authoritative fallback: Look up parent quiz_id from quiz_questions table
+            const questionIdentifier = payload?.questionId || payload?.question_id || (ev.aggregate_type === 'QUESTION' ? aggregate_id : null);
+            if (questionIdentifier) {
+              const qLookup = await pool.query(
+                `SELECT quiz_id FROM quiz_questions WHERE question_id = $1 LIMIT 1`,
+                [questionIdentifier]
+              );
+              if (qLookup.rows[0]?.quiz_id) {
+                quizId = qLookup.rows[0].quiz_id;
+              }
+            }
+          }
+
+          if (!quizId) {
+            const err = new Error(`Cannot sync Moodle quiz: missing quizId in payload for event ${event_id}`);
+            err.isRetryable = false;
+            throw err;
+          }
+          await syncFocitQuizToMoodle(quizId);
           break;
         }
 
