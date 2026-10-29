@@ -15,6 +15,33 @@ import { submitQuizAttemptHandler } from '../controllers/quizSubmissionControlle
 const router = express.Router();
 
 /**
+ * Deterministic pseudo-random number generator (PRNG) seeded per attempt.
+ * Ensures consistent question/option ordering upon browser reload within the same attempt,
+ * but completely permutes both question order and option choices across different attempts.
+ * (Anti-Memorization Engine for Formative Mastery Drills)
+ */
+function createSeededRandom(seedStr) {
+  let hash = 0;
+  for (let i = 0; i < seedStr.length; i++) {
+    hash = Math.imul(31, hash) + seedStr.charCodeAt(i) | 0;
+  }
+  return function() {
+    hash = (Math.imul(48271, hash) >>> 0) % 2147483647;
+    return hash / 2147483647;
+  };
+}
+
+function seededShuffle(array, rng) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+
+/**
  * GET /api/quizzes/:quizId/attempts/:attemptId
  * Rehydrates quiz attempt state, delivering masked questions and Cristian skew timestamps.
  */
@@ -35,6 +62,8 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         a.started_at,
         a.due_at,
         a.submitted_at,
+        a.is_practice,
+        q.quiz_type,
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
@@ -64,6 +93,7 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         qq.question_number,
         qq.prompt,
         qq.options,
+        qq.type,
         qq.points
       FROM quiz_questions qq
       WHERE qq.quiz_id = $1
@@ -86,6 +116,25 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
       };
     }
 
+    // Anti-Memorization Shuffling Engine for Practice Drills
+    let deliveredQuestions = questionsResult.rows;
+    if (attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE') {
+      const rng = createSeededRandom(attemptId);
+      deliveredQuestions = seededShuffle(deliveredQuestions, rng).map((q, idx) => ({
+        ...q,
+        question_number: idx + 1,
+        options: Array.isArray(q.options) ? seededShuffle(q.options, rng) : q.options,
+      }));
+    }
+
+    // Zero-Trust Information Barrier: Strip answer keys for SHORT_ANSWER questions delivered to students
+    deliveredQuestions = deliveredQuestions.map((q) => {
+      if (q.type === 'SHORT_ANSWER') {
+        return { ...q, options: [] };
+      }
+      return q;
+    });
+
     // 4. Return Authoritative Skew-Neutralizing Payload
     return res.status(200).json({
       attempt: {
@@ -107,13 +156,21 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
       },
-      questions: questionsResult.rows.map((q) => ({
-        id: q.question_id,
-        number: q.question_number,
-        prompt: q.prompt,
-        options: q.options,
-        points: q.points,
-      })),
+      questions: deliveredQuestions.map((q) => {
+        let safeOptions = q.options;
+        // Zero-Trust Security Invariant: Never send the short-answer key in options to students
+        if (q.type === 'SHORT_ANSWER') {
+          safeOptions = [];
+        }
+        return {
+          id: q.question_id,
+          number: q.question_number,
+          prompt: q.prompt,
+          type: q.type,
+          options: safeOptions,
+          points: q.points,
+        };
+      }),
       answers: answersMap,
     });
   } catch (err) {
@@ -261,8 +318,11 @@ router.get('/course/:courseId', async (req, res, next) => {
         (SELECT COUNT(*)::int FROM quiz_questions qq WHERE qq.quiz_id = q.quiz_id) AS question_count
       FROM quizzes q
       WHERE q.course_id = $1
-        AND q.status != 'CLOSED'
-        AND (q.quiz_type = 'SELF_PRACTICE' OR q.is_active_for_new_attempts = TRUE)
+        AND q.status = 'ACTIVE'
+        AND (
+          (q.quiz_type = 'OFFICIAL_TEST' AND q.is_active_for_new_attempts = TRUE)
+          OR (q.quiz_type = 'SELF_PRACTICE' AND COALESCE(q.is_active_for_new_attempts, TRUE) = TRUE)
+        )
       ORDER BY 
         CASE WHEN q.quiz_type = 'SELF_PRACTICE' THEN 0 ELSE 1 END,
         q.published_at DESC NULLS LAST,
@@ -362,11 +422,15 @@ router.post('/:quizId/start', async (req, res, next) => {
     const quiz = quizRes.rows[0];
 
     // Finding 8.2: Check that the quiz is published, active, and student is enrolled
-    if (quiz.status === 'CLOSED' || (!quiz.is_active_for_new_attempts && quiz.quiz_type === 'OFFICIAL_TEST')) {
+    const isPracticeQuiz = quiz.quiz_type === 'SELF_PRACTICE';
+    const isActiveForAttempts = isPracticeQuiz
+      ? (quiz.is_active_for_new_attempts ?? true)
+      : quiz.is_active_for_new_attempts === true;
+    if (quiz.status !== 'ACTIVE' || !isActiveForAttempts) {
       await client.query('ROLLBACK');
       return res.status(403).json({
-        error: 'This official assessment is inactive or retired. No new attempts are permitted.',
-        code: 'TEST_RETIRED',
+        error: 'This assessment is not currently active for new attempts.',
+        code: 'TEST_NOT_ACTIVE',
       });
     }
 

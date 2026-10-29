@@ -40,6 +40,8 @@ const poolConfig = {
   max: 20,                          // Little's Law capacity ceiling
   idleTimeoutMillis: 30000,         // Purge idle sockets after 30s
   connectionTimeoutMillis: 10000,   // Resilient against container/serverless network latency
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 };
 
 export const pool = new Pool(poolConfig);

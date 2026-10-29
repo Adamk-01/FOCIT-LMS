@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import moodlePool from '../lib/moodlePool.js';
 import config from '../config.js';
+import { pool } from '../db/index.js';
 import { LRUDiskCache } from '../lib/lruDiskCache.js';
 import { enrollmentCheck } from '../middleware/auth.js';
 import { listRateLimit } from '../middleware/rateLimiter.js';
@@ -89,6 +90,93 @@ router.get('/avatars/:filename', async (req, res) => {
     createReadStream(avatarPath).pipe(res);
   } catch (err) {
     return res.status(404).json({ error: 'Avatar image not found', code: 'AVATAR_NOT_FOUND' });
+  }
+});
+
+/**
+ * GET /api/files/sheets/:filename
+ * Serves scanned attendance sheets with strict course-level authorization
+ */
+router.get('/sheets/:filename', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required to view attendance sheets', code: 'AUTH_REQUIRED' });
+  }
+
+  const { filename } = req.params;
+  const sanitized = path.basename(filename);
+  const sheetPath = path.join(CACHE_DIR, 'sheets', sanitized);
+
+  try {
+    await fs.stat(sheetPath);
+
+    // Finding 7: Enforce course-level authorization for the requested attendance sheet
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const userId = req.user?.username || req.user?.id || req.user?.student_id;
+
+    if (!['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+      // Authoritatively resolve course from attendance sessions
+      const sessionRes = await pool.query(
+        `SELECT course_id FROM attendance_sessions 
+         WHERE sheet_image_urls::text LIKE '%' || $1 || '%' 
+         LIMIT 1`,
+        [sanitized]
+      );
+
+      const courseId = sessionRes.rows[0]?.course_id;
+
+      // Fail-closed security barrier: Unlinked sheets cannot be accessed by non-admins
+      if (!courseId) {
+        return res.status(404).json({
+          error: 'Attendance sheet is not associated with any recorded course session',
+          code: 'UNLINKED_SHEET_RECORD',
+        });
+      }
+
+      if (['LECTURER', 'HOD', 'LEVEL_ADVISOR'].includes(userRole)) {
+        const isAllocated = await pool.query(
+          `SELECT 1 FROM hod_course_allocations WHERE (course_id = $1 OR UPPER(REPLACE(course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))) AND lecturer_id = $2 LIMIT 1`,
+          [courseId, userId]
+        );
+        const isDeptHod = await pool.query(
+          `SELECT 1 FROM staff_advisors sa 
+           JOIN courses c ON c.department_id = sa.department_id 
+           WHERE sa.advisor_id = $1 AND sa.role = 'HOD' AND (c.course_id = $2 OR UPPER(REPLACE(c.course_id, ' ', '')) = UPPER(REPLACE($2, ' ', ''))) LIMIT 1`,
+          [userId, courseId]
+        );
+        if (isAllocated.rows.length === 0 && isDeptHod.rows.length === 0) {
+          return res.status(403).json({
+            error: 'Forbidden: You are not authorized to access attendance records for this course',
+            code: 'FORBIDDEN_SHEET_ACCESS',
+          });
+        }
+      } else {
+        // Appointed course representative authorization check
+        // Ordinary enrolled students must NOT view raw physical attendance sheets (aligned with attendance listing redaction)
+        const isRep = await pool.query(
+          `SELECT 1 FROM course_representatives 
+           WHERE (course_id = $1 OR UPPER(REPLACE(course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))) AND student_id = $2 LIMIT 1`,
+          [courseId, userId]
+        );
+        if (isRep.rows.length === 0) {
+          return res.status(403).json({
+            error: 'Forbidden: Physical attendance sheets are restricted to course lecturers and designated course representatives',
+            code: 'FORBIDDEN_SHEET_ACCESS',
+          });
+        }
+      }
+    }
+
+    const ext = path.extname(sanitized).toLowerCase();
+    const mime = ext === '.webp' ? 'image/webp' : ext === '.png' ? 'image/png' : 'image/jpeg';
+    
+    res.setHeader('Content-Type', mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    createReadStream(sheetPath).pipe(res);
+  } catch (err) {
+    return res.status(404).json({ error: 'Attendance sheet image not found', code: 'SHEET_NOT_FOUND' });
   }
 });
 

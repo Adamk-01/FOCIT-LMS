@@ -6,6 +6,7 @@ import {
   useLecturerCourseStudents,
 } from '../hooks/useLecturerDashboard';
 import { AttendanceLecturerPanel } from '../components/attendance/AttendanceLecturerPanel';
+import { AssignmentManagementPanel } from '../components/assignment/AssignmentManagementPanel';
 
 export function LecturerDashboardPage() {
   const [activeTab, setActiveTab] = useState('courses');
@@ -59,7 +60,18 @@ export function LecturerDashboardPage() {
             {overviewLoading ? '…' : overview?.metrics?.active_quizzes_count ?? 0}
           </p>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('assignments')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('assignments');
+            }
+          }}
+          className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm cursor-pointer hover:border-[#0a1142] focus:outline-hidden focus:ring-2 focus:ring-[#0a1142] transition-colors"
+        >
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Published Assignments</p>
           <p className="text-2xl font-bold text-[#0a1142] mt-1">
             {overviewLoading ? '…' : overview?.metrics?.active_assignments_count ?? 0}
@@ -68,10 +80,10 @@ export function LecturerDashboardPage() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-gray-200 gap-2">
+      <div className="flex border-b border-gray-200 gap-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('courses')}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'courses'
               ? 'border-[#0a1142] text-[#0a1142]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -81,7 +93,7 @@ export function LecturerDashboardPage() {
         </button>
         <button
           onClick={() => setActiveTab('roster')}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'roster'
               ? 'border-[#0a1142] text-[#0a1142]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -90,8 +102,18 @@ export function LecturerDashboardPage() {
           Class Roster & Examination Sheets
         </button>
         <button
+          onClick={() => setActiveTab('assignments')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
+            activeTab === 'assignments'
+              ? 'border-[#0a1142] text-[#0a1142]'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Continuous Assessment & Assignments
+        </button>
+        <button
           onClick={() => setActiveTab('attendance')}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'attendance'
               ? 'border-[#0a1142] text-[#0a1142]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -115,6 +137,14 @@ export function LecturerDashboardPage() {
 
       {activeTab === 'roster' && (
         <ClassRosterPanel
+          courses={courses}
+          selectedCourseId={selectedCourseId}
+          onSelectCourseId={setSelectedCourseId}
+        />
+      )}
+
+      {activeTab === 'assignments' && (
+        <AssignmentManagementPanel
           courses={courses}
           selectedCourseId={selectedCourseId}
           onSelectCourseId={setSelectedCourseId}
@@ -177,15 +207,9 @@ function CoursesListPanel({ courses, isLoading, onSelectCourse }) {
             </button>
             <Link
               to={`/courses/${course.course_id}/question-bank`}
-              className="bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-3 rounded hover:bg-gray-200 text-center"
+              className="flex-1 bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-3 rounded hover:bg-gray-200 text-center"
             >
               Question Bank
-            </Link>
-            <Link
-              to={`/courses/${course.course_id}`}
-              className="bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-3 rounded hover:bg-gray-200 text-center"
-            >
-              Course Space
             </Link>
           </div>
         </div>

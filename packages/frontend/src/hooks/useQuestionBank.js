@@ -115,4 +115,141 @@ export function useQuestionBank(courseId = 'CSC204') {
   };
 }
 
+export function useCourseTests(courseId) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['course-tests', courseId],
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.get(`/courses/${courseId}/tests`, { signal });
+      return res.data?.tests || [];
+    },
+    enabled: Boolean(courseId),
+    staleTime: 10 * 1000,
+  });
+
+  const createTestMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await apiClient.post(`/courses/${courseId}/tests`, payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+      queryClient.invalidateQueries({ queryKey: ['question-bank', courseId] });
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ quizId, isActive, status }) => {
+      const res = await apiClient.put(`/courses/${courseId}/tests/${quizId}/status`, { isActive, status });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  const syncTestMutation = useMutation({
+    mutationFn: async (quizId) => {
+      const res = await apiClient.post(`/courses/${courseId}/tests/${quizId}/sync-moodle`, {});
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+      queryClient.invalidateQueries({ queryKey: ['test-detail'] });
+    },
+  });
+
+  return {
+    tests: data || [],
+    isLoading,
+    error,
+    refetch,
+    createTestMutation,
+    updateStatusMutation,
+    syncTestMutation,
+  };
+}
+
+export function useTestDetail(courseId, quizId) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['test-detail', courseId, quizId],
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.get(`/courses/${courseId}/tests/${quizId}`, { signal });
+      return res.data;
+    },
+    enabled: Boolean(courseId && quizId),
+    staleTime: 10 * 1000,
+  });
+
+  const addQuestionMutation = useMutation({
+    mutationFn: async (payload) => {
+      const res = await apiClient.post(`/courses/${courseId}/tests/${quizId}/questions`, payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['test-detail', courseId, quizId] });
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  const deleteQuestionMutation = useMutation({
+    mutationFn: async (questionId) => {
+      const res = await apiClient.delete(`/courses/${courseId}/tests/${quizId}/questions/${questionId}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['test-detail', courseId, quizId] });
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  const syncMoodleMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post(`/courses/${courseId}/tests/${quizId}/sync-moodle`, {});
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['test-detail', courseId, quizId] });
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ isActive, status }) => {
+      const res = await apiClient.put(`/courses/${courseId}/tests/${quizId}/status`, { isActive, status });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['test-detail', courseId, quizId] });
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  const duplicateAsPracticeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post(`/courses/${courseId}/tests/${quizId}/duplicate-as-practice`, {});
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-tests', courseId] });
+    },
+  });
+
+  return {
+    test: data?.test,
+    questions: data?.questions || [],
+    isLoading,
+    error,
+    refetch,
+    addQuestionMutation,
+    deleteQuestionMutation,
+    syncMoodleMutation,
+    updateStatusMutation,
+    duplicateAsPracticeMutation,
+  };
+}
+
 export default useQuestionBank;
