@@ -69,15 +69,11 @@ export function QuizQuestionCard({
       {/* 3. Interactive Answer Inputs: SHORT_ANSWER vs Options Radiogroup */}
       {isShortAnswer ? (
         <div className="space-y-3 pt-2">
-          <label
-            htmlFor={`short_answer_${question.id}`}
-            className="block text-xs font-bold uppercase tracking-wider text-gray-600"
-          >
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">
             Your Written Answer
           </label>
           <div className="relative">
             <input
-              id={`short_answer_${question.id}`}
               type="text"
               name={`question_${question.id}`}
               value={activeAnswer || ''}
