@@ -37,6 +37,8 @@ class NotificationBroadcaster {
       this.client = new Client({
         connectionString,
         connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
       });
 
       this.client.on('error', (err) => {
@@ -94,13 +96,16 @@ class NotificationBroadcaster {
     this.isConnected = false;
 
     if (this.client) {
+      const oldClient = this.client;
+      this.client = null;
       try {
-        this.client.removeAllListeners();
-        this.client.end().catch(() => {});
+        oldClient.removeAllListeners();
+        // Prevent unhandled error event if socket resets during TLS teardown
+        oldClient.on('error', () => {});
+        oldClient.end().catch(() => {});
       } catch {
         // ignore cleanup error
       }
-      this.client = null;
     }
 
     this.reconnectAttempts++;
@@ -138,14 +143,16 @@ class NotificationBroadcaster {
       this.reconnectTimer = null;
     }
     if (this.client) {
+      const oldClient = this.client;
+      this.client = null;
       try {
-        this.client.removeAllListeners();
-        await this.client.end();
+        oldClient.removeAllListeners();
+        oldClient.on('error', () => {});
+        await oldClient.end().catch(() => {});
         logger.info('[PostgresListen] Dedicated listener socket terminated cleanly');
       } catch (err) {
         logger.warn({ err: err?.message || err }, '[PostgresListen] Error during socket closure');
       }
-      this.client = null;
     }
     this.isConnected = false;
   }

@@ -99,7 +99,7 @@ router.get('/overview', async (req, res, next) => {
         COALESCE(COUNT(DISTINCT a.assignment_id), 0)::int AS active_assignments_count
       FROM hod_course_allocations hca
       JOIN courses c ON c.course_id = hca.course_id
-      LEFT JOIN enrollments e ON e.course_id = hca.course_id AND e.semester_id = hca.semester_id AND e.status = 'ENROLLED'
+      LEFT JOIN enrollments e ON e.course_id = hca.course_id AND e.semester_id = hca.semester_id AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
       LEFT JOIN quizzes q ON q.course_id = hca.course_id AND q.status = 'ACTIVE'
       LEFT JOIN course_assignments a ON a.course_id = hca.course_id AND a.status = 'PUBLISHED'
       WHERE (
@@ -156,7 +156,7 @@ router.get('/courses', async (req, res, next) => {
           FROM enrollments e 
           WHERE e.course_id = c.course_id 
             AND e.semester_id = $2 
-            AND e.status = 'ENROLLED'
+            AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
         ) AS verified_enrolled_students
       FROM courses c
       JOIN departments d ON d.id = c.department_id
@@ -240,7 +240,7 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
       JOIN departments d ON d.id = p.department_id
       WHERE e.course_id = $1 
         AND e.semester_id = $2
-        AND e.status = 'ENROLLED'
+        AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
         AND ($3::varchar IS NULL OR (
           s.full_name ILIKE '%' || $3 || '%' 
           OR s.matric_number ILIKE '%' || $3 || '%'
@@ -315,7 +315,7 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
        FROM enrollments e
        JOIN students s ON s.student_id = e.student_id
        JOIN programmes p ON p.id = s.programme_id
-       WHERE e.course_id = $1 AND e.semester_id = $2 AND e.status = 'ENROLLED'
+       WHERE e.course_id = $1 AND e.semester_id = $2 AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
        ORDER BY s.matric_number ASC`,
       [courseId, targetSemesterId]
     );

@@ -104,14 +104,16 @@ app.use(cors({
     'X-RateLimit-Remaining',
     'X-RateLimit-Reset',
     'Retry-After',
+    'X-Session-Nonce-Sync',
   ],
 }));
 
 // ─── 2. Cookie Parser ────────────────────────────────────────
 app.use(cookieParser());
 
-// ─── 3. JSON Body Parser ─────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
+// ─── 3. JSON & URL-Encoded Body Parsers (2MB ingress limit) ───
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // ─── 4. Health Check (before auth — LB probes don't have JWTs) ──
 app.use('/health', healthRouter);
@@ -161,6 +163,16 @@ app.use(errorHandler);
 import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
 import { notificationBroadcaster } from './services/notificationBroadcaster.js';
 import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
+
+// ─── Network & Socket Resilience Handlers ───────────────────
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err: err?.stack || err, code: err?.code }, '[Process] Fatal uncaught exception encountered. Terminating process.');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.warn({ reason: reason?.message || reason }, '[Process] Unhandled promise rejection');
+});
 
 // ─── Start Server ────────────────────────────────────────────
 const server = app.listen(config.port, () => {

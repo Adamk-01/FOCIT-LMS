@@ -132,7 +132,7 @@ export const ProtectedLayout = () => {
           id="main-content"
           tabIndex={-1}
           className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-y-contain focus:outline-none bg-[#f8fafc]"
-          style={{ contain: 'layout paint' }}
+
         >
           <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
             <Outlet />

@@ -92,6 +92,17 @@ app.all('/webservice/rest/server.php', (req, res) => {
     case 'core_user_update_users':
       return handleUpdateUsers(req, res, params);
 
+    case 'mod_quiz_add_quiz':
+    case 'mod_quiz_create_quiz':
+      return handleCreateQuiz(req, res, params);
+
+    case 'core_question_create_questions':
+      return handleCreateQuestions(req, res, params);
+
+    case 'mod_quiz_add_question_to_quiz':
+    case 'mod_quiz_add_question':
+      return handleAddQuestionToQuiz(req, res, params);
+
     default:
       return res.json({
         exception: 'moodle_exception',
@@ -434,6 +445,48 @@ function generateMinimalPDF(title) {
   pdf += `startxref\n${xrefOffset}\n%%EOF\n`;
 
   return Buffer.from(pdf, 'latin1');
+}
+
+let nextQuizId = 100;
+let nextCmid = 500;
+let nextQuestionId = 1000;
+const mockQuizzes = [];
+const mockQuestions = [];
+
+function handleCreateQuiz(req, res, params) {
+  const quizId = nextQuizId++;
+  const cmid = nextCmid++;
+  const quiz = {
+    id: quizId,
+    cmid: cmid,
+    course: params.courseid || params.course || 1,
+    name: params.name || params.title || 'Moodle Quiz',
+    intro: params.intro || '',
+    timeopen: params.timeopen || 0,
+    timeclose: params.timeclose || 0,
+    timelimit: params.timelimit || 0,
+  };
+  mockQuizzes.push(quiz);
+  console.log(`[MOCK MOODLE] Created quiz: id=${quizId} cmid=${cmid} name="${quiz.name}"`);
+  res.json({ quizid: quizId, id: quizId, cmid: cmid, status: true });
+}
+
+function handleCreateQuestions(req, res, params) {
+  const questionsParam = params.questions || [];
+  const createdIds = [];
+  const list = Array.isArray(questionsParam) ? questionsParam : [questionsParam];
+  for (const q of list) {
+    const qid = nextQuestionId++;
+    mockQuestions.push({ id: qid, ...q });
+    createdIds.push(qid);
+  }
+  console.log(`[MOCK MOODLE] Created ${createdIds.length} question(s): ${createdIds.join(', ')}`);
+  res.json({ questionids: createdIds, status: true });
+}
+
+function handleAddQuestionToQuiz(req, res, params) {
+  console.log(`[MOCK MOODLE] Linked question=${params.questionid} to quiz=${params.quizid}`);
+  res.json({ status: true, message: 'Question linked to quiz successfully' });
 }
 
 // ─── Start Server ────────────────────────────────────────────

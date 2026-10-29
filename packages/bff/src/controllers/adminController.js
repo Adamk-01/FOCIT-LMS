@@ -1086,6 +1086,10 @@ export async function getOutboxEvents(req, res, next) {
           return 'Gradebook Sync';
         case 'ACTIVITY_COMPLETED':
           return 'Activity Completion Sync';
+        case 'MOODLE_QUIZ_SYNC':
+          return 'Moodle Quiz Sync';
+        case 'MOODLE_QUESTION_SYNC':
+          return 'Quiz Question Sync';
         default:
           return String(type)
             .toLowerCase()
@@ -1127,7 +1131,13 @@ export async function getOutboxEvents(req, res, next) {
         const actionLabel = formatOutboxEventType(io.event_type);
 
         let targetLabel = 'Integration Pipeline';
-        if (studentName && matric) {
+        if (io.event_type === 'MOODLE_QUIZ_SYNC') {
+          const title = io.payload?.title || io.payload?.quizTitle || 'Assessment Test';
+          targetLabel = `${title} • ${course || io.aggregate_id}`;
+        } else if (io.event_type === 'MOODLE_QUESTION_SYNC') {
+          const qText = io.payload?.prompt ? io.payload.prompt.slice(0, 35) + '...' : 'Question Item';
+          targetLabel = `${qText} • ${course || ''}`;
+        } else if (studentName && matric) {
           targetLabel = `${studentName} (${matric})`;
         } else if (studentName) {
           targetLabel = studentName;

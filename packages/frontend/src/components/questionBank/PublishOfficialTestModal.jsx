@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Clock, AlertTriangle, CheckCircle, ShieldAlert } from 'lucide-react';
 
 export function PublishOfficialTestModal({
@@ -47,7 +48,7 @@ export function PublishOfficialTestModal({
     });
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div 
         role="dialog" 
@@ -231,7 +232,8 @@ export function PublishOfficialTestModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -38,10 +38,14 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
 
   const role = String(user?.role || '').toUpperCase();
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
-  const isAdvisor = ['LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role);
+  const isLecturer = role === 'LECTURER';
+  const isAdvisor = ['LEVEL_ADVISOR', 'ADVISOR'].includes(role);
+  const isHod = ['HOD', 'DEAN'].includes(role);
 
   const rootCrumb = isAdmin
     ? { id: 'root-portal', name: 'Admin Portal', path: '/admin' }
+    : isLecturer
+    ? { id: 'root-portal', name: 'Lecturer Workspace', path: '/lecturer' }
     : isAdvisor
     ? { id: 'root-portal', name: 'Advisor Portal', path: '/advisor/registrations' }
     : { id: 'root-portal', name: 'Portal', path: '/dashboard' };
@@ -50,7 +54,7 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
   const pathSegments = location.pathname
     .split('/')
     .filter(Boolean)
-    .filter((s, idx) => !(idx === 0 && (s === 'admin' || s === 'dashboard' || s === 'advisor')));
+    .filter((s, idx) => !(idx === 0 && (s === 'admin' || s === 'dashboard' || s === 'advisor' || s === 'lecturer' || s === 'hod')));
 
   const breadcrumbs = [
     rootCrumb,
@@ -141,7 +145,7 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
         {/* Identity & Profile Chip */}
         <Link 
           to={isAdmin ? '/admin/profile' : isAdvisor ? '/advisor/registrations' : '/profile'} 
-          aria-label={isAdmin ? 'View Admin Profile' : isAdvisor ? 'View Advisor Review' : 'View Student Profile'}
+          aria-label={isAdmin ? 'View Admin Profile' : isAdvisor ? 'View Advisor Review' : isLecturer ? 'View Lecturer Profile' : 'View Student Profile'}
           className="flex items-center gap-3 pl-2 sm:pl-3 border-l border-gray-200 group hover:opacity-90 transition-opacity"
         >
           <div className="hidden lg:flex flex-col text-right">
@@ -149,7 +153,7 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
               {user?.username ? `Welcome, ${user.username}` : 'Welcome, User'}
             </span>
             <span className="text-[11px] text-gray-500 font-medium leading-tight">
-              {isAdmin ? 'Faculty Administration • System Control Plane' : isAdvisor ? 'Academic Staff • Faculty Registry' : 'Computer Science • Level 200'}
+              {isAdmin ? 'Faculty Administration • System Control Plane' : isLecturer ? 'Academic Staff • Lecturer' : isAdvisor ? 'Academic Staff • Faculty Registry' : 'Computer Science • Level 200'}
             </span>
           </div>
 

@@ -1,7 +1,10 @@
+import React from 'react';
+import { createPortal } from 'react-dom';
+
 export default function PDFViewerModal({ material, onClose }) {
   if (!material) return null;
 
-  return (
+  return createPortal(
     <div 
       style={{
         position: 'fixed',
@@ -60,6 +63,7 @@ export default function PDFViewerModal({ material, onClose }) {
           title={material.name}
         />
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
