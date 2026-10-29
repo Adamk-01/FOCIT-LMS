@@ -366,4 +366,121 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
   }
 });
 
+
+// ── 5. Ingest Bulk Continuous Assessment (CSV / JSON) ──────────────────────────
+router.post('/courses/:courseId/grades/ingest', async (req, res, next) => {
+  const { courseId } = req.params;
+  const lecturerId = req.lecturerScope.advisor_id;
+  const { semesterId, grades } = req.body;
+
+  if (!Array.isArray(grades) || grades.length === 0) {
+    return res.status(400).json({
+      error: 'Grades payload must be a non-empty array of records: [{ matricNumber, caScore, examScore }]',
+      code: 'INVALID_GRADES_PAYLOAD'
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    const termRes = await client.query(
+      'SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1'
+    );
+    const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    // 1. Course Authorization
+    const authCheck = await client.query(
+      `SELECT 1 FROM hod_course_allocations 
+       WHERE course_id = $1 AND semester_id = $2 AND (lecturer_id = $3 OR $4 = TRUE)
+       LIMIT 1`,
+      [courseId, targetSemesterId, lecturerId, req.lecturerScope.isSystemAdmin || req.lecturerScope.role === 'HOD']
+    );
+
+    if (authCheck.rows.length === 0) {
+      return res.status(403).json({
+        error: 'Access denied: You are not authorized to record grades for this course',
+        code: 'FORBIDDEN_GRADE_INGESTION'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    let updatedCount = 0;
+    const errors = [];
+    const sanitizedRecords = [];
+
+    for (const record of grades) {
+      const matric = String(record.matricNumber || record.matric_number || '').trim();
+      const rawCa = record.caScore ?? record.ca ?? record.continuous_assessment;
+      const rawExam = record.examScore ?? record.exam;
+      const rawTotal = record.totalScore ?? record.total ?? record.grade;
+
+      if (!matric) {
+        errors.push({ matric: 'UNKNOWN', error: 'Missing matric number' });
+        continue;
+      }
+
+      let numericGrade = null;
+      if (rawTotal !== undefined && rawTotal !== null && rawTotal !== '') {
+        numericGrade = parseFloat(rawTotal);
+      } else if (rawCa !== undefined || rawExam !== undefined) {
+        const caVal = parseFloat(rawCa) || 0;
+        const examVal = parseFloat(rawExam) || 0;
+        numericGrade = caVal + examVal;
+      }
+
+      if (numericGrade !== null && (isNaN(numericGrade) || numericGrade < 0 || numericGrade > 100)) {
+        errors.push({ matric, error: 'Calculated score out of valid bounds (0 - 100)' });
+        continue;
+      }
+
+      // Check enrollment existence
+      const findRes = await client.query(
+        `SELECT e.enrollment_id, e.student_id 
+         FROM enrollments e
+         JOIN students s ON s.student_id = e.student_id
+         WHERE (s.matric_number ILIKE $1 OR s.student_id = $1)
+           AND e.course_id = $2
+           AND e.semester_id = $3
+         LIMIT 1`,
+        [matric, courseId, targetSemesterId]
+      );
+
+      if (findRes.rows.length === 0) {
+        errors.push({ matric, error: 'Student is not actively enrolled in this course for the semester' });
+        continue;
+      }
+
+      const enrollmentId = findRes.rows[0].enrollment_id;
+
+      await client.query(
+        `UPDATE enrollments
+         SET grade = $1,
+             status = CASE WHEN $1 IS NOT NULL AND $1 >= 0 THEN 'COMPLETED' ELSE status END
+         WHERE enrollment_id = $2`,
+        [numericGrade, enrollmentId]
+      );
+
+      updatedCount++;
+      sanitizedRecords.push({ matric, grade: numericGrade });
+    }
+
+    await client.query('COMMIT');
+
+    return res.status(200).json({
+      message: `Successfully ingested continuous assessment grades for ${updatedCount} student(s)`,
+      updatedCount,
+      errorsCount: errors.length,
+      errors,
+      records: sanitizedRecords
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    logger.error({ err: err?.message || err, courseId }, '[Lecturer] Grade ingestion failed');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
+
