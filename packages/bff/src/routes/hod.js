@@ -33,6 +33,20 @@ async function requireHod(req, res, next) {
 
 router.use(requireHod);
 
+// ─── 0. Department Lecturers List ──────────────────────────────
+router.get('/lecturers', async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT advisor_id AS lecturer_id, staff_number, full_name, email, role
+       FROM staff_advisors
+       WHERE department_id = $1 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')
+       ORDER BY full_name ASC`,
+      [req.hodScope.department_id]
+    );
+    res.json({ lecturers: rows });
+  } catch (err) { next(err); }
+});
+
 // ─── 1. Course Allocation Matrix ─────────────────────────────
 router.get('/allocations', async (req, res, next) => {
   try {
@@ -70,7 +84,7 @@ router.post('/allocations', async (req, res, next) => {
       }
       const lecturer = await client.query(
         `SELECT advisor_id FROM staff_advisors
-         WHERE advisor_id = $1 AND department_id = $2 AND role = 'LEVEL_ADVISOR'`,
+         WHERE advisor_id = $1 AND department_id = $2 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')`,
         [lecturerId, req.hodScope.department_id]
       );
       if (lecturer.rowCount === 0) {

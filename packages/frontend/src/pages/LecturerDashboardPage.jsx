@@ -7,6 +7,9 @@ import {
 } from '../hooks/useLecturerDashboard';
 import { AttendanceLecturerPanel } from '../components/attendance/AttendanceLecturerPanel';
 import { AssignmentManagementPanel } from '../components/assignment/AssignmentManagementPanel';
+import { useQueryClient } from '@tanstack/react-query';
+import { FileSpreadsheet } from 'lucide-react';
+import { ContinuousAssessmentIngestModal } from '../components/roster/ContinuousAssessmentIngestModal';
 
 export function LecturerDashboardPage() {
   const [activeTab, setActiveTab] = useState('courses');
@@ -219,6 +222,8 @@ function CoursesListPanel({ courses, isLoading, onSelectCourse }) {
 }
 
 function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
+  const queryClient = useQueryClient();
+  const [showIngestModal, setShowIngestModal] = useState(false);
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
 
@@ -314,13 +319,21 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
           </div>
         </div>
 
-        <div className="self-end md:self-auto">
+        <div className="self-end md:self-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowIngestModal(true)}
+            disabled={!selectedCourseId}
+            className="inline-flex items-center gap-1.5 bg-[#0a1142] text-white text-xs font-semibold px-3.5 py-2 rounded hover:bg-[#16258f] disabled:opacity-50 transition-all shadow-sm"
+          >
+            <FileSpreadsheet size={15} />
+            <span>Ingest CA Scores (CSV)</span>
+          </button>
           <button
             onClick={handleDownloadCsv}
             disabled={!selectedCourseId || students.length === 0 || isExportingCsv}
-            className="inline-flex items-center gap-2 bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded hover:bg-emerald-800 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2 rounded hover:bg-emerald-800 disabled:opacity-50 transition-all shadow-sm"
           >
-            <span>📥</span> {isExportingCsv ? 'Exporting Roster...' : 'Export Official Exam Roster (CSV)'}
+            <span>📥</span> {isExportingCsv ? 'Exporting...' : 'Export Exam Roster (CSV)'}
           </button>
         </div>
       </div>
@@ -356,6 +369,7 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                   <th className="py-2.5 px-4 font-semibold">Student Name</th>
                   <th className="py-2.5 px-4 font-semibold">Programme</th>
                   <th className="py-2.5 px-4 font-semibold">Level</th>
+                  <th className="py-2.5 px-4 font-semibold">CA / Grade</th>
                   <th className="py-2.5 px-4 font-semibold">Status</th>
                   <th className="py-2.5 px-4 font-semibold">Enrolled Date</th>
                 </tr>
@@ -369,7 +383,15 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                     <td className="py-2.5 px-4 text-xs text-gray-600">{student.programme_code || student.programme_name}</td>
                     <td className="py-2.5 px-4 text-xs font-semibold text-gray-600">{student.level}L</td>
                     <td className="py-2.5 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
+                      {student.grade !== null && student.grade !== undefined ? (
+                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#0a1142] border border-blue-200">
+                          {student.grade}%
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400 font-mono italic">Pending</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4">
                         {student.enrollment_status}
                       </span>
                     </td>
@@ -383,6 +405,16 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
           </div>
         )}
       </div>
+      <ContinuousAssessmentIngestModal
+        isOpen={showIngestModal}
+        onClose={() => setShowIngestModal(false)}
+        courseId={selectedCourseId}
+        courseCode={currentCourse?.code}
+        courseTitle={currentCourse?.title}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['lecturer-course-students'] });
+        }}
+      />
     </div>
   );
 }

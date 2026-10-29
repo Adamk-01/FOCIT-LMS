@@ -48,6 +48,17 @@ async function getJson(path, signal) {
   return res.data;
 }
 
+export function useHodLecturers() {
+  return useQuery({
+    queryKey: ['hod-lecturers'],
+    queryFn: async ({ signal }) => {
+      const data = await getJson('/hod/lecturers', signal);
+      return data?.lecturers ?? [];
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useHodAllocations(semesterId) {
   return useQuery({
     queryKey: ['hod-allocations', semesterId],
