@@ -219,7 +219,7 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
     );
     const course = courseRes.rows[0];
 
-    // 3. Query Enrolled Cohort
+    // 3. Query Enrolled Cohort with aggregated CA Test and Practice Quiz scores
     const studentsQuery = `
       SELECT 
         s.student_id,
@@ -233,7 +233,16 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
         e.enrollment_id,
         e.status AS enrollment_status,
         e.enrolled_at,
-        e.grade
+        e.grade,
+        COALESCE(e.is_course_rep, FALSE) AS is_course_rep,
+        (
+          SELECT ROUND(AVG(qa.score), 1)
+          FROM quiz_attempts qa
+          JOIN quizzes q ON q.quiz_id = qa.quiz_id
+          WHERE qa.student_id = s.student_id
+            AND q.course_id = $1
+            AND qa.status = 'SUBMITTED'
+        ) AS ca_test_score
       FROM enrollments e
       JOIN students s ON s.student_id = e.student_id
       JOIN programmes p ON p.id = s.programme_id
@@ -261,6 +270,37 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
       semesterId: targetSemesterId,
       totalCount: students.length,
       students,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── 3b. Assign or Toggle Course Representative ──────────────────────────────
+router.post('/courses/:courseId/students/:studentId/assign-rep', async (req, res, next) => {
+  const { courseId, studentId } = req.params;
+  const { isRep } = req.body || {};
+
+  try {
+    // Add is_course_rep column dynamically if not exists
+    await pool.query('ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS is_course_rep BOOLEAN DEFAULT FALSE');
+
+    const updateRes = await pool.query(
+      `UPDATE enrollments
+       SET is_course_rep = $1, updated_at = NOW()
+       WHERE course_id = $2 AND student_id = $3
+       RETURNING enrollment_id, course_id, student_id, is_course_rep`,
+      [isRep !== undefined ? Boolean(isRep) : true, courseId, studentId]
+    );
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Student enrollment not found for this course', code: 'ENROLLMENT_NOT_FOUND' });
+    }
+
+    res.json({
+      success: true,
+      message: isRep ? 'Student designated as Course Representative' : 'Course Representative designation revoked',
+      enrollment: updateRes.rows[0],
     });
   } catch (err) {
     next(err);

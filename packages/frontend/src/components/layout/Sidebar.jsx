@@ -76,15 +76,7 @@ export const NAV_ITEMS = [
     badge: 'FOCIT',
     screenNumber: '8',
   },
-  {
-    name: 'Level Advisor Review',
-    to: '/advisor/registrations',
-    icon: ShieldCheck,
-    badge: 'Advisor',
-    screenNumber: '8A',
-    advisorOnly: true,
-  },
-  {
+    {
     name: 'Admin Portal',
     to: '/admin',
     icon: ShieldCheck,
@@ -248,14 +240,7 @@ export const Sidebar = ({
     ];
   } else if (isAdvisor) {
     navItems = [
-      {
-        name: 'Advisor Review',
-        to: '/advisor/registrations',
-        icon: ShieldCheck,
-        badge: 'Advisor',
-        screenNumber: '8A',
-      },
-      {
+            {
         name: 'Lecturer Workspace',
         to: '/lecturer',
         icon: BookOpen,

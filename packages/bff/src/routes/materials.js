@@ -458,4 +458,89 @@ router.get(
   }
 );
 
+// ─── 4. Lecturer Material Upload (PDF, PPTX, DOCX) ─────────────────────────────
+router.post(
+  '/courses/:courseId/upload',
+  async (req, res, next) => {
+    const { courseId } = req.params;
+    const { title, description, fileUrl, fileType, fileSize } = req.body || {};
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'Material title is required', code: 'INVALID_TITLE' });
+    }
+
+    try {
+      // Create materials table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS course_uploaded_materials (
+          id SERIAL PRIMARY KEY,
+          course_id VARCHAR(32) NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+          title VARCHAR(255) NOT NULL,
+          description TEXT,
+          file_url TEXT NOT NULL,
+          file_type VARCHAR(64) DEFAULT 'DOCUMENT',
+          file_size VARCHAR(32),
+          uploaded_by VARCHAR(64),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `);
+
+      const insertRes = await pool.query(
+        `INSERT INTO course_uploaded_materials (course_id, title, description, file_url, file_type, file_size, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [
+          courseId,
+          title.trim(),
+          description?.trim() || null,
+          fileUrl || `/mock-files/lecture_notes_${courseId}.pdf`,
+          fileType || 'PDF',
+          fileSize || '2.4 MB',
+          req.user?.username || 'lecturer1',
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Lecture material uploaded and dispatched to course stream',
+        material: insertRes.rows[0],
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── 5. Fetch Lecturer Uploaded Materials ──────────────────────────────────────
+router.get(
+  '/courses/:courseId/uploaded',
+  async (req, res, next) => {
+    const { courseId } = req.params;
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS course_uploaded_materials (
+          id SERIAL PRIMARY KEY,
+          course_id VARCHAR(32) NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+          title VARCHAR(255) NOT NULL,
+          description TEXT,
+          file_url TEXT NOT NULL,
+          file_type VARCHAR(64) DEFAULT 'DOCUMENT',
+          file_size VARCHAR(32),
+          uploaded_by VARCHAR(64),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `);
+
+      const { rows } = await pool.query(
+        `SELECT * FROM course_uploaded_materials WHERE course_id = $1 ORDER BY created_at DESC`,
+        [courseId]
+      );
+
+      res.json({ materials: rows });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export default router;

@@ -109,7 +109,17 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       'SELECT full_name FROM students WHERE student_id = $1 LIMIT 1',
       [studentId]
     );
-    const authorName = studentQuery.rows[0]?.full_name || 'John Doe';
+    let authorName = studentQuery.rows[0]?.full_name;
+    let authorRole = req.user?.role || 'STUDENT';
+
+    if (!authorName) {
+      const staffQuery = await pool.query(
+        'SELECT full_name, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 LIMIT 1',
+        [studentId]
+      );
+      authorName = staffQuery.rows[0]?.full_name || req.user?.name || 'Academic Staff';
+      authorRole = staffQuery.rows[0]?.role || req.user?.role || 'LECTURER';
+    }
 
     const insertResult = await pool.query(`
       INSERT INTO forum_threads (
@@ -122,9 +132,9 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         replies_count,
         last_post_at,
         created_at
-      ) VALUES ($1, $2, $3, 'STUDENT', $4, $5, 0, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, 0, NOW(), NOW())
       RETURNING *;
-    `, [courseId, studentId, authorName, title.trim(), body.trim()]);
+    `, [courseId, studentId, authorName, authorRole, title.trim(), body.trim()]);
 
     spamBucket.set(studentId, now);
 

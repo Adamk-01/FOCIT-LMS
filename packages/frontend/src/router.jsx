@@ -10,7 +10,6 @@ import { ForumPage } from './pages/ForumPage';
 import { QuestionBankPage } from './pages/QuestionBankPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
-import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
 import { StudentProfilePage } from './pages/StudentProfilePage';
 import { CoursesPage } from './pages/CoursesPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
@@ -35,10 +34,7 @@ function RootIndexRedirect() {
   }
   if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
   if (role === 'HOD') return <Navigate to="/hod" replace />;
-  if (role === 'LECTURER') return <Navigate to="/lecturer" replace />;
-  if (isStaffRole) {
-    return <Navigate to="/advisor/registrations" replace />;
-  }
+  if (isStaffRole) return <Navigate to="/lecturer" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -52,9 +48,8 @@ function RoleRouteGuard({ allowedRoles, fallbackPath, children }) {
     if (fallbackPath) return <Navigate to={fallbackPath} replace />;
     if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
     if (role === 'HOD') return <Navigate to="/hod" replace />;
-    if (role === 'LECTURER') return <Navigate to="/lecturer" replace />;
-    if (['LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF'].includes(role)) {
-      return <Navigate to="/advisor/registrations" replace />;
+    if (['LECTURER', 'LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF'].includes(role)) {
+      return <Navigate to="/lecturer" replace />;
     }
     if (role === 'STUDENT') return <Navigate to="/dashboard" replace />;
     return <Navigate to="/login" replace />;
@@ -128,15 +123,6 @@ export const router = createBrowserRouter([
       {
         path: 'registration',
         element: <RoleRouteGuard allowedRoles={['STUDENT']}><CourseRegistrationPage /></RoleRouteGuard>,
-        errorElement: <RouteErrorBoundary />,
-      },
-      {
-        path: 'advisor/registrations',
-        element: (
-          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER']}>
-            <LevelAdvisorDashboardPage />
-          </RoleRouteGuard>
-        ),
         errorElement: <RouteErrorBoundary />,
       },
       {

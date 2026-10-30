@@ -45,9 +45,13 @@ router.post('/login', async (req, res) => {
   }
 
   const candidateId = studentId.trim();
+  // Normalize candidate identifier for flexible matching (strip dashes, whitespace, normalize slashes)
+  const cleanedId = candidateId.replace(/\s+/g, '').toUpperCase();
+  const normalizedSlashId = cleanedId.replace(/-/g, '/');
+  const alphanumericOnly = cleanedId.replace(/[^A-Z0-9]/g, '');
 
   try {
-    // 1. Query Authoritative Student Identity
+    // 1. Query Authoritative Student Identity with flexible formats
     let user = null;
     const studentRes = await pool.query(
       `
@@ -66,17 +70,24 @@ router.post('/login', async (req, res) => {
       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
       WHERE s.student_id = $1 
          OR s.username = $1 
+         OR UPPER(s.username) = UPPER($1)
          OR s.matric_number = $1
          OR UPPER(s.matric_number) = UPPER($1)
-         OR UPPER(s.matric_number) = UPPER(CASE WHEN $1 LIKE 'FOCIT/%' THEN $1 ELSE 'FOCIT/' || $1 END)
+         OR UPPER(s.matric_number) = $2
+         OR UPPER(s.matric_number) = $3
+         OR UPPER(s.matric_number) = 'FOCIT/' || $3
+         OR UPPER(s.matric_number) = 'FOCIT/' || $1
+         OR UPPER(s.matric_number) = 'CSC/' || $3
+         OR UPPER(s.matric_number) = 'CSC/' || $1
+         OR REGEXP_REPLACE(UPPER(s.matric_number), '[^A-Z0-9]', '', 'g') = $4
       `,
-      [candidateId]
+      [candidateId, cleanedId, normalizedSlashId, alphanumericOnly]
     );
 
     if (studentRes.rows.length > 0) {
       user = studentRes.rows[0];
     } else {
-      // 2. Query Staff Advisors & Governance Officers
+      // 2. Query Staff Advisors & Governance Officers (flexible matching)
       const staffRes = await pool.query(
         `
         SELECT 
@@ -91,9 +102,15 @@ router.post('/login', async (req, res) => {
           COALESCE(must_change_password, FALSE) AS must_change_password,
           role
         FROM staff_advisors
-        WHERE advisor_id = $1 OR staff_number = $1 OR UPPER(staff_number) = UPPER($1) OR email = $1
+        WHERE advisor_id = $1 
+           OR UPPER(advisor_id) = UPPER($1)
+           OR staff_number = $1 
+           OR UPPER(staff_number) = UPPER($1) 
+           OR UPPER(staff_number) = $2
+           OR LOWER(email) = LOWER($1)
+           OR REGEXP_REPLACE(UPPER(staff_number), '[^A-Z0-9]', '', 'g') = $4
         `,
-        [candidateId]
+        [candidateId, cleanedId, normalizedSlashId, alphanumericOnly]
       );
 
       if (staffRes.rows.length > 0) {
