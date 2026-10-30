@@ -23,12 +23,12 @@ import { logger } from '../lib/logger.js';
 // Dynamically and safely load Neon serverless driver when available
 let NeonPool = pg.Pool;
 try {
-  const neonModule = await import('@neondatabase/serverless');
-  NeonPool = neonModule.Pool || neonModule.default?.Pool || pg.Pool;
   const wsModule = await import('ws');
+  const neonModule = await import('@neondatabase/serverless');
   if (neonModule.neonConfig) {
     neonModule.neonConfig.webSocketConstructor = wsModule.default || wsModule;
   }
+  NeonPool = neonModule.Pool || neonModule.default?.Pool || pg.Pool;
 } catch (_) {
   // Graceful fallback to native pg.Pool in non-Neon or offline environments
 }
