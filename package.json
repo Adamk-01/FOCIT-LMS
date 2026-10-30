@@ -1,8 +1,6 @@
 {
   "name": "focit-lms",
-  "version": "0.1.0",
   "private": true,
-  "description": "FOCIT LMS — Learning Materials Module with Headless Moodle",
   "workspaces": [
     "packages/bff",
     "packages/mock-moodle",
@@ -15,13 +13,10 @@
     "dev:frontend": "npm run dev -w packages/frontend",
     "dev:worker": "npm run dev:worker -w packages/bff",
     "worker": "npm run start:worker -w packages/bff",
+    "db:migrate": "npm run db:migrate -w packages/bff",
     "db:seed": "npm run db:seed -w packages/bff"
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "dependencies": {
-    "@neon/config": "^1.9.4",
-    "@neon/env": "^1.6.5"
   }
 }

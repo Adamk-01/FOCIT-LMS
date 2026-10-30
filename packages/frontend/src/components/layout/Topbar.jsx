@@ -17,8 +17,13 @@ import { apiClient } from '../../lib/api';
 import { useTheme } from '../../contexts/ThemeContext';
 
 const ROUTE_NAME_MAP = {
+  admin: 'Admin Portal',
+  users: 'User Directory',
+  outbox: 'Moodle Outbox Sync',
+  audit: 'Security Audit Ledger',
+  profile: 'Profile & Security',
   dashboard: 'Dashboard',
-  courses: 'My Courses',
+  courses: 'Course Catalog',
   materials: 'Learning Materials',
   quizzes: 'Quiz Assessment',
   grades: 'Gradebook',
@@ -27,7 +32,8 @@ const ROUTE_NAME_MAP = {
   timetable: 'Timetable & Calendar',
   assignments: 'Assignments',
   registration: 'Course Registration',
-  profile: 'Student Profile & Settings',
+  advisor: 'Advisor Portal',
+  registrations: 'Senate Review Queue',
   lecturer: 'Lecturer Portal',
   'question-bank': 'Question Bank & AI',
 };
@@ -67,14 +73,32 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';
   const studentLevel = profile?.level || user?.level || 200;
 
-  // Parse path segments to generate dynamic breadcrumbs without duplicate dashboard roots
-  const pathSegments = location.pathname.split('/').filter(Boolean).filter(s => s !== 'dashboard');
+  const role = String(user?.role || '').toUpperCase();
+  const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
+  const isLecturer = role === 'LECTURER';
+  const isAdvisor = ['LEVEL_ADVISOR', 'ADVISOR'].includes(role);
+  const isHod = ['HOD', 'DEAN'].includes(role);
+
+  const rootCrumb = isAdmin
+    ? { id: 'root-portal', name: 'Admin Portal', path: '/admin' }
+    : isLecturer
+    ? { id: 'root-portal', name: 'Lecturer Workspace', path: '/lecturer' }
+    : isAdvisor
+    ? { id: 'root-portal', name: 'Advisor Portal', path: '/advisor/registrations' }
+    : { id: 'root-portal', name: 'Portal', path: '/dashboard' };
+
+  // For admin routes like /admin/users, skip repeating the root "admin" segment in breadcrumbs
+  const pathSegments = location.pathname
+    .split('/')
+    .filter(Boolean)
+    .filter((s, idx) => !(idx === 0 && (s === 'admin' || s === 'dashboard' || s === 'advisor' || s === 'lecturer' || s === 'hod')));
+
   const breadcrumbs = [
-    { id: 'root-portal', name: 'Portal', path: '/dashboard' },
+    rootCrumb,
     ...pathSegments.map((segment, index) => {
-      const url = `/${pathSegments.slice(0, index + 1).join('/')}`;
+      const fullSubPath = location.pathname.split('/').slice(0, index + 2).join('/');
       const displayName = ROUTE_NAME_MAP[segment] || (segment === '1' ? 'CSC 204' : segment);
-      return { id: `${segment}-${index}`, name: displayName, path: url };
+      return { id: `${segment}-${index}`, name: displayName, path: fullSubPath };
     }),
   ];
 
@@ -190,18 +214,18 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
           ))}
         </button>
 
-        {/* Student Profile Chip (matching template header) */}
+        {/* Identity & Profile Chip */}
         <Link 
-          to="/profile" 
-          aria-label="View Student Profile & Settings"
+          to={isAdmin ? '/admin/profile' : isAdvisor ? '/advisor/registrations' : '/profile'} 
+          aria-label={isAdmin ? 'View Admin Profile' : isAdvisor ? 'View Advisor Review' : isLecturer ? 'View Lecturer Profile' : 'View Student Profile & Settings'}
           className="flex items-center gap-3 pl-2 sm:pl-3 border-l border-gray-200 dark:border-slate-800 group hover:opacity-90 transition-opacity"
         >
           <div className="hidden lg:flex flex-col text-right">
             <span className="text-xs font-bold text-[#0a1142] dark:text-slate-100 group-hover:text-[#16258f] dark:group-hover:text-[#ffb81c] leading-tight transition-colors">
-              Welcome, {studentFirstName}
+              Welcome, {isAdmin || isLecturer || isAdvisor ? (user?.username || 'User') : studentFirstName}
             </span>
             <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium leading-tight">
-              {programmeName} • Level {studentLevel}
+              {isAdmin ? 'Faculty Administration • System Control Plane' : isLecturer ? 'Academic Staff • Lecturer' : isAdvisor ? 'Academic Staff • Faculty Registry' : `${programmeName} • Level ${studentLevel}`}
             </span>
           </div>
 

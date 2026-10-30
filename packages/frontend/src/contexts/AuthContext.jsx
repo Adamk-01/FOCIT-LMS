@@ -37,7 +37,7 @@ function getInitialAuthState() {
     }
 
     // Both the shadow credentials AND the ephemeral nonce must exist
-    const sessionNonce = sessionStorage.getItem('session_nonce');
+    const sessionNonce = sessionStorage.getItem('session_nonce') || localStorage.getItem('session_nonce');
     const shadowStr = sessionStorage.getItem('shadow_auth') || localStorage.getItem('shadow_auth');
 
     if (!sessionNonce || !shadowStr) {
@@ -116,6 +116,8 @@ export const AuthProvider = ({ children }) => {
               if (!prev.user) return prev;
               const updated = {
                 ...prev.user,
+                scope: res.data?.user?.scope || prev.user?.scope,
+                mustChangePassword: res.data?.user?.mustChangePassword ?? prev.user?.mustChangePassword,
                 skewDeltaSec: sync.skewDeltaSec,
                 rttMs: sync.rttMs,
                 uncertaintyMs: sync.uncertaintyMs,
@@ -185,6 +187,8 @@ export const AuthProvider = ({ children }) => {
 
     const shadowPayload = {
       ...(data.user || {}),
+      scope: data.scope,
+      mustChangePassword: data.mustChangePassword,
       exp: data.exp || effectiveServerEpoch + 3600,
       skewDeltaSec: sync.skewDeltaSec,
       rttMs: sync.rttMs,
@@ -195,6 +199,7 @@ export const AuthProvider = ({ children }) => {
     // Store ephemeral nonce in sessionStorage (never written to cookies)
     if (data.sessionNonce) {
       sessionStorage.setItem('session_nonce', data.sessionNonce);
+      localStorage.setItem('session_nonce', data.sessionNonce);
     }
     sessionStorage.setItem('shadow_auth', JSON.stringify(shadowPayload));
 
@@ -220,6 +225,7 @@ export const AuthProvider = ({ children }) => {
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('session_nonce');
       sessionStorage.removeItem('shadow_auth');
+      localStorage.removeItem('session_nonce');
       localStorage.removeItem('shadow_auth');
     }
 

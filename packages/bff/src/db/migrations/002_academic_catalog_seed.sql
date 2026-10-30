@@ -107,6 +107,15 @@ CREATE TABLE IF NOT EXISTS enrollments (
     CONSTRAINT uq_student_course_semester UNIQUE (student_id, course_id, semester_id)
 );
 
+ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS course_code VARCHAR(16);
+
+-- Backfill course_code for existing enrollment rows from authoritative courses catalog
+UPDATE enrollments e
+SET course_code = c.code
+FROM courses c
+WHERE e.course_id = c.course_id
+  AND e.course_code IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_enrollments_student 
 ON enrollments (student_id, semester_id);
 

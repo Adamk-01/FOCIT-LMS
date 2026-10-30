@@ -15,7 +15,6 @@ export const LoginPage = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // Derive session timeout error directly during render to prevent cascading renders
   const sessionTimeoutError = searchParams.get('reason') === 'session_timeout' ? {
     code: 'UPSTREAM_EXPIRED',
     title: 'Session Expired',
@@ -25,15 +24,12 @@ export const LoginPage = () => {
   } : null;
 
   const displayError = authError || sessionTimeoutError;
-
   const isSubmittingRef = useRef(false);
   const activeAbortRef = useRef(null);
 
-  useEffect(() => {
-    return () => {
-      activeAbortRef.current?.abort();
-      activeAbortRef.current = null;
-    };
+  useEffect(() => () => {
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = null;
   }, []);
 
   const handleSubmit = async (e) => {
@@ -66,8 +62,24 @@ export const LoginPage = () => {
     activeAbortRef.current = controller;
 
     try {
-      await login({ studentId: trimmedId, password }, { signal: controller.signal });
-      const destination = location.state?.from?.pathname || '/dashboard';
+      const shadowUser = await login({ studentId: trimmedId, password }, { signal: controller.signal });
+      const userRole = String(shadowUser?.role || '').toUpperCase();
+      const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole);
+      let destination = '/dashboard';
+      if (shadowUser?.mustChangePassword || shadowUser?.scope === 'RESET_ONLY') {
+        destination = isStaffRole ? '/admin/profile' : '/profile?tab=security';
+      } else if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+        destination = '/admin';
+      } else if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole)) {
+        destination = '/advisor/registrations';
+      }
+
+      const redirectPath = location.state?.from?.pathname;
+      if (redirectPath && redirectPath !== '/login' && !shadowUser?.mustChangePassword && shadowUser?.scope !== 'RESET_ONLY') {
+        if (!['ADMIN', 'SYSTEM_ADMIN'].includes(userRole) || redirectPath !== '/dashboard') {
+          destination = redirectPath;
+        }
+      }
       navigate(destination, { replace: true });
     } catch (err) {
       if (controller.signal.aborted && err?.name === 'AbortError') return;
@@ -107,7 +119,7 @@ export const LoginPage = () => {
 
             <form className="space-y-5" onSubmit={handleSubmit} noValidate>
               <fieldset disabled={isAuthenticating} className="space-y-4">
-                <legend className="sr-only">Student Login Credentials</legend>
+                <legend className="sr-only">University Portal Credentials</legend>
                 <div>
                   <label htmlFor="studentId" className="block text-xs sm:text-sm font-bold text-gray-800 dark:text-slate-200 mb-1 font-sans">
                     Student ID / Matric Number
@@ -133,16 +145,8 @@ export const LoginPage = () => {
                     Password
                   </label>
                   <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (authError) setAuthError(null);
-                    }}
+                    id="password" name="password" type="password" required autoComplete="current-password"
+                    value={password} onChange={(e) => { setPassword(e.target.value); if (authError) setAuthError(null); }}
                     placeholder="••••••••••••"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:border-[#0a1142] dark:focus:border-[#ffb81c] text-sm font-sans transition-all"
                   />
@@ -150,9 +154,7 @@ export const LoginPage = () => {
 
                 <div className="pt-2">
                   <button
-                    type="submit"
-                    disabled={isAuthenticating}
-                    aria-busy={isAuthenticating}
+                    type="submit" disabled={isAuthenticating} aria-busy={isAuthenticating}
                     className="w-full flex justify-center items-center min-h-[44px] min-w-[44px] py-2.5 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-[#0a1142] bg-[#ffb81c] hover:bg-[#e5a619] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0a1142] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {isAuthenticating ? (
@@ -160,9 +162,7 @@ export const LoginPage = () => {
                         <span className="w-4 h-4 border-2 border-[#0a1142]/30 border-t-[#0a1142] rounded-full animate-spin" aria-hidden="true" />
                         <span>Authenticating...</span>
                       </span>
-                    ) : (
-                      'Sign In to Academic Portal'
-                    )}
+                    ) : 'Sign In to Academic Portal'}
                   </button>
                 </div>
               </fieldset>

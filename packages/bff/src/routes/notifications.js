@@ -15,6 +15,7 @@ import IORedis from 'ioredis';
 import { pool } from '../db/index.js';
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
+import { notificationBroadcaster } from '../services/notificationBroadcaster.js';
 
 const router = express.Router();
 
@@ -26,16 +27,20 @@ const router = express.Router();
 export const activeStudentSockets = new Map();
 
 const redisSubscriber = new IORedis(config.redis.url, {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: 1,
   lazyConnect: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
   retryStrategy: (times) => (times > 3 ? null : Math.min(times * 100, 2000)),
 });
 
 const redisPublisher = new IORedis(config.redis.url, {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: 1,
   lazyConnect: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true,
   retryStrategy: (times) => (times > 3 ? null : Math.min(times * 100, 2000)),
 });
 
@@ -70,6 +75,16 @@ redisSubscriber.on('message', (channel, message) => {
       if (sockets && sockets.size > 0) {
         const sseChunk = `id: ${payload.sequence_id}\ndata: ${JSON.stringify(payload)}\n\n`;
         for (const res of sockets) {
+          const notifKey = String(payload.sequence_id || payload.id || '');
+          if (notifKey) {
+            if (!res._deliveredNotifs) res._deliveredNotifs = new Set();
+            if (res._deliveredNotifs.has(notifKey)) continue; // Deliver each notification once per SSE socket
+            res._deliveredNotifs.add(notifKey);
+            if (res._deliveredNotifs.size > 200) {
+              const oldest = res._deliveredNotifs.values().next().value;
+              res._deliveredNotifs.delete(oldest);
+            }
+          }
           try {
             res.write(sseChunk);
           } catch (writeErr) {
@@ -126,15 +141,20 @@ export async function createStudentNotification({
 
     const createdRecord = insertResult.rows[0];
 
+    // 3. Post-Commit Emission via PostgreSQL LISTEN / NOTIFY & Redis
+    // Only broadcast if transaction is dedicated and committed; keep external transactions behind commit
     if (isDedicatedTransaction) {
       await client.query('COMMIT');
-    }
-
-    // 3. Post-Commit Redis Emission Barrier (Guarantees ACID Visibility to Readers)
-    try {
-      await redisPublisher.publish('student_notifications', JSON.stringify(createdRecord));
-    } catch (redisErr) {
-      logger.warn({ err: redisErr.message }, '[Notification] Redis broadcast failed, durable record persists in PostgreSQL');
+      try {
+        await notificationBroadcaster.broadcast(createdRecord);
+      } catch (notifErr) {
+        logger.warn({ err: notifErr?.message }, '[Notification] Postgres notification broadcast failed');
+      }
+      try {
+        await redisPublisher.publish('student_notifications', JSON.stringify(createdRecord));
+      } catch (redisErr) {
+        logger.warn({ err: redisErr.message }, '[Notification] Redis broadcast failed, durable record persists in PostgreSQL');
+      }
     }
 
     return createdRecord;
@@ -196,6 +216,12 @@ router.get('/stream', async (req, res) => {
       `, [studentId, lastSeq.toString()]);
 
       for (const event of missedEvents) {
+        const notifKey = String(event.sequence_id || event.id || '');
+        if (notifKey) {
+          if (!res._deliveredNotifs) res._deliveredNotifs = new Set();
+          if (res._deliveredNotifs.has(notifKey)) continue; // Delivered-key check applied to catch-up path
+          res._deliveredNotifs.add(notifKey);
+        }
         res.write(`id: ${event.sequence_id}\n`);
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }

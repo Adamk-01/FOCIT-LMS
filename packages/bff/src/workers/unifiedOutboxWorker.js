@@ -17,6 +17,7 @@ import { logger } from '../lib/logger.js';
 import { createMoodleUser, getMoodleUserByField } from '../integrations/moodle/moodle.users.js';
 import { enrolUserInCourse } from '../integrations/moodle/moodle.enrolments.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
+import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js';
 
 const BATCH_SIZE = 20;
 const LEASE_DURATION_SECONDS = 30;
@@ -141,8 +142,21 @@ export class UnifiedOutboxWorker {
     try {
       switch (event_type) {
         case 'USER_PROVISION_REQUESTED': {
+          const studentId = payload.student_id || aggregate_id;
+
+          // Guard against orphaned events where the student record was deleted from FOCIT
+          const studentCheck = await pool.query(
+            `SELECT student_id FROM students WHERE student_id = $1`,
+            [studentId]
+          );
+          if (studentCheck.rows.length === 0) {
+            const orphanError = new Error(`Student ${studentId} does not exist in FOCIT database (orphaned event)`);
+            orphanError.isRetryable = false;
+            throw orphanError;
+          }
+
           const { matric_number, full_name, email } = payload;
-          const canonicalUsername = (matric_number || aggregate_id).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
+          const canonicalUsername = (matric_number || studentId).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
           
           let moodleUserId;
           const existingUser = await getMoodleUserByField('username', canonicalUsername);
@@ -157,6 +171,12 @@ export class UnifiedOutboxWorker {
               email: email || `${canonicalUsername}@focit.uniosun.edu.ng`,
             });
           }
+
+          // Guard: If moodleUserId was previously mapped to a stale/different FOCIT identity, purge the obsolete mapping
+          await pool.query(
+            `DELETE FROM moodle_user_mappings WHERE moodle_user_id = $1 AND focit_user_id != $2`,
+            [moodleUserId, aggregate_id]
+          );
 
           // Persist mapping
           await pool.query(`
@@ -225,6 +245,62 @@ export class UnifiedOutboxWorker {
           if (userid) query.userid = userid;
 
           await callMoodleAPI('core_completion_override_activity_completion_status', query, 'POST');
+          break;
+        }
+
+        case 'UPDATE_USER_PROFILE': {
+          const studentId = payload.student_id || aggregate_id;
+          const userMapRes = await pool.query(
+            `SELECT moodle_user_id FROM moodle_user_mappings WHERE focit_user_id = $1`,
+            [studentId]
+          );
+          if (userMapRes.rows.length > 0) {
+            const moodleUserId = userMapRes.rows[0].moodle_user_id;
+            const updatePayload = {
+              users: [
+                {
+                  id: moodleUserId,
+                  email: payload.email,
+                  description: payload.description,
+                  phone1: payload.phone1,
+                },
+              ],
+            };
+            try {
+              await callMoodleAPI('core_user_update_users', updatePayload, 'POST');
+            } catch (err) {
+              logger.warn({ studentId, moodleUserId, err: err?.message }, '[UnifiedOutbox] Moodle profile update warning');
+            }
+          }
+          break;
+        }
+
+        case 'MOODLE_QUIZ_SYNC':
+        case 'MOODLE_QUESTION_SYNC': {
+          let quizId = payload?.quizId || payload?.quiz_id;
+          if (!quizId && ev.aggregate_type === 'QUIZ') {
+            quizId = aggregate_id;
+          }
+          if (!quizId) {
+            // Authoritative fallback: Look up parent quiz_id from quiz_questions table
+            const questionIdentifier = payload?.questionId || payload?.question_id || (ev.aggregate_type === 'QUESTION' ? aggregate_id : null);
+            if (questionIdentifier) {
+              const qLookup = await pool.query(
+                `SELECT quiz_id FROM quiz_questions WHERE question_id = $1 LIMIT 1`,
+                [questionIdentifier]
+              );
+              if (qLookup.rows[0]?.quiz_id) {
+                quizId = qLookup.rows[0].quiz_id;
+              }
+            }
+          }
+
+          if (!quizId) {
+            const err = new Error(`Cannot sync Moodle quiz: missing quizId in payload for event ${event_id}`);
+            err.isRetryable = false;
+            throw err;
+          }
+          await syncFocitQuizToMoodle(quizId);
           break;
         }
 

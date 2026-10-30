@@ -146,6 +146,7 @@ describe('Admin Controller Governance & Security Guards', () => {
     assert.strictEqual(res.body.data.mustChangePassword, true, 'Must enforce mustChangePassword = true');
 
     // Clean up created student from DB to keep test idempotent
+    await pool.query('DELETE FROM integration_outbox_events WHERE aggregate_id = $1', [res.body.data.user.id]);
     await pool.query('DELETE FROM student_profiles WHERE student_id = $1', [res.body.data.user.id]);
     await pool.query('DELETE FROM students WHERE student_id = $1', [res.body.data.user.id]);
   });

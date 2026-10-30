@@ -6,7 +6,7 @@ services:
     region: frankfurt # Co-located with Neon AWS eu-central-1 (<2ms RTT)
     plan: starter
     buildCommand: npm install
-    startCommand: npm run start -w packages/bff
+    startCommand: npm run db:migrate -w packages/bff && npm run start -w packages/bff
     envVars:
       - key: NODE_ENV
         value: production

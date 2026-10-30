@@ -47,6 +47,8 @@ ui_template.jpeg
 # Uploaded files and staging buffers
 packages/bff/uploads/
 uploads/
+**/uploads/
+*.pdf
 
 # Postman
 .postman/

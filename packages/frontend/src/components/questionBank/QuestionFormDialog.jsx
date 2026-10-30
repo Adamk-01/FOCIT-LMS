@@ -31,6 +31,30 @@ export function QuestionFormDialog({
     { id: 'opt_d', text: '' },
   ]);
 
+  const handleTypeChange = (newType) => {
+    setFormType(newType);
+    if (newType === 'TRUE_FALSE') {
+      setFormOptions([
+        { id: 'opt_true', text: 'True' },
+        { id: 'opt_false', text: 'False' },
+      ]);
+      setFormCorrectOption('opt_true');
+    } else if (newType === 'SHORT_ANSWER') {
+      setFormOptions([
+        { id: 'opt_answer', text: '' },
+      ]);
+      setFormCorrectOption('opt_answer');
+    } else {
+      setFormOptions([
+        { id: 'opt_a', text: '' },
+        { id: 'opt_b', text: '' },
+        { id: 'opt_c', text: '' },
+        { id: 'opt_d', text: '' },
+      ]);
+      setFormCorrectOption('opt_a');
+    }
+  };
+
   const handleOptionChange = (optId, text) => {
     setFormOptions((prev) =>
       prev.map((opt) => (opt.id === optId ? { ...opt, text } : opt))
@@ -86,8 +110,8 @@ export function QuestionFormDialog({
             <select
               id="question-type-select"
               value={formType}
-              onChange={(e) => setFormType(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-gray-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 min-h-[44px]"
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#0a1142] min-h-[44px]"
             >
               <option value="MULTIPLE_CHOICE">Multiple Choice</option>
               <option value="TRUE_FALSE">True / False</option>
@@ -133,7 +157,7 @@ export function QuestionFormDialog({
             id="question-text-input"
             required
             rows={3}
-            placeholder="Enter the examination prompt (e.g. In a Min-Heap with N elements, what is the asymptotic runtime to extract min?)..."
+            placeholder="Enter the practice question prompt (e.g. In a Min-Heap with N elements, what is the asymptotic runtime to extract min?)..."
             value={formPrompt}
             onChange={(e) => setFormPrompt(e.target.value)}
             className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 font-medium focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 resize-none"
@@ -142,49 +166,100 @@ export function QuestionFormDialog({
 
         {/* Dynamic Option Authoring with Radial Correct Answer Binder */}
         <div className="space-y-3 pt-2">
-          <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider">
-            Options & Correct Answer Selection (Radial Selector Binds Key)
+          <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+            {formType === 'SHORT_ANSWER'
+              ? 'Expected Canonical Answer'
+              : formType === 'TRUE_FALSE'
+              ? 'Correct Boolean Assertion'
+              : 'Options & Correct Answer Selection (Radial Selector Binds Key)'}
           </label>
 
-          <div className="space-y-2.5">
-            {formOptions.map((opt, idx) => (
-              <div 
-                key={opt.id}
-                className={`
-                  flex items-center gap-3 p-3 rounded-xl border-2 transition-all
-                  ${formCorrectOption === opt.id 
-                    ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/30 dark:border-emerald-700 shadow-sm' 
-                    : 'border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/40'}
-                `}
-              >
-                <input
-                  type="radio"
-                  name="correct_option_selector"
-                  id={`correct-option-radio-${idx}`}
-                  checked={formCorrectOption === opt.id}
-                  onChange={() => setFormCorrectOption(opt.id)}
-                  className="w-5 h-5 text-emerald-600 focus:ring-emerald-500 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-                />
-                <label htmlFor={`correct-option-radio-${idx}`} className="text-xs font-extrabold uppercase text-[#0a1142] dark:text-[#ffb81c] w-6 shrink-0 cursor-pointer">
-                  {opt.id.replace('opt_', '')}.
+          {formType === 'SHORT_ANSWER' ? (
+            <div className="p-4 rounded-xl border-2 border-emerald-500 bg-emerald-50/30 space-y-2">
+              <label htmlFor="option-input-0" className="text-xs font-bold text-emerald-900 block">
+                Model / Accepted Key Response:
+              </label>
+              <input
+                id="option-input-0"
+                type="text"
+                required
+                placeholder="Enter the canonical expected answer (e.g. O(N log N))..."
+                value={formOptions[0]?.text || ''}
+                onChange={(e) => handleOptionChange('opt_answer', e.target.value)}
+                className="w-full bg-white border border-gray-300 px-3 py-2.5 rounded-lg text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
+              />
+            </div>
+          ) : formType === 'TRUE_FALSE' ? (
+            <div className="grid grid-cols-2 gap-4">
+              {formOptions.map((opt, idx) => (
+                <label
+                  key={opt.id}
+                  htmlFor={`correct-option-radio-${idx}`}
+                  className={`
+                    flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all
+                    ${formCorrectOption === opt.id
+                      ? 'border-emerald-500 bg-emerald-50/50 shadow-sm'
+                      : 'border-gray-200 bg-gray-50/50 hover:bg-gray-100/60'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="correct_option_selector"
+                    id={`correct-option-radio-${idx}`}
+                    checked={formCorrectOption === opt.id}
+                    onChange={() => setFormCorrectOption(opt.id)}
+                    className="w-5 h-5 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span className="text-sm font-bold text-gray-900">{opt.text}</span>
+                  {formCorrectOption === opt.id && (
+                    <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                      <CheckCircle2 size={12} /> Correct
+                    </span>
+                  )}
                 </label>
-                <input
-                  id={`option-input-${idx}`}
-                  type="text"
-                  required
-                  placeholder={`Enter text for option ${opt.id.replace('opt_', '').toUpperCase()}...`}
-                  value={opt.text}
-                  onChange={(e) => handleOptionChange(opt.id, e.target.value)}
-                  className="flex-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-3 py-2 rounded-lg text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 font-medium focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-indigo-500 min-h-[44px]"
-                />
-                {formCorrectOption === opt.id && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-1 rounded-full shrink-0">
-                    <CheckCircle2 size={12} /> Correct
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {formOptions.map((opt, idx) => (
+                <div 
+                  key={opt.id}
+                  className={`
+                    flex items-center gap-3 p-3 rounded-xl border-2 transition-all
+                    ${formCorrectOption === opt.id 
+                      ? 'border-emerald-500 bg-emerald-50/40 shadow-sm' 
+                      : 'border-gray-200 bg-gray-50/50'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="correct_option_selector"
+                    id={`correct-option-radio-${idx}`}
+                    checked={formCorrectOption === opt.id}
+                    onChange={() => setFormCorrectOption(opt.id)}
+                    className="w-5 h-5 text-emerald-600 focus:ring-emerald-500 cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  />
+                  <label htmlFor={`correct-option-radio-${idx}`} className="text-xs font-extrabold uppercase text-[#0a1142] w-6 shrink-0 cursor-pointer">
+                    {opt.id.replace('opt_', '')}.
+                  </label>
+                  <input
+                    id={`option-input-${idx}`}
+                    type="text"
+                    required
+                    placeholder={`Enter text for option ${opt.id.replace('opt_', '').toUpperCase()}...`}
+                    value={opt.text}
+                    onChange={(e) => handleOptionChange(opt.id, e.target.value)}
+                    className="flex-1 bg-white border border-gray-200 px-3 py-2 rounded-lg text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0a1142] min-h-[44px]"
+                  />
+                  {formCorrectOption === opt.id && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full shrink-0">
+                      <CheckCircle2 size={12} /> Correct
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-slate-800">

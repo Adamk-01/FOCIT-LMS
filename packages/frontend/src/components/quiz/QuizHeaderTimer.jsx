@@ -52,9 +52,9 @@ export function QuizHeaderTimer({
       <header className="bg-gradient-to-r from-[#0a1142] via-[#0d1656] to-[#0a1142] rounded-2xl p-6 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-white/10">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#ffb81c]/20 text-[#ffb81c] border border-[#ffb81c]/30">
-            <span>OFFICIAL EXAMINATION</span>
+            <span>TOPIC PRACTICE & REVISION</span>
             <span>•</span>
-            <span>TIMED ASSESSMENT</span>
+            <span>SELF-STUDY DRILL</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight font-display text-white">
             {courseCode}: {quizTitle}

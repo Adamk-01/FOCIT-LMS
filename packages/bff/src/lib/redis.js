@@ -9,7 +9,9 @@ import IORedis from 'ioredis';
 import config from '../config.js';
 import { logger } from './logger.js';
 
-export const redis = new IORedis(config.redis.url, {
+export const defaultRedisOptions = {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
   lazyConnect: process.env.NODE_ENV === 'test',
@@ -22,7 +24,9 @@ export const redis = new IORedis(config.redis.url, {
     logger.warn({ attempt: times, delayMs: delay }, '[Redis] Reconnecting to cluster...');
     return delay;
   },
-});
+};
+
+export const redis = new IORedis(config.redis.url, defaultRedisOptions);
 
 redis.on('error', (err) => {
   logger.error({ err: err?.message || err }, '[Redis] Connection failure detected');

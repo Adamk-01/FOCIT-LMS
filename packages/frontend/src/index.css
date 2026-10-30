@@ -93,6 +93,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .dark {
@@ -166,4 +167,120 @@ dialog::backdrop {
 }
 .font-heading {
   font-family: var(--font-heading);
+}
+
+/* 4. Dark Mode Palette & System Overrides */
+html.dark, [data-theme="dark"] {
+  color-scheme: dark;
+  --color-surface: #10192e;
+  --color-surface-alt: #0a0f1d;
+  --color-surface-elevated: #162038;
+  --color-border: #1e293b;
+  --color-border-light: #243048;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+}
+
+html.dark body, [data-theme="dark"] body {
+  background-color: #0a0f1d;
+  color: #f8fafc;
+}
+
+html.dark .bg-white,
+[data-theme="dark"] .bg-white {
+  background-color: #111b2e !important;
+  color: #f1f5f9;
+}
+
+html.dark .bg-slate-50,
+[data-theme="dark"] .bg-slate-50 {
+  background-color: #0c1322 !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-gray-50\/50,
+html.dark .bg-gray-50\/80,
+[data-theme="dark"] .bg-gray-50,
+[data-theme="dark"] .bg-gray-50\/50,
+[data-theme="dark"] .bg-gray-50\/80 {
+  background-color: #0f172a !important;
+}
+
+html.dark .text-\[\#0a1142\],
+[data-theme="dark"] .text-\[\#0a1142\],
+html.dark .text-slate-900,
+[data-theme="dark"] .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+[data-theme="dark"] .text-slate-800,
+[data-theme="dark"] .text-gray-900,
+[data-theme="dark"] .text-gray-800 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-gray-700,
+html.dark .text-gray-600,
+[data-theme="dark"] .text-slate-700,
+[data-theme="dark"] .text-gray-700,
+[data-theme="dark"] .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-gray-500,
+[data-theme="dark"] .text-slate-500,
+[data-theme="dark"] .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark .border-gray-200\/80,
+[data-theme="dark"] .border-slate-100,
+[data-theme="dark"] .border-slate-200,
+[data-theme="dark"] .border-gray-100,
+[data-theme="dark"] .border-gray-200,
+[data-theme="dark"] .border-gray-200\/80 {
+  border-color: #1e293b !important;
+}
+
+html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-gray-50 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+[data-theme="dark"] .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+[data-theme="dark"] .divide-gray-50 > :not([hidden]) ~ :not([hidden]),
+[data-theme="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1e293b !important;
+}
+
+html.dark select,
+html.dark input[type="text"],
+html.dark input[type="email"],
+html.dark input[type="tel"],
+html.dark textarea,
+[data-theme="dark"] select,
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="tel"],
+[data-theme="dark"] textarea {
+  background-color: #162038 !important;
+  color: #f8fafc !important;
+  border-color: #243048 !important;
+}
+
+/* 5. Compact Table Density (Gradebook & Registry Ledger) */
+html.compact-tables table th,
+html.compact-tables table td,
+[data-compact-tables="true"] table th,
+[data-compact-tables="true"] table td {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  padding-left: 0.65rem !important;
+  padding-right: 0.65rem !important;
+  font-size: 0.75rem !important;
 }

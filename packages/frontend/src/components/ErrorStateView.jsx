@@ -1,19 +1,13 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, RefreshCw, Home, ShieldAlert } from 'lucide-react';
 import { resolveRemediation } from '../lib/userFriendlyMessages.js';
 
 /**
  * <ErrorStateView />
- *
  * Full Scrollport Replacement Primitive (Phase 4 Zero-Trust UI Primitive 5.2)
- *
- * Implements:
- * 1. Non-destructive React Query cache eviction (predicate-filtered reset)
- * 2. Elimination of brute-force window.location.reload()
- * 3. OWASP API8 redaction with IT support correlation token display
- * 4. WCAG 44x44px touch targets on all interactive recovery controls
+ * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
 export function ErrorStateView({
   error,
@@ -24,7 +18,6 @@ export function ErrorStateView({
   className = '',
 }) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [isRetrying, setIsRetrying] = useState(false);
 
   const remediation = resolveRemediation(error);
@@ -42,7 +35,6 @@ export function ErrorStateView({
       } else if (queryKey) {
         await queryClient.refetchQueries({ queryKey, exact: true });
       } else {
-        // Scoped strictly to failed queries to prevent nuclear cache blast radius
         await queryClient.resetQueries({
           predicate: (query) => query.state.status === 'error',
         });
@@ -71,7 +63,6 @@ export function ErrorStateView({
           )}
         </div>
 
-        {/* Informational Hierarchy */}
         <div className="space-y-2">
           <h2 className="text-xl sm:text-2xl font-black text-[#0a1142] dark:text-[#ffb81c] font-display tracking-tight">
             {title}
@@ -81,7 +72,6 @@ export function ErrorStateView({
           </p>
         </div>
 
-        {/* Institutional Remediation Guidance */}
         {remediation.remediation && (
           <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-3.5 text-xs text-slate-700 dark:text-slate-300 text-left font-sans leading-relaxed">
             <span className="font-bold text-[#0a1142] dark:text-[#ffd060] block mb-1 uppercase tracking-wider text-[10px]">
@@ -91,7 +81,6 @@ export function ErrorStateView({
           </div>
         )}
 
-        {/* Technical Reference (Redacted, Zero-Leakage Correlation Token) */}
         {correlationId && (
           <div className="pt-1 flex items-center justify-center gap-2">
             <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-gray-200/60 dark:border-slate-700 font-semibold select-all">
@@ -100,17 +89,26 @@ export function ErrorStateView({
           </div>
         )}
 
-        {/* Interactive Controls (WCAG 44x44px Touch-Target Standard) */}
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={isRetrying}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[44px] min-w-[44px] px-5 py-2.5 bg-[#0a1142] hover:bg-[#16258f] dark:bg-[#ffb81c] dark:hover:bg-[#e5a200] dark:text-[#0a1142] disabled:bg-gray-400 text-white text-xs font-bold rounded-xl shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0a1142]"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} aria-hidden="true" />
-            <span>{isRetrying ? 'Reconnecting...' : 'Retry Connection'}</span>
-          </button>
+
+          {remediation.recoveryAction?.type === 'NAVIGATE' ? (
+            <Link
+              to={remediation.recoveryAction.target}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[44px] min-w-[44px] px-5 py-2.5 bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold rounded-xl shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0a1142]"
+            >
+              <span>{remediation.recoveryAction.label || 'Update Password'}</span>
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isRetrying}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 min-h-[44px] min-w-[44px] px-5 py-2.5 bg-[#0a1142] hover:bg-[#16258f] disabled:bg-gray-400 text-white text-xs font-bold rounded-xl shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0a1142]"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span>{isRetrying ? 'Reconnecting...' : 'Retry Connection'}</span>
+            </button>
+          )}
 
           <Link
             to="/dashboard"

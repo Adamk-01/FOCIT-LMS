@@ -12,6 +12,17 @@
  * 8. Global error handler (must be last)
  */
 
+import dns from 'node:dns';
+import net from 'node:net';
+
+// Ensure IPv4 resolution takes priority and disable Happy Eyeballs IPv6 stalls in Docker
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+if (typeof net.setDefaultAutoSelectFamily === 'function') {
+  net.setDefaultAutoSelectFamily(false);
+}
+
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -34,6 +45,9 @@ import forumsRouter from './routes/forums.js';
 import questionBankRouter from './routes/questionBank.js';
 import profileRouter from './routes/profile.js';
 import adminRouter from './routes/admin.js';
+import hodRouter from './routes/hod.js';
+import lecturerRouter from './routes/lecturer.js';
+import attendanceRouter from './routes/attendance.js';
 import notificationsRouter from './routes/notifications.js';
 import assignmentsRouter from './routes/assignments.js';
 import studentCoursesRouter from './routes/studentCourses.js';
@@ -68,7 +82,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+    const isAppVercelOrigin = typeof origin === 'string' && /^https:\/\/focit(-[a-z0-9-]+)?\.vercel\.app$/.test(origin);
+    if (!origin || allowedOrigins.includes(origin) || isAppVercelOrigin) {
       return callback(null, true);
     }
     return callback(new Error(`CORS blocked for origin: ${origin}`));
@@ -92,14 +107,16 @@ app.use(cors({
     'X-RateLimit-Remaining',
     'X-RateLimit-Reset',
     'Retry-After',
+    'X-Session-Nonce-Sync',
   ],
 }));
 
 // ─── 2. Cookie Parser ────────────────────────────────────────
 app.use(cookieParser());
 
-// ─── 3. JSON Body Parser ─────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
+// ─── 3. JSON & URL-Encoded Body Parsers (2MB ingress limit) ───
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // ─── 4. Health Check (before auth — LB probes don't have JWTs) ──
 app.use('/health', healthRouter);
@@ -133,6 +150,9 @@ app.use('/api/student', profileRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/library', libraryRouter);
+app.use('/api/hod', hodRouter);
+app.use('/api/lecturer', lecturerRouter);
+app.use('/api/attendance', attendanceRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {
@@ -153,6 +173,16 @@ if (redis.status === 'wait') {
   });
 }
 
+// ─── Network & Socket Resilience Handlers ───────────────────
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err: err?.stack || err, code: err?.code }, '[Process] Fatal uncaught exception encountered. Terminating process.');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.warn({ reason: reason?.message || reason }, '[Process] Unhandled promise rejection');
+});
+
 // ─── Start HTTP Server (Stateless Web Plane) ─────────────────
 const server = app.listen(config.port, () => {
   console.log(`\n  ┌──────────────────────────────────────────┐`);
@@ -162,7 +192,17 @@ const server = app.listen(config.port, () => {
   console.log(`  │  Mode: ${config.nodeEnv}                    │`);
   console.log(`  └──────────────────────────────────────────┘\n`);
   
-  logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP stateless server initialized');
+  logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
+
+  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production';
+  if (shouldRunEmbeddedWorkers) {
+    // Start Unified Transactional Outbox Worker
+    unifiedOutboxWorker.start();
+    // Start PostgreSQL Native LISTEN / NOTIFY Notification Broadcaster
+    notificationBroadcaster.start();
+    // Start Official Test Auto-Zero Countdown Sweeper
+    quizSweeperWorker.start();
+  }
 });
 
 // ─── Zero-Downtime Graceful Shutdown Lifecycle ───────────────
@@ -170,7 +210,9 @@ setupGracefulShutdown({
   server,
   pool,
   redis,
-  workers: [], // Background workers decoupled into worker.js
+  workers: (process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production')
+    ? [unifiedOutboxWorker, notificationBroadcaster, quizSweeperWorker]
+    : [],
   options: {
     ingressDrainDelayMs: config.nodeEnv === 'production' ? 5000 : 500,
     maxDrainWaitMs: 15000,

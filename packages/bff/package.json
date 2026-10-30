@@ -11,6 +11,7 @@
     "start:worker": "node src/worker.js",
     "dev:worker": "node --watch-path=src src/worker.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
+    "db:migrate": "node src/db/migrate.js",
     "db:seed": "node src/db/seed.js",
     "db:pull": "prisma db pull",
     "db:studio": "prisma studio",

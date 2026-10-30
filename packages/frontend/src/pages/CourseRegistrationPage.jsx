@@ -113,6 +113,7 @@ export const CourseRegistrationPage = () => {
           saveDraftSuccess={saveDraftSuccess}
           onProceed={goToNextStep}
           isOverMaximum={isOverMaximum}
+          studentLevel={student?.level || 200}
         />
       )}
 

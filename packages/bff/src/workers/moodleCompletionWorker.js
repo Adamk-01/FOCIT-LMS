@@ -15,6 +15,8 @@ import pool from '../db/index.js';
 // 1. Exact Redis connection initialization for BullMQ
 // maxRetriesPerRequest MUST be null for BullMQ blocking commands to function correctly
 const redisConnection = new IORedis(config.redis.url, {
+  family: 4,
+  connectTimeout: 10000,
   maxRetriesPerRequest: null,
 });
 

@@ -2,13 +2,14 @@ import React from 'react';
 import { ChevronLeft, ChevronRight, Send } from 'lucide-react';
 
 /**
- * Single Question Card with Interactive Radiogroup Options
+ * Single Question Card with Interactive Radiogroup or Short Answer Text Input
  *
  * Implements:
  * 1. Semantic <article> container with header metadata
- * 2. WCAG-compliant radiogroup with min-h-[56px] touch targets
- * 3. Next/Previous and Finish navigation controls with 44x44px minimum sizing
- * 4. Distinct visual selection state (blue-50/50 fill + 2px navy border)
+ * 2. WCAG-compliant radiogroup for MCQ/TrueFalse (min-h-[56px] touch targets)
+ * 3. Dedicated clean text input for SHORT_ANSWER questions
+ * 4. Next/Previous and Finish navigation controls with 44x44px minimum sizing
+ * 5. Distinct visual selection state (blue-50/50 fill + 2px navy border)
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
@@ -34,6 +35,7 @@ export function QuizQuestionCard({
   const isFirst = currentQuestionIndex === 0;
   const isLast = currentQuestionIndex >= totalQuestions - 1;
   const isAnswered = Boolean(activeAnswer);
+  const isShortAnswer = question.type === 'SHORT_ANSWER';
 
   return (
     <article className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-gray-200 dark:border-slate-800 shadow-card space-y-6">
@@ -43,6 +45,11 @@ export function QuizQuestionCard({
           <span>Question {question.number || currentQuestionIndex + 1}</span>
           <span>of</span>
           <span>{totalQuestions}</span>
+          {isShortAnswer && (
+            <span className="ml-1 px-2 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700 uppercase font-semibold">
+              Short Answer
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-slate-400 font-medium">
@@ -59,47 +66,69 @@ export function QuizQuestionCard({
         {question.prompt}
       </div>
 
-      {/* 3. Options Radiogroup */}
-      <div
-        className="space-y-3 pt-2"
-        role="radiogroup"
-        aria-label={`Question ${question.number || currentQuestionIndex + 1} Options`}
-      >
-        {question.options?.map((option, idx) => {
-          const isSelected = activeAnswer === option.id;
-          const letter = String.fromCharCode(65 + idx);
+      {/* 3. Interactive Answer Inputs: SHORT_ANSWER vs Options Radiogroup */}
+      {isShortAnswer ? (
+        <div className="space-y-3 pt-2">
+          <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">
+            Your Written Answer
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              name={`question_${question.id}`}
+              value={activeAnswer || ''}
+              disabled={isSubmitting}
+              placeholder="Type your answer here..."
+              onChange={(e) => onSelectOption(question.id, e.target.value)}
+              className="w-full min-h-[52px] px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#0a1142] focus:bg-blue-50/20 text-gray-900 font-medium text-base outline-none transition-all shadow-sm placeholder:text-gray-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+          </div>
+          <p className="text-xs text-gray-400">
+            Tip: Be precise with your terminology and spelling.
+          </p>
+        </div>
+      ) : (
+        <div
+          className="space-y-3 pt-2"
+          role="radiogroup"
+          aria-label={`Question ${question.number || currentQuestionIndex + 1} Options`}
+        >
+          {question.options?.map((option, idx) => {
+            const isSelected = activeAnswer === option.id;
+            const letter = String.fromCharCode(65 + idx);
 
-          return (
-            <label
-              key={option.id}
-              className={`
-                w-full min-h-[56px] box-border p-4 rounded-xl border-2 flex items-center gap-4 cursor-pointer select-none transition-all
-                touch-manipulation
-                ${isSelected
-                  ? 'border-[#0a1142] dark:border-indigo-400 bg-blue-50/50 dark:bg-slate-800 shadow-sm'
-                  : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-gray-300 dark:hover:border-slate-600 hover:bg-gray-50/50 dark:hover:bg-slate-800/40'
-                }
-              `}
-            >
-              <input
-                type="radio"
-                name={`question_${question.id}`}
-                value={option.id}
-                checked={isSelected}
-                disabled={isSubmitting}
-                onChange={() => onSelectOption(question.id, option.id)}
-                className="w-4 h-4 text-[#0a1142] focus:ring-[#0a1142] border-gray-300"
-              />
-              <div className="flex-1 text-sm sm:text-base font-medium text-gray-800 dark:text-slate-200">
-                <span className="font-bold mr-2 uppercase text-[#0a1142] dark:text-[#ffb81c]">
-                  {letter}.
-                </span>
-                {option.text}
-              </div>
-            </label>
-          );
-        })}
-      </div>
+            return (
+              <label
+                key={option.id}
+                className={`
+                  w-full min-h-[56px] box-border p-4 rounded-xl border-2 flex items-center gap-4 cursor-pointer select-none transition-all
+                  touch-manipulation
+                  ${isSelected
+                    ? 'border-[#0a1142] dark:border-indigo-400 bg-blue-50/50 dark:bg-slate-800 shadow-sm'
+                    : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-gray-300 dark:hover:border-slate-600 hover:bg-gray-50/50 dark:hover:bg-slate-800/40'
+                  }
+                `}
+              >
+                <input
+                  type="radio"
+                  name={`question_${question.id}`}
+                  value={option.id}
+                  checked={isSelected}
+                  disabled={isSubmitting}
+                  onChange={() => onSelectOption(question.id, option.id)}
+                  className="w-4 h-4 text-[#0a1142] focus:ring-[#0a1142] border-gray-300"
+                />
+                <div className="flex-1 text-sm sm:text-base font-medium text-gray-800 dark:text-slate-200">
+                  <span className="font-bold mr-2 uppercase text-[#0a1142] dark:text-[#ffb81c]">
+                    {letter}.
+                  </span>
+                  {option.text}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      )}
 
       {/* 4. Directional Pagination Controls */}
       <div className="flex items-center justify-between border-t border-gray-100 dark:border-slate-800 pt-6">

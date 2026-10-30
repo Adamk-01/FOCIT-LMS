@@ -11,9 +11,14 @@
  */
 
 import pg from 'pg';
+import net from 'node:net';
 import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
 import ws from 'ws';
 import { AsyncLocalStorage } from 'node:async_hooks';
+
+if (typeof net.setDefaultAutoSelectFamily === 'function') {
+  net.setDefaultAutoSelectFamily(false);
+}
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
 
@@ -38,11 +43,13 @@ const isNeon = rawUrl.includes('neon.tech');
 
 const poolConfig = {
   connectionString: rawUrl,
-  max: 20,                          // Little's Law capacity ceiling per process
-  idleTimeoutMillis: 120000,        // 2 minutes (prevents aggressive socket churn on tab reading)
-  connectionTimeoutMillis: 30000,   // 30s to absorb Neon compute cold-start + WAN jitter
-  query_timeout: 15000,             // Client-side circuit breaker (7s buffer above server 8s statement_timeout)
+  max: 20,
+  idleTimeoutMillis: 120000,
+  connectionTimeoutMillis: 30000,
+  query_timeout: 15000,
   allowExitOnIdle: false,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 };
 
 // Use Neon Serverless Pool when target is Neon (port 443 WebSocket traversal)

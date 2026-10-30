@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'react-toastify';
 import { apiClient } from '../lib/api';
 import { sessionLifecycle } from '../lib/sessionLifecycle';
 import { downsampleAvatar } from '../lib/imageCompression';
@@ -24,104 +25,101 @@ export function useProfileMutations({ studentId }) {
 
   // 1. Demographics & Preferences Mutation
   const profileMutation = useMutation({
-    mutationFn: async (payload) => {
-      const idempotencyKey = `prof_${studentId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      const response = await apiClient.patch('/student/profile', payload, {
-        headers: {
-          'X-Idempotency-Key': idempotencyKey,
-        },
+    mutationFn: async (updatedData) => {
+      const idempotencyKey = `profile_upd_${studentId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const response = await apiClient.patch('/student/profile', updatedData, {
+        headers: { 'X-Idempotency-Key': idempotencyKey },
       });
       return response.data;
     },
+    onMutate: async (newProfile) => {
+      await queryClient.cancelQueries({ queryKey: ['student-profile', studentId] });
+      const previousProfile = queryClient.getQueryData(['student-profile', studentId]);
+      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+        ...old,
+        ...newProfile,
+      }));
+      return { previousProfile };
+    },
     onSuccess: (data) => {
+      const patched = data.data || data;
+      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+        ...old,
+        ...patched,
+      }));
+      setFeedback({ type: 'success', message: 'Profile updated successfully.' });
+      toast.success('Profile and system preferences saved successfully.');
       setConflictState(null);
-      queryClient.setQueryData(['student-profile', studentId], (prev) => {
-        if (!prev) return data.data;
-        return {
-          ...prev,
-          ...data.data,
-          version: data.data?.version ?? (prev.version || 1) + 1,
-        };
-      });
-
-      if (data.recovered) {
+    },
+    onError: (err, newProfile, context) => {
+      if (context?.previousProfile) {
+        queryClient.setQueryData(['student-profile', studentId], context.previousProfile);
+      }
+      if (err.status === 409) {
+        setConflictState({
+          isStale: true,
+          serverVersion: err.data?.server_version,
+          clientVersion: newProfile.version,
+        });
         setFeedback({
-          type: 'info',
-          message: 'Connection Reconciled: Profile changes were safely confirmed by the server.',
+          type: 'warning',
+          message: 'Profile was modified concurrently. Please refresh to load latest changes.',
         });
       } else {
         setFeedback({
-          type: 'success',
-          message: 'Profile changes committed and queued for Moodle synchronization.',
+          type: 'error',
+          message: err.detail || err.message || 'Failed to update profile.',
         });
       }
     },
-    onError: (err) => {
-      if (err.status === 409 && err.data?.authoritativeData) {
-        setConflictState(err.data.authoritativeData);
-        setFeedback({
-          type: 'error',
-          message: 'Conflict: This profile was updated by another device. Review server state below.',
-        });
-      } else {
-        setFeedback({
-          type: 'error',
-          message: err.data?.error || err.message || 'Failed to update profile.',
-        });
-      }
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
     },
   });
 
-  // 2. Avatar Selection, Off-Thread Compression & Upload
+  // 2. Avatar Selection and Compression Pipeline
   const handleAvatarSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const originalSizeKb = Math.round(file.size / 1024);
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setFeedback({ type: 'error', message: 'Only JPEG, PNG, and WebP images are permitted.' });
+      return;
+    }
 
     try {
       setIsCompressing(true);
       setFeedback(null);
+      const originalSizeBytes = file.size;
 
-      // Off-thread downsampling with center-crop and Safari WebP fallback
-      const compressedBlob = await downsampleAvatar(file, 512, 0.82);
-      const compressedSizeKb = Math.round(compressedBlob.size / 1024);
+      const compressedBlob = await downsampleAvatar(file, {
+        maxDimensionPx: 512,
+        targetSizeBytes: 200 * 1024,
+      });
 
       setCompressionMetrics({
-        original: `${originalSizeKb} KB`,
-        compressed: `${compressedSizeKb} KB`,
+        originalSize: originalSizeBytes,
+        compressedSize: compressedBlob.size,
+        compressionRatio: ((1 - compressedBlob.size / originalSizeBytes) * 100).toFixed(1),
       });
 
       const formData = new FormData();
-      formData.append('avatar', compressedBlob, `${studentId}_avatar.webp`);
+      formData.append('avatar', compressedBlob, 'avatar.webp');
 
-      const response = await fetch('/api/student/avatar', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-          ...(sessionStorage.getItem('session_nonce')
-            ? { 'X-Session-Nonce': sessionStorage.getItem('session_nonce') }
-            : {}),
-        },
-      });
+      const response = await apiClient.post('/student/avatar', formData);
+      const newAvatarUrl = response.data?.avatarUrl || response.data?.avatar_url;
+      const newVersion = response.data?.version;
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Upload failed with HTTP ${response.status}`);
-      }
-
-      const resData = await response.json();
-      queryClient.setQueryData(['student-profile', studentId], (prev) => ({
-        ...prev,
-        avatar_url: resData.avatarUrl,
-        version: (prev?.version || 1) + 1,
+      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+        ...old,
+        avatar_url: newAvatarUrl,
+        version: newVersion || (old?.version ? old.version + 1 : old?.version),
       }));
+      queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
 
       setFeedback({
         type: 'success',
-        message: `Avatar uploaded successfully (${originalSizeKb}KB downsampled to ${compressedSizeKb}KB).`,
+        message: `Avatar uploaded successfully. Saved ${((1 - compressedBlob.size / originalSizeBytes) * 100).toFixed(0)}% bandwidth.`,
       });
     } catch (err) {
       setFeedback({
@@ -138,13 +136,35 @@ export function useProfileMutations({ studentId }) {
   const handlePasswordSubmit = async (passwordForm) => {
     if (isChangingPassword) return;
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setFeedback({ type: 'error', message: 'New password and confirmation do not match.' });
+    const current = (passwordForm?.currentPassword || '').trim();
+    const next = (passwordForm?.newPassword || '').trim();
+    const confirm = (passwordForm?.confirmPassword || '').trim();
+
+    if (!current) {
+      const msg = 'Please enter your current temporary password.';
+      setFeedback({ type: 'error', message: msg });
+      toast.error(msg);
       return;
     }
 
-    if (passwordForm.newPassword.length < 8) {
-      setFeedback({ type: 'error', message: 'New password must contain at least 8 characters.' });
+    if (!next) {
+      const msg = 'Please enter a new password (min 8 characters).';
+      setFeedback({ type: 'error', message: msg });
+      toast.error(msg);
+      return;
+    }
+
+    if (next.length < 8) {
+      const msg = 'New password must contain at least 8 characters.';
+      setFeedback({ type: 'error', message: msg });
+      toast.error(msg);
+      return;
+    }
+
+    if (next !== confirm) {
+      const msg = 'New password and confirmation do not match.';
+      setFeedback({ type: 'error', message: msg });
+      toast.error(msg);
       return;
     }
 
@@ -168,8 +188,8 @@ export function useProfileMutations({ studentId }) {
           ...(ephemeralNonce ? { 'X-Session-Nonce': ephemeralNonce } : {}),
         },
         body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
+          currentPassword: current,
+          newPassword: next,
         }),
         credentials: 'include',
       });
@@ -186,15 +206,21 @@ export function useProfileMutations({ studentId }) {
       localStorage.removeItem('shadow_auth');
       queryClient.clear();
 
+      toast.success('Password updated! Redirecting to login...');
+
       // Phase 4: Atomic Navigation to Login Flow
-      window.location.replace('/login?reason=password_changed');
+      setTimeout(() => {
+        window.location.replace('/login?reason=password_changed');
+      }, 500);
     } catch (err) {
       setIsChangingPassword(false);
       queryClient.resumeQueries();
+      const errorMsg = err.message || 'Failed to update password.';
       setFeedback({
         type: 'error',
-        message: err.message || 'Failed to update password.',
+        message: errorMsg,
       });
+      toast.error(errorMsg);
     }
   };
 
@@ -203,6 +229,7 @@ export function useProfileMutations({ studentId }) {
     feedback,
     setFeedback,
     conflictState,
+    setConflictState,
     isCompressing,
     compressionMetrics,
     isChangingPassword,

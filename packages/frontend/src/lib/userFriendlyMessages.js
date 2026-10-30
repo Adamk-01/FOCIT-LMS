@@ -85,10 +85,18 @@ export const REMEDIATION_REGISTRY = {
 
   RESET_ONLY: () => ({
     title: 'Password Update Required',
-    problem: 'A security password update is required before accessing your academic modules.',
-    remediation: 'Please update your temporary password to continue.',
+    problem: 'Your account was initialized with a temporary password. All academic modules are quarantined until updated.',
+    remediation: 'Please change your temporary password in your Profile to unlock your dashboard and courses.',
     severity: 'warning',
-    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/reset-password' },
+    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/profile?tab=security' },
+  }),
+
+  MANDATORY_PASSWORD_RESET_REQUIRED: () => ({
+    title: 'Password Update Required',
+    problem: 'Your account was initialized with a temporary password. All academic modules are quarantined until updated.',
+    remediation: 'Please change your temporary password in your Profile to unlock your dashboard and courses.',
+    severity: 'warning',
+    recoveryAction: { type: 'NAVIGATE', label: 'Update Password', target: '/profile?tab=security' },
   }),
 
   // ── Registration & Academic Invariants (Dynamic Telemetry Guarded) ──
@@ -274,19 +282,19 @@ export const REMEDIATION_REGISTRY = {
   }),
 
   DEADLINE_EXCEEDED: () => ({
-    title: 'Assessment Deadline Expired',
-    problem: 'The server-side examination countdown has reached zero.',
-    remediation: 'Your final recorded responses have been processed. Please return to the course overview.',
+    title: 'Practice Time Expired',
+    problem: 'The practice drill timer has reached zero.',
+    remediation: 'Your final recorded responses have been evaluated. Please return to the course overview.',
     severity: 'warning',
     recoveryAction: { type: 'NAVIGATE', label: 'Return to Course', target: '/courses' },
   }),
 
   ATTEMPT_CLOSED: () => ({
     title: 'Attempt Finalized',
-    problem: 'This quiz attempt has already been closed and submitted.',
-    remediation: 'No further edits can be saved. View your grade breakdown in the course gradebook.',
+    problem: 'This practice attempt has already been closed and submitted.',
+    remediation: 'No further responses can be saved. You can start a new practice drill or return to the course overview.',
     severity: 'info',
-    recoveryAction: { type: 'NAVIGATE', label: 'View Gradebook', target: '/courses' },
+    recoveryAction: { type: 'NAVIGATE', label: 'Course Overview', target: '/courses' },
   }),
 
   ATTEMPT_ACCESS_FORBIDDEN: () => ({
@@ -299,10 +307,10 @@ export const REMEDIATION_REGISTRY = {
 
   ILLEGAL_QUESTION_PAYLOAD: () => ({
     title: 'Question Mismatch Detected',
-    problem: 'One or more submitted question identifiers do not belong to this examination paper.',
-    remediation: 'Please refresh the examination page to reload the authoritative question set.',
+    problem: 'One or more submitted question identifiers do not belong to this practice session.',
+    remediation: 'Please refresh the page to reload the authoritative question set.',
     severity: 'error',
-    recoveryAction: { type: 'RETRY', label: 'Reload Examination' },
+    recoveryAction: { type: 'RETRY', label: 'Reload Practice Drill' },
   }),
 
   INVALID_ATTEMPT_STATE: () => ({

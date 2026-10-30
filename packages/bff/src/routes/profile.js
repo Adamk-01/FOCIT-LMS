@@ -40,7 +40,7 @@ await fs.mkdir(AVATAR_DIR, { recursive: true }).catch(() => {});
  * Aggregates Tier 1 academic standing with Tier 2 demographics and Tier 3 preferences.
  */
 router.get('/profile', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username || 'student1';
 
   try {
     const query = `
@@ -74,7 +74,7 @@ router.get('/profile', async (req, res) => {
       JOIN programmes p ON p.id = s.programme_id
       JOIN departments d ON d.id = p.department_id
       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
-      WHERE s.student_id = $1;
+      WHERE s.student_id = $1 OR s.username = $1 OR s.matric_number = $1;
     `;
 
     const { rows } = await pool.query(query, [studentId]);
@@ -92,7 +92,7 @@ router.get('/profile', async (req, res) => {
     if (!studentProfile.updated_at) {
       await pool.query(
         `INSERT INTO student_profiles (student_id, version) VALUES ($1, 1) ON CONFLICT (student_id) DO NOTHING`,
-        [studentId]
+        [studentProfile.student_id]
       ).catch((err) => logger.warn({ err }, '[Profile] Lazy profile init collision ignored'));
     }
 
@@ -117,7 +117,7 @@ router.get('/profile', async (req, res) => {
  * Idempotent Optimistic Concurrency Mutation with Relational Set-Identity Check for 3G Replays.
  */
 router.patch('/profile', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const callerId = req.user?.student_id || req.user?.id || req.user?.username || 'student1';
   const idempotencyKey = req.headers['x-idempotency-key'] || req.headers['idempotency-key'];
 
   if (!idempotencyKey) {
@@ -126,6 +126,19 @@ router.patch('/profile', async (req, res) => {
       code: 'IDEMPOTENCY_KEY_REQUIRED',
     });
   }
+
+  // Authoritatively resolve canonical student_id
+  const studentLookup = await pool.query(
+    `SELECT student_id FROM students WHERE student_id = $1 OR username = $1 OR matric_number = $1 LIMIT 1`,
+    [callerId]
+  );
+  if (studentLookup.rows.length === 0) {
+    return res.status(404).json({
+      error: 'Student record not found in academic registry',
+      code: 'STUDENT_NOT_FOUND',
+    });
+  }
+  const studentId = studentLookup.rows[0].student_id;
 
   const {
     phone_number,
@@ -302,6 +315,28 @@ router.patch('/profile', async (req, res) => {
       ]
     );
 
+    await client.query(
+      `
+      INSERT INTO integration_outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, idempotency_key
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (idempotency_key) DO NOTHING;
+      `,
+      [
+        'STUDENT_PROFILE',
+        studentId,
+        'UPDATE_USER_PROFILE',
+        JSON.stringify({
+          student_id: studentId,
+          phone1: updatedProfile.phone_number,
+          description: updatedProfile.bio,
+          email: updatedProfile.alternate_email,
+        }),
+        outboxKey,
+      ]
+    );
+
     // 6. Persist Idempotency Record
     const responsePayload = {
       status: 'SUCCESS',
@@ -339,7 +374,7 @@ router.patch('/profile', async (req, res) => {
  * Zero-Heap Busboy Avatar Stream Pipeline with MIME Sniffing & 500KB Ingress Gate.
  */
 router.post('/avatar', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const callerId = req.user?.student_id || req.user?.id || req.user?.username || 'student1';
   const contentLength = parseInt(req.headers['content-length'] || '0', 10);
 
   // Ingress Content-Length Gate: Reject raw 15MB payloads at TCP handshake
@@ -360,7 +395,7 @@ router.post('/avatar', async (req, res) => {
 
   let fileProcessed = false;
   let fileError = null;
-  const targetFilename = `${studentId}_${Date.now()}.webp`;
+  const targetFilename = `${callerId.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.webp`;
   const targetPath = path.join(AVATAR_DIR, targetFilename);
   const avatarUrl = `/api/files/avatars/${targetFilename}`;
 
@@ -421,20 +456,37 @@ router.post('/avatar', async (req, res) => {
     }
 
     try {
-      // Upsert avatar URL in student_profiles
-      await pool.query(
+      // Authoritatively resolve canonical student_id
+      const studentLookup = await pool.query(
+        `SELECT student_id FROM students WHERE student_id = $1 OR username = $1 OR matric_number = $1 LIMIT 1`,
+        [callerId]
+      );
+      if (studentLookup.rows.length === 0) {
+        await fs.unlink(targetPath).catch(() => {});
+        return res.status(404).json({
+          error: 'Student record not found in academic registry',
+          code: 'STUDENT_NOT_FOUND',
+        });
+      }
+      const studentId = studentLookup.rows[0].student_id;
+
+      // Upsert avatar URL in student_profiles and return updated version
+      const updateRes = await pool.query(
         `
         INSERT INTO student_profiles (student_id, avatar_url, version)
         VALUES ($1, $2, 1)
         ON CONFLICT (student_id) 
-        DO UPDATE SET avatar_url = $2, version = student_profiles.version + 1, updated_at = NOW();
+        DO UPDATE SET avatar_url = $2, version = student_profiles.version + 1, updated_at = NOW()
+        RETURNING version;
         `,
         [studentId, avatarUrl]
       );
 
-      return res.status(200).json({ status: 'SUCCESS', avatarUrl });
+      const newVersion = updateRes.rows[0]?.version || 1;
+
+      return res.status(200).json({ status: 'SUCCESS', avatarUrl, version: newVersion });
     } catch (dbErr) {
-      logger.error({ dbErr, studentId }, '[Profile] Failed to update avatar URL');
+      logger.error({ dbErr, studentId: callerId }, '[Profile] Failed to update avatar URL');
       return res.status(500).json({ error: 'Failed to update avatar record', code: 'DB_ERROR' });
     }
   });
@@ -447,30 +499,73 @@ router.post('/avatar', async (req, res) => {
  * Credential Mutation with Session Invalidation Pipeline.
  */
 router.post('/change-password', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const callerId = req.user?.id || req.user?.username || req.user?.student_id;
   const sessionId = req.user?.sessionId || req.user?.sid;
   const { currentPassword, newPassword } = req.body || {};
 
+  logger.info({ callerId, role: req.user?.role }, '[Profile] POST /change-password received');
+
   if (!currentPassword || !newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    logger.warn({ callerId }, '[Profile] Rejected password payload: too short or missing fields');
     return res.status(400).json({
       error: 'Invalid password payload: Minimum 8 characters required',
       code: 'PASSWORD_TOO_WEAK',
     });
   }
 
-  try {
-    // 1. Check existing stored password hash
-    const { rows } = await pool.query(
-      `SELECT password_hash, must_change_password FROM student_profiles WHERE student_id = $1`,
-      [studentId]
-    );
+  const userRole = String(req.user?.role || 'STUDENT').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole);
 
-    const storedHash = rows[0]?.password_hash;
+  try {
+    let storedHash = null;
+    let canonicalActorId = null;
+
+    if (isStaffRole) {
+      // 1A. Authoritative staff lookup by canonical identifier
+      const staffRes = await pool.query(
+        'SELECT advisor_id, password_hash FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 LIMIT 1',
+        [callerId]
+      );
+
+      if (staffRes.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Staff account not found in academic registry',
+          code: 'ACCOUNT_NOT_FOUND',
+        });
+      }
+
+      canonicalActorId = staffRes.rows[0].advisor_id;
+      storedHash = staffRes.rows[0].password_hash;
+    } else {
+      // 1B. Authoritative student lookup: verify existence in students registry to prevent orphan profiles
+      const studentRes = await pool.query(
+        `
+        SELECT s.student_id, sp.password_hash 
+        FROM students s
+        LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+        WHERE s.student_id = $1 OR s.username = $1 OR s.matric_number = $1
+        LIMIT 1
+        `,
+        [callerId]
+      );
+
+      if (studentRes.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Student record not found in academic registry',
+          code: 'ACCOUNT_NOT_FOUND',
+        });
+      }
+
+      canonicalActorId = studentRes.rows[0].student_id;
+      storedHash = studentRes.rows[0].password_hash;
+    }
+
     if (storedHash) {
       const isValid = await verifyPassword(currentPassword, storedHash);
       if (!isValid) {
+        logger.warn({ callerId }, '[Profile] Current temporary password verification failed');
         return res.status(401).json({
-          error: 'Current password verification failed',
+          error: 'Current temporary password verification failed. Please check the temporary password given by the administrator.',
           code: 'INVALID_CURRENT_PASSWORD',
         });
       }
@@ -479,26 +574,27 @@ router.post('/change-password', async (req, res) => {
     // 2. Hash new password asynchronously using libuv threadpool scrypt
     const newHash = await hashPassword(newPassword);
 
-    // 3. Persist new hash in student_profiles and clear must_change_password flag
-    await pool.query(
-      `
-      INSERT INTO student_profiles (student_id, password_hash, must_change_password, version)
-      VALUES ($1, $2, FALSE, 1)
-      ON CONFLICT (student_id)
-      DO UPDATE SET 
-        password_hash = $2, 
-        must_change_password = FALSE, 
-        version = student_profiles.version + 1, 
-        updated_at = NOW();
-      `,
-      [studentId, newHash]
-    );
-
-    // Also update staff_advisors if this user is a staff member
-    await pool.query(
-      `UPDATE staff_advisors SET password_hash = $1, must_change_password = FALSE WHERE advisor_id = $2`,
-      [newHash, studentId]
-    );
+    // 3. Persist new hash in respective table using resolved canonical identifier
+    if (isStaffRole) {
+      await pool.query(
+        `UPDATE staff_advisors SET password_hash = $1, must_change_password = FALSE WHERE advisor_id = $2`,
+        [newHash, canonicalActorId]
+      );
+    } else {
+      await pool.query(
+        `
+        INSERT INTO student_profiles (student_id, password_hash, must_change_password, version)
+        VALUES ($1, $2, FALSE, 1)
+        ON CONFLICT (student_id)
+        DO UPDATE SET 
+          password_hash = $2, 
+          must_change_password = FALSE, 
+          version = student_profiles.version + 1, 
+          updated_at = NOW();
+        `,
+        [canonicalActorId, newHash]
+      );
+    }
 
     // 4. Record Immutable Security Audit Event
     const eventType = req.user?.scope === 'RESET_ONLY' 
@@ -507,9 +603,9 @@ router.post('/change-password', async (req, res) => {
 
     await recordIdentityAuditLog(pool, {
       eventType,
-      actorId: studentId,
-      actorRole: req.user?.role || 'STUDENT',
-      targetId: studentId,
+      actorId: canonicalActorId,
+      actorRole: req.user?.role || (isStaffRole ? 'STAFF' : 'STUDENT'),
+      targetId: canonicalActorId,
       targetType: 'CREDENTIALS',
       ipAddress: req.ip || req.headers['x-forwarded-for'],
       userAgent: req.headers['user-agent'],
@@ -545,7 +641,7 @@ router.post('/change-password', async (req, res) => {
       redirect: '/login?reason=password_changed',
     });
   } catch (err) {
-    logger.error({ err, studentId }, '[Profile] Password mutation failed');
+    logger.error({ err, callerId }, '[Profile] Password mutation failed');
     return res.status(500).json({ error: 'Failed to update credentials', code: 'DB_ERROR' });
   }
 });

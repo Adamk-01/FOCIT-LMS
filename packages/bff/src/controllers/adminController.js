@@ -94,6 +94,7 @@ export async function getDashboardOverview(req, res, next) {
       pendingBatchesRes,
       roleDistributionRes,
       departmentsRes,
+      semesterRes,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM students'),
       pool.query('SELECT COUNT(*)::int AS count FROM staff_advisors'),
@@ -105,7 +106,21 @@ export async function getDashboardOverview(req, res, next) {
         GROUP BY role
       `),
       pool.query('SELECT COUNT(*)::int AS count FROM departments'),
+      pool.query(`
+        SELECT id, name, is_registration_open
+        FROM academic_semesters
+        ORDER BY id DESC LIMIT 1
+      `),
     ]);
+
+    const semesterRow = semesterRes.rows[0];
+    const activeSemester = semesterRow
+      ? {
+          id: semesterRow.id,
+          name: semesterRow.name,
+          isRegistrationOpen: Boolean(semesterRow.is_registration_open),
+        }
+      : null;
 
     // 3. Redis Health
     const redisStatus = redis.status === 'ready' || redis.status === 'connect' ? 'UP' : 'DEGRADED';
@@ -178,6 +193,7 @@ export async function getDashboardOverview(req, res, next) {
           totalDepartments: departmentsRes.rows[0]?.count || 0,
           pendingRegistrationBatches: pendingBatchesRes.rows[0]?.count || 0,
         },
+        activeSemester,
         roleDistribution: roles,
         systemHealth: {
           database: { status: 'UP', latencyMs: dbLatencyMs },
@@ -342,7 +358,8 @@ export async function createUser(req, res, next) {
       fullName,
       email,
       departmentId,
-      level = 100,
+      level,
+      assignedLevel,
       password,
     } = req.body || {};
 
@@ -354,7 +371,7 @@ export async function createUser(req, res, next) {
     }
 
     const normalizedRole = String(role).toUpperCase();
-    const candidateLevel = parseInt(level, 10) || 100;
+    const candidateLevel = parseInt(level || assignedLevel, 10) || 100;
     const resolvedDeptId = resolveDepartmentId(departmentId);
     const resolvedProgId = `BSC_${resolvedDeptId}`;
 
@@ -417,6 +434,29 @@ export async function createUser(req, res, next) {
         ON CONFLICT (student_id) DO UPDATE SET password_hash = EXCLUDED.password_hash
         `,
         [studentId, passwordHash]
+      );
+
+      // Enqueue Outbox Event for Upstream Moodle User Provisioning (Doctrine 8)
+      await client.query(
+        `
+        INSERT INTO integration_outbox_events (
+          aggregate_type, aggregate_id, event_type, payload, idempotency_key
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (idempotency_key) DO NOTHING
+        `,
+        [
+          'STUDENT',
+          studentId,
+          'USER_PROVISION_REQUESTED',
+          JSON.stringify({
+            student_id: studentId,
+            matric_number: identifier,
+            full_name: fullName,
+            email,
+          }),
+          `moodle_provision:${studentId}`,
+        ]
       );
     } else {
       const advisorId = `staff_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
@@ -481,8 +521,16 @@ export async function createUser(req, res, next) {
     }
     logger.error({ err }, '[AdminController] Error creating user');
     if (err.code === '23505') {
+      const isEmail = String(err.constraint || err.detail || '').toLowerCase().includes('email');
+      const isMatric = String(err.constraint || err.detail || '').toLowerCase().includes('matric');
+      let msg = 'A user with this matric/staff number or email already exists';
+      if (isEmail) {
+        msg = `The email address '${email}' is already registered to another user.`;
+      } else if (isMatric) {
+        msg = `The matric/staff number '${identifier}' is already registered.`;
+      }
       return res.status(409).json({
-        error: 'A user with this matric/staff number or email already exists',
+        error: msg,
         code: 'USER_ALREADY_EXISTS',
       });
     }
@@ -797,6 +845,116 @@ export async function updateUserRole(req, res, next) {
 }
 
 /**
+ * 4c. POST /api/admin/users/:id/reset-password
+ * Administrative password reset for students and staff.
+ * Issues a cryptographically secure temporary password, marks must_change_password=TRUE,
+ * purges active sessions, and appends an immutable audit log entry.
+ */
+export async function resetUserPassword(req, res, next) {
+  const { id } = req.params;
+  const { password } = req.body || {};
+  let client;
+
+  try {
+    if (!id) {
+      return res.status(400).json({ error: 'User identifier required', code: 'VALIDATION_FAILED' });
+    }
+
+    const cleanId = String(id).trim();
+
+    // 1. Resolve user in students or staff_advisors
+    let isStudent = true;
+    const studentRes = await pool.query(
+      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1 OR matric_number = $1 OR username = $1`,
+      [cleanId]
+    );
+
+    let target = studentRes.rows[0];
+    if (!target) {
+      const staffRes = await pool.query(
+        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+        [cleanId]
+      );
+      if (staffRes.rows[0]) {
+        isStudent = false;
+        target = staffRes.rows[0];
+      }
+    }
+
+    if (!target) {
+      return res.status(404).json({ error: 'User not found in academic registry', code: 'USER_NOT_FOUND' });
+    }
+
+    // Role-Based Privilege Escalation Guard:
+    // Only SYSTEM_ADMIN can reset passwords for administrator accounts (ADMIN or SYSTEM_ADMIN)
+    if (!isStudent && ['ADMIN', 'SYSTEM_ADMIN'].includes(target.role) && req.user?.role !== 'SYSTEM_ADMIN') {
+      return res.status(403).json({
+        error: 'Only a System Administrator can reset passwords for administrator accounts',
+        code: 'FORBIDDEN_RESET_PRIVILEGED_PASSWORD',
+      });
+    }
+
+    const newPassword = password && String(password).trim().length >= 8
+      ? String(password).trim()
+      : crypto.randomBytes(9).toString('base64url') + '!A1';
+
+    const passwordHash = await hashPassword(newPassword);
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    if (isStudent) {
+      await client.query(
+        `INSERT INTO student_profiles (student_id, password_hash, must_change_password, updated_at)
+         VALUES ($1, $2, TRUE, NOW())
+         ON CONFLICT (student_id) DO UPDATE 
+         SET password_hash = EXCLUDED.password_hash, must_change_password = TRUE, updated_at = NOW()`,
+        [target.student_id, passwordHash]
+      );
+    } else {
+      await client.query(
+        `UPDATE staff_advisors SET password_hash = $1, must_change_password = TRUE, updated_at = NOW() WHERE advisor_id = $2`,
+        [passwordHash, target.student_id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Purge active sessions in Redis
+    await purgeUserSessions(target.student_id);
+
+    // Audit log
+    await recordIdentityAuditLog(pool, {
+      eventType: 'ADMIN_PASSWORD_RESET',
+      actorId: req.user?.username || req.user?.id || 'admin1',
+      actorRole: req.user?.role || 'ADMIN',
+      targetId: target.student_id,
+      targetType: 'CREDENTIALS',
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'admin-portal',
+      metadata: { identifier: target.matric_number, isStudent },
+    }).catch((e) => logger.warn({ e }, '[AdminController] Failed to record password reset audit log'));
+
+    return res.json({
+      success: true,
+      message: `Temporary password reset successfully for ${target.full_name}`,
+      temporaryPassword: newPassword,
+      user: {
+        id: target.student_id,
+        identifier: target.matric_number,
+        fullName: target.full_name,
+      },
+    });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    logger.error({ err, id }, '[AdminController] Failed to reset user password');
+    return next(err);
+  } finally {
+    if (client) client.release();
+  }
+}
+
+/**
  * 5. GET /api/admin/integrations/moodle
  * Real-time Moodle connectivity inspection and pool diagnostics.
  */
@@ -876,7 +1034,7 @@ export async function getOutboxEvents(req, res, next) {
 
     query += ` ORDER BY b.updated_at DESC LIMIT 50`;
 
-    const [batchResult, moodleResult] = await Promise.all([
+    const [batchResult, moodleResult, integrationResult] = await Promise.all([
       pool.query(query, params),
       pool.query(`
         SELECT 
@@ -897,7 +1055,126 @@ export async function getOutboxEvents(req, res, next) {
         LEFT JOIN courses c ON c.moodle_course_id = o.moodle_course_id
         ORDER BY o.updated_at DESC LIMIT 50
       `),
+      pool.query(`
+        SELECT 
+          event_id,
+          aggregate_type,
+          aggregate_id,
+          event_type,
+          payload,
+          status,
+          delivery_attempts,
+          last_error,
+          created_at,
+          updated_at
+        FROM integration_outbox_events
+        ORDER BY updated_at DESC LIMIT 50
+      `).catch(() => ({ rows: [], rowCount: 0 })),
     ]);
+
+    const formatOutboxEventType = (type) => {
+      if (!type) return 'Course Enrollment Sync';
+      switch (type) {
+        case 'USER_PROVISION_REQUESTED':
+          return 'User Provisioning';
+        case 'ENROLLMENT_SYNC':
+        case 'COURSE_ENROLLMENT_REQUESTED':
+          return 'Course Enrollment Sync';
+        case 'COURSE_REGISTRATION_SUBMITTED':
+          return 'Registration Batch Sync';
+        case 'GRADE_SYNC_REQUESTED':
+          return 'Gradebook Sync';
+        case 'ACTIVITY_COMPLETED':
+          return 'Activity Completion Sync';
+        case 'MOODLE_QUIZ_SYNC':
+          return 'Moodle Quiz Sync';
+        case 'MOODLE_QUESTION_SYNC':
+          return 'Quiz Question Sync';
+        default:
+          return String(type)
+            .toLowerCase()
+            .split('_')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+      }
+    };
+
+    const formattedMoodleQueue = [
+      ...moodleResult.rows.map((m) => {
+        const actionLabel = formatOutboxEventType(m.event_type);
+        const targetLabel = m.student_name
+          ? `${m.student_name} (${m.matric_number || m.student_focit_id})`
+          : (m.matric_number || m.student_focit_id || 'Moodle Core Sync');
+
+        return {
+          id: String(m.id),
+          eventType: m.event_type,
+          action: actionLabel,
+          type: actionLabel,
+          studentId: m.student_focit_id,
+          matricNumber: m.matric_number,
+          studentName: m.student_name,
+          targetStudent: targetLabel,
+          courseCode: m.course_code,
+          status: m.status,
+          retryCount: m.retry_count,
+          payload: m.payload,
+          createdAt: m.created_at,
+          updatedAt: m.updated_at,
+          timestamp: m.created_at || m.updated_at,
+        };
+      }),
+      ...integrationResult.rows.map((io) => {
+        const studentName = io.payload?.full_name || io.payload?.name;
+        const matric = io.payload?.matric_number || io.aggregate_id;
+        const course = io.payload?.course_code || io.payload?.course_id;
+        const actionLabel = formatOutboxEventType(io.event_type);
+
+        let targetLabel = 'Integration Pipeline';
+        if (io.event_type === 'MOODLE_QUIZ_SYNC') {
+          const title = io.payload?.title || io.payload?.quizTitle || 'Assessment Test';
+          targetLabel = `${title} • ${course || io.aggregate_id}`;
+        } else if (io.event_type === 'MOODLE_QUESTION_SYNC') {
+          const qText = io.payload?.prompt ? io.payload.prompt.slice(0, 35) + '...' : 'Question Item';
+          targetLabel = `${qText} • ${course || ''}`;
+        } else if (studentName && matric) {
+          targetLabel = `${studentName} (${matric})`;
+        } else if (studentName) {
+          targetLabel = studentName;
+        } else if (matric && course) {
+          targetLabel = `${matric} • ${course}`;
+        } else if (matric) {
+          targetLabel = matric;
+        }
+
+        return {
+          id: String(io.event_id),
+          eventType: io.event_type,
+          action: actionLabel,
+          type: actionLabel,
+          aggregateType: io.aggregate_type,
+          aggregateId: io.aggregate_id,
+          studentId: io.aggregate_id,
+          matricNumber: matric,
+          studentName: studentName || io.aggregate_type,
+          targetStudent: targetLabel,
+          courseCode: course || io.aggregate_type,
+          status: io.status === 'PROCESSING' ? 'RETRYING' : io.status,
+          retryCount: io.delivery_attempts,
+          lastError: io.last_error,
+          payload: io.payload,
+          createdAt: io.created_at,
+          updatedAt: io.updated_at,
+          timestamp: io.created_at || io.updated_at,
+        };
+      }),
+    ];
+
+    formattedMoodleQueue.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt || a.timestamp || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || b.timestamp || 0).getTime();
+      return timeB - timeA;
+    });
 
     return res.status(200).json({
       success: true,
@@ -912,18 +1189,9 @@ export async function getOutboxEvents(req, res, next) {
           totalUnits: row.total_units,
           updatedAt: row.updated_at,
         })),
-        moodleSyncQueue: moodleResult.rows.map((m) => ({
-          id: m.id,
-          eventType: m.event_type,
-          studentId: m.student_focit_id,
-          matricNumber: m.matric_number,
-          studentName: m.student_name,
-          courseCode: m.course_code,
-          status: m.status,
-          retryCount: m.retry_count,
-          updatedAt: m.updated_at,
-        })),
-        total: batchResult.rowCount,
+        moodleSyncQueue: formattedMoodleQueue,
+        integrationEvents: integrationResult.rows,
+        total: formattedMoodleQueue.length,
       },
     });
   } catch (err) {
@@ -976,9 +1244,9 @@ export async function retryOutboxEvent(req, res, next) {
       const existingEvent = existingRes.rows[0];
       const previousStatus = existingEvent.status;
 
-      if (!['FAILED', 'PROCESSING'].includes(previousStatus)) {
+      if (!['FAILED', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(previousStatus)) {
         return res.status(400).json({
-          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED or PROCESSING events can be retried.`,
+          error: `Cannot retry outbox event with status '${previousStatus}'. Only FAILED, PROCESSING, COMPLETED, or SYNCED events can be retried.`,
           code: 'OUTBOX_STATUS_NOT_RETRYABLE',
           currentStatus: previousStatus,
         });
@@ -1013,7 +1281,74 @@ export async function retryOutboxEvent(req, res, next) {
       });
     }
 
-    // 2. Otherwise, retry registration batch (UUID)
+    // 2. If UUID, check integration_outbox_events first
+    const existingIntegrationRes = await pool.query(
+      `SELECT event_id, event_type, aggregate_id, status, locked_until FROM integration_outbox_events WHERE event_id = $1`,
+      [cleanId]
+    ).catch(() => ({ rowCount: 0, rows: [] }));
+
+    if (existingIntegrationRes.rowCount > 0) {
+      const existing = existingIntegrationRes.rows[0];
+      const previousIntegrationStatus = existing.status;
+      const isLeaseActive = previousIntegrationStatus === 'PROCESSING' && existing.locked_until && new Date(existing.locked_until) > new Date();
+
+      if (isLeaseActive) {
+        return res.status(409).json({
+          error: 'Cannot retry integration event while an active worker lease is currently processing it.',
+          code: 'OUTBOX_LEASE_ACTIVE',
+          lockedUntil: existing.locked_until,
+        });
+      }
+
+      if (!['FAILED', 'DEAD_LETTER', 'PROCESSING', 'COMPLETED', 'SYNCED'].includes(previousIntegrationStatus)) {
+        return res.status(400).json({
+          error: `Cannot retry integration event with status '${previousIntegrationStatus}'. Only FAILED, DEAD_LETTER, COMPLETED, or expired PROCESSING events can be retried.`,
+          code: 'OUTBOX_STATUS_NOT_RETRYABLE',
+          currentStatus: previousIntegrationStatus,
+        });
+      }
+
+      const integrationRes = await pool.query(
+        `
+        UPDATE integration_outbox_events
+        SET status = 'PENDING', delivery_attempts = 0, locked_until = NULL, last_error = NULL, updated_at = NOW()
+        WHERE event_id = $1
+          AND (
+            status IN ('FAILED', 'DEAD_LETTER', 'COMPLETED', 'SYNCED')
+            OR (status = 'PROCESSING' AND (locked_until IS NULL OR locked_until <= NOW()))
+          )
+        RETURNING event_id, event_type, aggregate_id, status
+        `,
+        [cleanId]
+      );
+
+      if (integrationRes.rowCount === 0) {
+        return res.status(409).json({
+          error: 'Could not retry integration event: an active worker claimed the lease concurrently.',
+          code: 'OUTBOX_CONCURRENT_MUTATION',
+        });
+      }
+
+      await recordIdentityAuditLog(pool, {
+        eventType: 'ADMIN_OUTBOX_RETRY_TRIGGERED',
+        actorId: req.user?.id || 'admin1',
+        actorRole: req.user?.role || 'ADMIN',
+        targetId: cleanId,
+        targetType: 'INTEGRATION_OUTBOX',
+        ipAddress: req.ip,
+        metadata: { newStatus: 'PENDING', previousStatus: previousIntegrationStatus },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          message: 'Integration outbox event reset to PENDING for worker reprocessing',
+          event: integrationRes.rows[0],
+        },
+      });
+    }
+
+    // 3. Otherwise, retry registration batch (UUID)
     const existingBatchRes = await pool.query(
       `SELECT id, status, student_id FROM course_registration_batches WHERE id = $1`,
       [cleanId]
@@ -1117,6 +1452,10 @@ export async function getAuditLogs(req, res, next) {
           targetEntity: row.target_type,
           ipAddress: row.ip_address,
           details: row.metadata,
+          metadata: row.metadata,
+          prevEntryHash: row.prev_entry_hash,
+          entryHash: row.entry_hash,
+          createdAt: row.created_at,
           timestamp: row.created_at,
         })),
         pagination: {

@@ -102,7 +102,7 @@ export function QuizFinalizedView({
             className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 touch-manipulation"
           >
             <Award size={16} aria-hidden="true" />
-            <span>View in Gradebook</span>
+            <span>Review Course Materials</span>
           </Link>
           <Link
             to={`/courses/${encodeURIComponent(courseId)}?tab=quizzes`}

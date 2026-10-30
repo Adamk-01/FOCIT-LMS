@@ -75,6 +75,15 @@ const ProtectedLayoutContent = () => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // Quarantined session enforcement (mandatory password reset before accessing any academic tools)
+  const isQuarantined = user?.scope === 'RESET_ONLY' || user?.mustChangePassword;
+  const role = String(user?.role || '').toUpperCase();
+  const isStaff = ['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role);
+  const targetPath = isStaff ? '/admin/profile' : '/profile';
+  if (isQuarantined && location.pathname !== targetPath) {
+    return <Navigate to={isStaff ? '/admin/profile' : '/profile?tab=security'} replace />;
+  }
+
   return (
     <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-[#f8fafc] dark:bg-[#090d16] transition-colors duration-200">
       {/* 1. Desktop Fixed-Position Rail Sidebar */}
