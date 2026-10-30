@@ -54,7 +54,11 @@ router.get('/allocations', async (req, res, next) => {
     let { semesterId } = req.query;
     if (!semesterId) {
       const activeSemRes = await db.query(
-        `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+        `SELECT s.id 
+         FROM academic_semesters s
+         LEFT JOIN academic_sessions sess ON sess.id = s.session_id
+         ORDER BY (sess.is_current = TRUE) DESC, (s.is_registration_open = TRUE) DESC, s.created_at DESC 
+         LIMIT 1`
       );
       semesterId = activeSemRes.rows[0]?.id || '2026_RAIN';
     }
@@ -238,6 +242,7 @@ router.get('/analytics', async (req, res, next) => {
     const { rows: dist } = await db.query(
       `SELECT s.level,
               COUNT(*)::int AS total_enrolled,
+              ROUND(COALESCE(AVG(s.current_gpa), 0)::numeric, 2)::float AS avg_gpa,
               COUNT(*) FILTER (WHERE s.current_gpa < 1.50)::int AS probation_risk,
               COUNT(*) FILTER (WHERE s.current_gpa >= 1.50 AND s.current_gpa < 2.50)::int AS third_class,
               COUNT(*) FILTER (WHERE s.current_gpa >= 2.50 AND s.current_gpa < 3.50)::int AS second_lower,

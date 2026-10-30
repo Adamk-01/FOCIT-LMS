@@ -54,6 +54,7 @@ export const NAV_ITEMS = [
     icon: Sparkles,
     badge: 'AI',
     screenNumber: '5',
+    staffOnly: true,
   },
   {
     name: 'Gradebook',
@@ -295,13 +296,6 @@ export const Sidebar = ({
         icon: HelpCircle,
         badge: 'Active',
         screenNumber: '4',
-      },
-      {
-        name: 'Question Bank & AI',
-        to: '/question-bank',
-        icon: Sparkles,
-        badge: 'AI',
-        screenNumber: '5',
       },
       {
         name: 'Gradebook',

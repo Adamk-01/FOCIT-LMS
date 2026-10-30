@@ -227,7 +227,7 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
 
-  const { data: rosterData, isLoading, error } = useLecturerCourseStudents(selectedCourseId, {
+  const { data: rosterData, isLoading, error, refetch: refetchRoster } = useLecturerCourseStudents(selectedCourseId, {
     search,
     level: levelFilter,
   });
@@ -385,9 +385,9 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                     <td className="py-2.5 px-4 text-xs text-gray-600">{student.programme_code || student.programme_name}</td>
                     <td className="py-2.5 px-4 text-xs font-semibold text-gray-600">{student.level}L</td>
                     <td className="py-2.5 px-4">
-                      {student.ca_test_score !== null && student.ca_test_score !== undefined ? (
+                      {student.ca_test_score !== null && student.ca_test_score !== undefined && !isNaN(Number(student.ca_test_score)) ? (
                         <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                          {student.ca_test_score} / 40
+                          {Math.min(40, Math.max(0, Number(student.ca_test_score))).toFixed(1)} / 40
                         </span>
                       ) : (
                         <span className="text-xs text-gray-400 font-mono italic">No Test</span>
@@ -422,14 +422,29 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                         onClick={async () => {
                           try {
                             const newStatus = !student.is_course_rep;
-                            await fetch(`/api/lecturer/courses/${selectedCourseId}/students/${student.student_id}/assign-rep`, {
+                            const nonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('session_nonce') : null;
+                            const res = await fetch(`/api/lecturer/courses/${encodeURIComponent(selectedCourseId)}/students/${encodeURIComponent(student.student_id)}/assign-rep`, {
                               method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                ...(nonce ? { 'x-session-nonce': nonce } : {}),
+                              },
                               body: JSON.stringify({ isRep: newStatus }),
                             });
-                            refetchRoster();
+
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              throw new Error(data.error || `Failed to update representative (HTTP ${res.status})`);
+                            }
+
+                            if (typeof refetchRoster === 'function') {
+                              await refetchRoster();
+                            }
                           } catch (e) {
                             console.error('Failed to update course rep', e);
+                            alert(e.message || 'Failed to update Course Representative designation.');
                           }
                         }}
                         className={`text-[11px] font-semibold px-2 py-1 rounded transition-colors ${

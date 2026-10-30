@@ -30,7 +30,7 @@ const VALID_TABS = PROFILE_TABS.map((t) => t.id);
 export function StudentProfilePage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const studentId = user?.username || 'student1';
+  const studentId = user?.student_id || user?.id || user?.username;
 
   // 1. Dual-State Partitioning: URL SearchParams tab pointer
   const currentTab = searchParams.get('tab') || 'overview';
@@ -57,6 +57,7 @@ export function StudentProfilePage() {
       const response = await apiClient.get('/student/profile', { signal });
       return response.data;
     },
+    enabled: Boolean(studentId),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -125,6 +126,17 @@ export function StudentProfilePage() {
   useEffect(() => {
     setFeedback(null);
   }, [activeTab, setFeedback]);
+
+  if (!studentId) {
+    return (
+      <div className="max-w-4xl mx-auto my-12 p-6">
+        <ErrorStateView
+          title="Session Required"
+          message="Authenticated student credentials required to view profile settings."
+        />
+      </div>
+    );
+  }
 
   // Loading Skeleton State
   if (isLoading) {

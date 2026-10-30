@@ -82,7 +82,7 @@ router.get('/:courseId/forum', async (req, res, next) => {
  */
 router.post('/:courseId/forum/threads', async (req, res, next) => {
   const { courseId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const studentId = req.user?.student_id || req.user?.studentId || req.user?.id || req.user?.username || 'student1';
   const { title, body } = req.body;
 
   if (!title || !title.trim() || !body || !body.trim()) {
@@ -105,20 +105,38 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
   }
 
   try {
-    const studentQuery = await pool.query(
-      'SELECT full_name FROM students WHERE student_id = $1 LIMIT 1',
-      [studentId]
-    );
-    let authorName = studentQuery.rows[0]?.full_name;
-    let authorRole = req.user?.role || 'STUDENT';
+    const callerRole = String(req.user?.role || 'STUDENT').toUpperCase();
+    const isStaff = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(callerRole);
 
-    if (!authorName) {
+    let resolvedAuthorId = String(studentId);
+    let authorName = null;
+    let authorRole = callerRole;
+
+    if (isStaff) {
       const staffQuery = await pool.query(
-        'SELECT full_name, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 LIMIT 1',
-        [studentId]
+        'SELECT advisor_id, full_name, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2) LIMIT 1',
+        [String(studentId), req.user?.email ? String(req.user.email).trim() : '']
       );
-      authorName = staffQuery.rows[0]?.full_name || req.user?.name || 'Academic Staff';
-      authorRole = staffQuery.rows[0]?.role || req.user?.role || 'LECTURER';
+      if (staffQuery.rows.length > 0) {
+        resolvedAuthorId = staffQuery.rows[0].advisor_id;
+        authorName = staffQuery.rows[0].full_name;
+        authorRole = staffQuery.rows[0].role || callerRole;
+      } else {
+        authorName = req.user?.name || 'Academic Staff';
+        authorRole = callerRole;
+      }
+    } else {
+      const studentQuery = await pool.query(
+        'SELECT student_id, full_name FROM students WHERE student_id = $1 OR UPPER(matric_number) = UPPER($1) OR UPPER(username) = UPPER($1) ORDER BY (student_id = $1) DESC LIMIT 1',
+        [String(studentId)]
+      );
+      if (studentQuery.rows.length > 0) {
+        resolvedAuthorId = studentQuery.rows[0].student_id;
+        authorName = studentQuery.rows[0].full_name;
+      } else {
+        authorName = req.user?.name || 'Student';
+      }
+      authorRole = 'STUDENT';
     }
 
     const insertResult = await pool.query(`
@@ -134,7 +152,7 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         created_at
       ) VALUES ($1, $2, $3, $4, $5, $6, 0, NOW(), NOW())
       RETURNING *;
-    `, [courseId, studentId, authorName, authorRole, title.trim(), body.trim()]);
+    `, [courseId, resolvedAuthorId, authorName, authorRole, title.trim(), body.trim()]);
 
     spamBucket.set(studentId, now);
 

@@ -48,7 +48,7 @@ function RoleRouteGuard({ allowedRoles, fallbackPath, children }) {
     if (fallbackPath) return <Navigate to={fallbackPath} replace />;
     if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
     if (role === 'HOD') return <Navigate to="/hod" replace />;
-    if (['LECTURER', 'LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF'].includes(role)) {
+    if (['LECTURER', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(role)) {
       return <Navigate to="/lecturer" replace />;
     }
     if (role === 'STUDENT') return <Navigate to="/dashboard" replace />;
@@ -90,7 +90,7 @@ export const router = createBrowserRouter([
       {
         path: 'lecturer',
         element: (
-          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN']}>
+          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'ADMIN', 'SYSTEM_ADMIN']}>
             <LecturerDashboardPage />
           </RoleRouteGuard>
         ),
@@ -126,6 +126,10 @@ export const router = createBrowserRouter([
         errorElement: <RouteErrorBoundary />,
       },
       {
+        path: 'advisor/registrations',
+        element: <Navigate to="/lecturer" replace />,
+      },
+      {
         path: 'profile',
         element: <RoleRouteGuard allowedRoles={['STUDENT']}><StudentProfilePage /></RoleRouteGuard>,
         errorElement: <RouteErrorBoundary />,
@@ -138,9 +142,33 @@ export const router = createBrowserRouter([
       { path: 'courses/:courseId/quizzes', element: <QuizAttemptPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/grades', element: <GradebookPage />, errorElement: <RouteErrorBoundary /> },
       { path: 'courses/:courseId/forum', element: <ForumPage />, errorElement: <RouteErrorBoundary /> },
-      { path: 'courses/:courseId/question-bank', element: <QuestionBankPage />, errorElement: <RouteErrorBoundary /> },
-      { path: 'question-bank', element: <QuestionBankPage />, errorElement: <RouteErrorBoundary /> },
-      { path: 'lecturer/question-bank', element: <QuestionBankPage />, errorElement: <RouteErrorBoundary /> },
+      {
+        path: 'courses/:courseId/question-bank',
+        element: (
+          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <QuestionBankPage />
+          </RoleRouteGuard>
+        ),
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'question-bank',
+        element: (
+          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <QuestionBankPage />
+          </RoleRouteGuard>
+        ),
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'lecturer/question-bank',
+        element: (
+          <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <QuestionBankPage />
+          </RoleRouteGuard>
+        ),
+        errorElement: <RouteErrorBoundary />,
+      },
     ],
   },
 ]);

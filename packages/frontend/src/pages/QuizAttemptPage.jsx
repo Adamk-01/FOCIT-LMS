@@ -24,9 +24,9 @@ import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
 export function QuizAttemptPage() {
-  const { courseId = 'CSC204', quizId = 'quiz_csc204_1', attemptId = 'att_csc204_john' } = useParams();
+  const { courseId, quizId, attemptId } = useParams();
   const { user } = useAuth();
-  const studentId = user?.username || user?.id || 'student1';
+  const studentId = user?.student_id || user?.id || user?.username;
 
   const {
     attempt,
@@ -52,6 +52,22 @@ export function QuizAttemptPage() {
     isFinalized,
     triggerSubmit,
   } = useQuizAttempt({ quizId, attemptId, studentId });
+
+  if (!studentId) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorAlertCallout error={{ message: 'Authenticated student session required to participate in assessments.' }} />
+      </div>
+    );
+  }
+
+  if (!quizId || !attemptId) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorAlertCallout error={{ message: 'Invalid or missing quiz attempt identifier. Please select an active quiz from your course assessments.' }} />
+      </div>
+    );
+  }
 
   // 1. Loading State
   if (isLoading) {

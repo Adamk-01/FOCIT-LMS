@@ -459,44 +459,117 @@ router.get(
 );
 
 // ─── 4. Lecturer Material Upload (PDF, PPTX, DOCX) ─────────────────────────────
+// Route mounted under /api/courses, so path is /:courseId/upload -> /api/courses/:courseId/upload
 router.post(
-  '/courses/:courseId/upload',
+  '/:courseId/upload',
   async (req, res, next) => {
     const { courseId } = req.params;
     const { title, description, fileUrl, fileType, fileSize } = req.body || {};
 
+    // 1. Strict validation of fields
     if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ error: 'Material title is required', code: 'INVALID_TITLE' });
     }
+    if (title.trim().length > 255) {
+      return res.status(400).json({ error: 'Material title must not exceed 255 characters', code: 'TITLE_TOO_LONG' });
+    }
+
+    if (!fileUrl || typeof fileUrl !== 'string' || !fileUrl.trim()) {
+      return res.status(400).json({ error: 'Valid fileUrl is required.', code: 'INVALID_FILE_URL' });
+    }
+
+    const trimmedUrl = fileUrl.trim();
+    // Validate scheme: only allow safe relative application paths (/api/files/... or /uploads/...) or secure HTTPS URLs
+    const isSafeRelative = trimmedUrl.startsWith('/api/files/') || trimmedUrl.startsWith('/uploads/');
+    const isSafeHttps = /^https:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/.*)?$/i.test(trimmedUrl);
+    if (!isSafeRelative && !isSafeHttps) {
+      return res.status(400).json({
+        error: 'Invalid fileUrl scheme: Must be an application file path (/api/files/...) or secure https:// URL.',
+        code: 'INVALID_FILE_URL_SCHEME',
+      });
+    }
+
+    if (isSafeRelative && (trimmedUrl.includes('..') || /%2e%2e/i.test(trimmedUrl) || trimmedUrl.includes('\\'))) {
+      return res.status(400).json({
+        error: 'Path traversal characters (..) are not permitted in fileUrl',
+        code: 'INVALID_PATH',
+      });
+    }
+
+    const allowedFileTypes = ['PDF', 'PPTX', 'DOCX', 'PPT', 'DOC', 'TXT', 'ZIP', 'DOCUMENT'];
+    const sanitizedFileType = typeof fileType === 'string' && allowedFileTypes.includes(fileType.trim().toUpperCase())
+      ? fileType.trim().toUpperCase()
+      : 'DOCUMENT';
+
+    const sanitizedFileSize = typeof fileSize === 'string' && fileSize.trim().length <= 32
+      ? fileSize.trim()
+      : 'Document';
 
     try {
-      // Create materials table if not exists
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS course_uploaded_materials (
-          id SERIAL PRIMARY KEY,
-          course_id VARCHAR(32) NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
-          title VARCHAR(255) NOT NULL,
-          description TEXT,
-          file_url TEXT NOT NULL,
-          file_type VARCHAR(64) DEFAULT 'DOCUMENT',
-          file_size VARCHAR(32),
-          uploaded_by VARCHAR(64),
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        )
-      `);
+      // 2. Resolve canonical course record (guarantees valid course_id FK)
+      const course = await resolveCourseRecord(courseId);
+      if (!course) {
+        return res.status(404).json({ error: 'Course not found in authoritative catalog', code: 'COURSE_NOT_FOUND' });
+      }
+      const canonicalCourseId = course.course_id;
+
+      // 3. Restrict uploads to authorized course staff (Lecturer allocated to course, Department HOD, or System Admin)
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const rawUserId = req.user?.username || req.user?.id || req.user?.student_id;
+      const isSysAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(userRole);
+
+      // Resolve authoritative staff record before allocation and HOD checks
+      const staffRes = await pool.query(
+        `SELECT advisor_id, department_id, full_name, role 
+         FROM staff_advisors 
+         WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+         LIMIT 1`,
+        [String(rawUserId), req.user?.email ? String(req.user.email).trim() : '']
+      );
+      const staff = staffRes.rows[0];
+      const canonicalLecturerId = staff?.advisor_id || rawUserId;
+      const staffDeptId = staff?.department_id;
+
+      const termRes = await pool.query(
+        `SELECT s.id 
+         FROM academic_semesters s
+         LEFT JOIN academic_sessions sess ON sess.id = s.session_id
+         ORDER BY (sess.is_current = TRUE) DESC, s.created_at DESC 
+         LIMIT 1`
+      );
+      const activeSemesterId = req.body?.semester_id || req.query?.semester_id || termRes.rows[0]?.id || '2026_RAIN';
+
+      const isStaffRole = ['LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+      let isAllocated = false;
+      if (isStaffRole && canonicalLecturerId) {
+        isAllocated = (await pool.query(
+          `SELECT 1 FROM hod_course_allocations 
+           WHERE course_id = $1 AND lecturer_id = $2 AND (semester_id = $3 OR semester_id IS NULL) LIMIT 1`,
+          [canonicalCourseId, canonicalLecturerId, activeSemesterId]
+        )).rows.length > 0;
+      }
+
+      const isDeptHod = userRole === 'HOD' && Boolean(staffDeptId && course.department_id && staffDeptId === course.department_id);
+
+      if (!isSysAdmin && !isAllocated && !isDeptHod) {
+        return res.status(403).json({
+          error: 'Forbidden: You must be an allocated course lecturer or departmental HOD to upload lecture materials.',
+          code: 'FORBIDDEN_STAFF_REQUIRED',
+        });
+      }
 
       const insertRes = await pool.query(
         `INSERT INTO course_uploaded_materials (course_id, title, description, file_url, file_type, file_size, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
         [
-          courseId,
+          canonicalCourseId,
           title.trim(),
-          description?.trim() || null,
-          fileUrl || `/mock-files/lecture_notes_${courseId}.pdf`,
-          fileType || 'PDF',
-          fileSize || '2.4 MB',
-          req.user?.username || 'lecturer1',
+          description && typeof description === 'string' ? description.trim() : null,
+          trimmedUrl,
+          sanitizedFileType,
+          sanitizedFileSize,
+          req.user?.name || req.user?.username || 'Lecturer',
         ]
       );
 
@@ -512,28 +585,52 @@ router.post(
 );
 
 // ─── 5. Fetch Lecturer Uploaded Materials ──────────────────────────────────────
+// Route mounted under /api/courses, so path is /:courseId/uploaded -> /api/courses/:courseId/uploaded
 router.get(
-  '/courses/:courseId/uploaded',
+  '/:courseId/uploaded',
   async (req, res, next) => {
     const { courseId } = req.params;
     try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS course_uploaded_materials (
-          id SERIAL PRIMARY KEY,
-          course_id VARCHAR(32) NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
-          title VARCHAR(255) NOT NULL,
-          description TEXT,
-          file_url TEXT NOT NULL,
-          file_type VARCHAR(64) DEFAULT 'DOCUMENT',
-          file_size VARCHAR(32),
-          uploaded_by VARCHAR(64),
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        )
-      `);
+      // 1. Resolve canonical course record
+      const course = await resolveCourseRecord(courseId);
+      if (!course) {
+        return res.status(404).json({ error: 'Course not found in authoritative catalog', code: 'COURSE_NOT_FOUND' });
+      }
+      const canonicalCourseId = course.course_id;
+
+      // 2. Check course access: Must be actively enrolled student OR authorized course staff / Admin
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isStaff = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+
+      if (!isStaff) {
+        // Resolve authoritative student_id from students table (handling student_id, matric_number, or username)
+        const rawIdentifier = req.user?.student_id || req.user?.id || req.user?.username;
+        const studentRes = await pool.query(
+          `SELECT student_id FROM students 
+           WHERE student_id = $1 OR UPPER(matric_number) = UPPER($1) OR UPPER(username) = UPPER($1) 
+           LIMIT 1`,
+          [rawIdentifier]
+        );
+        const canonicalStudentId = studentRes.rows[0]?.student_id || rawIdentifier;
+
+        const enrollmentRes = await pool.query(
+          `SELECT 1 FROM enrollments 
+           WHERE course_id = $1 AND student_id = $2 
+             AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
+           LIMIT 1`,
+          [canonicalCourseId, canonicalStudentId]
+        );
+        if (enrollmentRes.rows.length === 0) {
+          return res.status(403).json({
+            error: 'Forbidden: You must be actively enrolled in this course to view course materials.',
+            code: 'FORBIDDEN_COURSE_ACCESS',
+          });
+        }
+      }
 
       const { rows } = await pool.query(
         `SELECT * FROM course_uploaded_materials WHERE course_id = $1 ORDER BY created_at DESC`,
-        [courseId]
+        [canonicalCourseId]
       );
 
       res.json({ materials: rows });

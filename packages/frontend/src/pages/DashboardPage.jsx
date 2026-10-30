@@ -17,11 +17,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../lib/api';
+import { ErrorStateView } from '../components/ErrorStateView';
 
 export const DashboardPage = () => {
   const { user } = useAuth();
   const location = useLocation();
-  const studentId = user?.username || 'student1';
+  const studentId = user?.student_id || user?.id || user?.username;
 
   // Query authoritative student dashboard telemetry from BFF
   const { 
@@ -35,8 +36,25 @@ export const DashboardPage = () => {
       const response = await apiClient.get('/student/dashboard', { signal });
       return response.data;
     },
+    enabled: Boolean(studentId),
     staleTime: 5 * 60 * 1000,
   });
+
+  if (!studentId) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorStateView title="Session Required" message="Authenticated student session required to view dashboard telemetry." />
+      </div>
+    );
+  }
+
+  if (error && !dashboardData) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorStateView title="Dashboard Telemetry Unavailable" message={error.response?.data?.error || error.message || 'Failed to retrieve student dashboard telemetry.'} onRetry={refetch} />
+      </div>
+    );
+  }
 
   const student = dashboardData?.student;
   const metrics = dashboardData?.metrics;

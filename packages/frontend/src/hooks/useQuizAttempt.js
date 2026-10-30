@@ -103,6 +103,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     refetch,
   } = useQuery({
     queryKey: ['quiz-attempt', quizId, attemptId],
+    enabled: Boolean(quizId && attemptId && studentId),
     queryFn: async () => {
       const clientSend = Date.now();
       const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}`);

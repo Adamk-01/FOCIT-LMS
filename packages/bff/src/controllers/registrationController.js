@@ -584,7 +584,24 @@ export async function submitRegistration(req, res) {
  * Returns submitted student batches filtered by level, status, and programme.
  */
 export async function getAdvisorCohort(req, res) {
-  const advisorId = req.user?.username || req.user?.id || 'advisor1';
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const rawAdvisorId = req.user?.username || req.user?.id;
+  if (!rawAdvisorId) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
+  const staffCheck = await pool.query(
+    `SELECT advisor_id, role FROM staff_advisors 
+     WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+     LIMIT 1`,
+    [rawAdvisorId, req.user?.email ? String(req.user.email).trim() : '']
+  );
+  if (staffCheck.rows.length === 0 && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+    return res.status(403).json({
+      error: 'Forbidden: You must be an authorized academic advisor or administrator to reject registrations',
+      code: 'FORBIDDEN_STAFF_REQUIRED',
+    });
+  }
+  const advisorId = staffCheck.rows[0]?.advisor_id || rawAdvisorId;
   const { level, status, programme_id } = req.query || {};
   const filterStatus = (status && status !== 'ALL') ? status : (status === 'ALL' ? null : 'SUBMITTED');
 
@@ -598,11 +615,21 @@ export async function getAdvisorCohort(req, res) {
     );
 
     const advisor = advisorRes.rows[0];
+    if (!advisor && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+      return res.status(403).json({
+        error: 'Forbidden: Level Advisor identity not found in academic registry',
+        code: 'FORBIDDEN_ADVISOR_NOT_FOUND',
+      });
+    }
     const targetLevel = level ? parseInt(level, 10) : (advisor?.assigned_level || 200);
 
     // 2. Fetch Active Semester
     const termRes = await pool.query(
-      `SELECT id, name FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+      `SELECT s.id, s.name 
+       FROM academic_semesters s
+       LEFT JOIN academic_sessions sess ON sess.id = s.session_id
+       ORDER BY (sess.is_current = TRUE) DESC, (s.is_registration_open = TRUE) DESC, s.created_at DESC 
+       LIMIT 1`
     );
     if (termRes.rows.length === 0) {
       return res.status(200).json({ batches: [], message: 'No active registration semester' });
@@ -677,7 +704,24 @@ export async function getAdvisorCohort(req, res) {
  * Eliminates 40P01 deadlocks by sorting batch IDs and student IDs.
  */
 export async function batchApproveRegistrations(req, res) {
-  const advisorId = req.user?.username || req.user?.id || 'advisor1';
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const rawAdvisorId = req.user?.username || req.user?.id;
+  if (!rawAdvisorId) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
+  const staffCheck = await pool.query(
+    `SELECT advisor_id, role FROM staff_advisors 
+     WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+     LIMIT 1`,
+    [rawAdvisorId, req.user?.email ? String(req.user.email).trim() : '']
+  );
+  if (staffCheck.rows.length === 0 && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+    return res.status(403).json({
+      error: 'Forbidden: You must be an authorized academic advisor or administrator to reject registrations',
+      code: 'FORBIDDEN_STAFF_REQUIRED',
+    });
+  }
+  const advisorId = staffCheck.rows[0]?.advisor_id || rawAdvisorId;
   const { batch_ids: rawBatchIds } = req.body || {};
 
   if (!Array.isArray(rawBatchIds) || rawBatchIds.length === 0) {
@@ -821,7 +865,24 @@ export async function batchApproveRegistrations(req, res) {
  * this endpoint acts idempotently and skips capacity decrements to prevent leaking seats.
  */
 export async function rejectRegistration(req, res) {
-  const advisorId = req.user?.username || req.user?.id || 'advisor1';
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const rawAdvisorId = req.user?.username || req.user?.id;
+  if (!rawAdvisorId) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
+  const staffCheck = await pool.query(
+    `SELECT advisor_id, role FROM staff_advisors 
+     WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+     LIMIT 1`,
+    [rawAdvisorId, req.user?.email ? String(req.user.email).trim() : '']
+  );
+  if (staffCheck.rows.length === 0 && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+    return res.status(403).json({
+      error: 'Forbidden: You must be an authorized academic advisor or administrator to reject registrations',
+      code: 'FORBIDDEN_STAFF_REQUIRED',
+    });
+  }
+  const advisorId = staffCheck.rows[0]?.advisor_id || rawAdvisorId;
   const { batch_id: batchId, remarks } = req.body || {};
 
   if (!batchId || !remarks || typeof remarks !== 'string' || remarks.trim().length < 5) {
