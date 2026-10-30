@@ -177,6 +177,39 @@ export function errorHandler(err, req, res, _next) {
     });
   }
 
+  // === PostgreSQL Connection Pool & Transient Network Timeouts ===
+  const isDbConnectionTimeout =
+    err.message?.includes('Connection terminated due to connection timeout') ||
+    err.message?.includes('timeout exceeded when trying to connect') ||
+    err.message?.includes('Connection terminated unexpectedly') ||
+    err.code === 'ETIMEDOUT' ||
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'ENOTFOUND' ||
+    err.code === '57P01' || // admin_shutdown
+    err.code === '57P02' || // crash_shutdown
+    err.code === '57P03';   // cannot_connect_now
+
+  if (isDbConnectionTimeout) {
+    logger.warn({
+      correlationId,
+      err_code: err.code,
+      err_message: err.message,
+    }, '[DB Guard] PostgreSQL transient connection timeout intercepted');
+
+    return res.status(503)
+      .set('Retry-After', '3')
+      .json({
+        type: 'https://focit.uniosun.edu.ng/errors/database-unavailable',
+        title: 'Database Cluster Warming Up',
+        status: 503,
+        error: 'The campus database is warming up or experiencing transient latency. Please retry shortly.',
+        detail: 'The authoritative database cluster is resuming from a power-saving state or experiencing transient network latency. Automatic retry advised.',
+        code: 'DATABASE_TRANSIENT_TIMEOUT',
+        retryAfter: 3,
+        correlationId,
+      });
+  }
+
   // === PostgreSQL Check (23514), Unique (23505), Foreign Key (23503) Boundaries ===
   if (err.code === '23514' || err.code === '23505' || err.code === '23503') {
     const rawConstraint = err.constraint;

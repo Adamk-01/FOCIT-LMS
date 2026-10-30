@@ -142,6 +142,12 @@ async function runSeed() {
     await client.query(phase12LibrarySql);
     logger.info('[DB Seed] Migration 015 Digital Library committed successfully.');
 
+    const phase16QuizPath = path.resolve(__dirname, 'migrations', '016_quiz_ingress_doctrine.sql');
+    logger.info({ path: phase16QuizPath }, '[DB Seed] Reading Migration 016 Quiz Ingress Doctrine SQL file...');
+    const phase16QuizSql = await fs.readFile(phase16QuizPath, 'utf8');
+    await client.query(phase16QuizSql);
+    logger.info('[DB Seed] Migration 016 Quiz Ingress Doctrine committed successfully.');
+
     // Seed Digital Library Items & Binary PDFs
     const { seedDigitalLibrary } = await import('./seedLibrary.js');
     await seedDigitalLibrary();

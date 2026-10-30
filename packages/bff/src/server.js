@@ -39,6 +39,7 @@ import assignmentsRouter from './routes/assignments.js';
 import studentCoursesRouter from './routes/studentCourses.js';
 import timetableRouter from './routes/timetable.js';
 import libraryRouter from './routes/library.js';
+import { pool } from './db/index.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
 
@@ -145,6 +146,13 @@ app.use((req, res) => {
 // ─── 9. Global Error Handler (must be last) ──────────────────
 app.use(errorHandler);
 
+// Eager Redis connection for fail-closed session barriers
+if (redis.status === 'wait') {
+  redis.connect().catch((err) => {
+    logger.warn({ err: err?.message || err }, '[Redis] Eager connection initiation warning');
+  });
+}
+
 // ─── Start HTTP Server (Stateless Web Plane) ─────────────────
 const server = app.listen(config.port, () => {
   console.log(`\n  ┌──────────────────────────────────────────┐`);
@@ -160,6 +168,7 @@ const server = app.listen(config.port, () => {
 // ─── Zero-Downtime Graceful Shutdown Lifecycle ───────────────
 setupGracefulShutdown({
   server,
+  pool,
   redis,
   workers: [], // Background workers decoupled into worker.js
   options: {

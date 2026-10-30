@@ -39,9 +39,9 @@ const isNeon = rawUrl.includes('neon.tech');
 const poolConfig = {
   connectionString: rawUrl,
   max: 20,                          // Little's Law capacity ceiling per process
-  idleTimeoutMillis: 30000,         // Purge idle sockets after 30s
-  connectionTimeoutMillis: 10000,   // 10s to absorb Neon compute cold-start if scale-to-zero is active
-  query_timeout: 10000,             // Client-side circuit breaker (2s buffer above server 8s statement_timeout)
+  idleTimeoutMillis: 120000,        // 2 minutes (prevents aggressive socket churn on tab reading)
+  connectionTimeoutMillis: 30000,   // 30s to absorb Neon compute cold-start + WAN jitter
+  query_timeout: 15000,             // Client-side circuit breaker (7s buffer above server 8s statement_timeout)
   allowExitOnIdle: false,
 };
 
@@ -52,7 +52,9 @@ export const pool = isNeon ? new NeonPool(poolConfig) : new pg.Pool(poolConfig);
 // Direct pool dedicated for DDL / migrations / seed scripts (bypasses PgBouncer transaction mode)
 const directUrl = process.env.DIRECT_DATABASE_URL || rawUrl.replace('-pooler', '');
 const directIsNeon = directUrl.includes('neon.tech');
-export const directPool = directIsNeon ? new NeonPool({ connectionString: directUrl }) : new pg.Pool({ connectionString: directUrl });
+export const directPool = directIsNeon 
+  ? new NeonPool({ connectionString: directUrl, connectionTimeoutMillis: 30000 }) 
+  : new pg.Pool({ connectionString: directUrl, connectionTimeoutMillis: 30000 });
 
 pool.on('error', (err) => {
   logger.error({ err: err?.message || err }, '[PostgreSQL] Unexpected error on idle client');

@@ -162,7 +162,10 @@ export function verifyEdgeTicket(ticket, expectedItemId, clientIp, userAgent, en
   const sigBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expectedSignature);
 
-  if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+  if (sigBuffer.byteLength !== expectedBuffer.byteLength) {
+    return { valid: false, reason: 'INVALID_SIGNATURE' };
+  }
+  if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
     return { valid: false, reason: 'INVALID_SIGNATURE' };
   }
 
@@ -191,7 +194,10 @@ export function verifyEdgeTicket(ticket, expectedItemId, clientIp, userAgent, en
     const fpsBuffer = Buffer.from(payload.fps);
     const computedBuffer = Buffer.from(computedFps);
 
-    if (fpsBuffer.length !== computedBuffer.length || !crypto.timingSafeEqual(fpsBuffer, computedBuffer)) {
+    if (fpsBuffer.byteLength !== computedBuffer.byteLength) {
+      return { valid: false, reason: 'FINGERPRINT_MISMATCH' };
+    }
+    if (!crypto.timingSafeEqual(fpsBuffer, computedBuffer)) {
       return { valid: false, reason: 'FINGERPRINT_MISMATCH' };
     }
   }

@@ -30,6 +30,12 @@ let activeFlushPromise = null;
 
 const TELEMETRY_FLUSH_INTERVAL_MS = 10_000;
 
+if (redis && redis.status === 'wait') {
+  redis.connect().catch((err) => {
+    logger.warn({ err: err?.message || err }, '[WorkerPlane] Initial Redis connection deferred');
+  });
+}
+
 /**
  * Schedules the recurring telemetry flush cycle with active in-flight tracking
  */
@@ -41,7 +47,13 @@ function scheduleTelemetryFlush() {
 
     activeFlushPromise = (async () => {
       try {
-        await rotateAndDrainTelemetry(pool);
+        const res = await rotateAndDrainTelemetry(pool);
+        if (res?.drained && (res.itemsCount > 0 || res.auditCount > 0)) {
+          logger.info(
+            { itemsCount: res.itemsCount, auditCount: res.auditCount },
+            '[WorkerPlane] Flushed periodic telemetry batch to PostgreSQL'
+          );
+        }
       } catch (err) {
         logger.error({ err: err?.message || err }, '[WorkerPlane] Error during recurring telemetry flush');
       } finally {
@@ -132,13 +144,18 @@ async function handleShutdown(signal) {
     }
 
     // 4b. Close Redis Connection
-    if (redis && typeof redis.quit === 'function') {
+    if (redis) {
       try {
-        await redis.quit();
+        if (redis.status === 'ready') {
+          await redis.quit();
+        } else {
+          redis.disconnect();
+        }
         logger.info('[WorkerPlane] Redis connection closed cleanly');
       } catch (redisErr) {
         logger.warn({ err: redisErr?.message || redisErr }, '[WorkerPlane] Redis quit timed out; forcing disconnect');
         redis.disconnect();
+        logger.info('[WorkerPlane] Redis connection closed cleanly');
       }
     }
 
@@ -155,3 +172,11 @@ async function handleShutdown(signal) {
 
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('message', (msg) => {
+  if (msg === 'SIGTERM' || msg === 'SIGINT' || msg?.type === 'SHUTDOWN') {
+    handleShutdown(msg?.signal || (typeof msg === 'string' ? msg : 'SIGTERM'));
+  }
+});
+
+export { handleShutdown, scheduleTelemetryFlush };
+

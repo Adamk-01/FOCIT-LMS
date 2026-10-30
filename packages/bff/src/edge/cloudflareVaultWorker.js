@@ -82,6 +82,8 @@ export default {
       if (response.status === 200 || response.status === 206) {
         const edgeHeaders = new Headers(response.headers);
         edgeHeaders.set('Cache-Control', 'public, s-maxage=604800, max-age=0, must-revalidate');
+        edgeHeaders.set('Vary', 'Range, Accept-Encoding');
+        edgeHeaders.delete('Set-Cookie');
         edgeHeaders.set('X-Edge-Cache', 'MISS');
 
         const cachedResponse = new Response(response.body, {

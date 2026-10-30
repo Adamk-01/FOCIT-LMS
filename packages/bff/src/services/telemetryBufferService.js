@@ -52,8 +52,9 @@ const memoryLeaseFallback = new Map();
 
 /**
  * UUID regex validator for PostgreSQL safety.
+ * Matches canonical 8-4-4-4-12 hex format consistent with library.js and PostgreSQL 16 uuid type.
  */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Records a verified telemetry event with distributed de-duplication.
@@ -80,6 +81,9 @@ export async function recordTelemetryEvent(studentId, itemId, eventType) {
   const leaseKey = `${LEASE_PREFIX}${eventType}:${cleanStudentId}:${cleanItemId}`;
 
   // 1. Distributed De-duplication Lease
+  if (redis && redis.status === 'wait') {
+    redis.connect().catch(() => {});
+  }
   const isRedisReady = redis && redis.status === 'ready';
 
   if (isRedisReady) {
@@ -144,6 +148,14 @@ export async function recordTelemetryEvent(studentId, itemId, eventType) {
 export async function rotateAndDrainTelemetry(dbPool) {
   if (!dbPool) {
     return { drained: false, itemsCount: 0, auditCount: 0, reason: 'NO_DB_POOL' };
+  }
+
+  if (redis && redis.status === 'wait') {
+    try {
+      await redis.connect();
+    } catch (err) {
+      logger.warn({ err: err?.message }, '[TelemetryService] Lazy Redis connect attempt failed');
+    }
   }
 
   const isRedisReady = redis && redis.status === 'ready';

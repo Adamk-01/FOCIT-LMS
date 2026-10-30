@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, AuthState } from '../contexts/AuthContext';
+import { ExamLockProvider, useExamLock } from '../contexts/ExamLockContext';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Topbar } from '../components/layout/Topbar';
 import { QuarantineBoundary } from '../components/QuarantineBoundary';
@@ -13,10 +14,19 @@ import { QuarantineBoundary } from '../components/QuarantineBoundary';
  * - Zero CLS layout stability with isolated scrollport in <main>
  * - min-w-0 flex container to prevent wide tables (e.g. Gradebook) from blowing out the viewport
  * - Desktop collapsible rail + Mobile GPU-composited drawer with accessibility modal trapping
+ * - Exam Navigation Lockdown: grays out and freezes sidebar/topbar during active assessments
  */
-export const ProtectedLayout = () => {
+const ProtectedLayoutContent = () => {
   const { status, user, logout } = useAuth();
   const location = useLocation();
+  const { isExamLocked, setExamLocked } = useExamLock();
+
+  // Reset exam lock if user navigates away from quiz route
+  useEffect(() => {
+    if (!location.pathname.includes('/quizzes/')) {
+      setExamLocked(false);
+    }
+  }, [location.pathname, setExamLocked]);
 
   // Desktop rail expansion state (persisted across sessions)
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
@@ -47,13 +57,13 @@ export const ProtectedLayout = () => {
   // Handle escape key to close mobile drawer
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isMobileDrawerOpen) {
+      if (e.key === 'Escape' && isMobileDrawerOpen && !isExamLocked) {
         setIsMobileDrawerOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMobileDrawerOpen]);
+  }, [isMobileDrawerOpen, isExamLocked]);
 
   // Render Institutional Quarantine Boundary if session revocation failed
   if (status === AuthState.QUARANTINED) {
@@ -71,7 +81,7 @@ export const ProtectedLayout = () => {
       <aside 
         className={`hidden md:flex flex-col bg-[#0a1142] text-white shrink-0 transition-all duration-200 ease-in-out border-r border-[#16258f]/40 z-30 select-none ${
           isSidebarExpanded ? 'w-64' : 'w-20'
-        }`}
+        } ${isExamLocked ? 'opacity-25 pointer-events-none select-none cursor-not-allowed filter grayscale transition-opacity duration-300' : ''}`}
         aria-label="Desktop Navigation"
       >
         <Sidebar 
@@ -79,6 +89,7 @@ export const ProtectedLayout = () => {
           onToggle={() => setIsSidebarExpanded((prev) => !prev)}
           user={user}
           onLogout={logout}
+          isExamLocked={isExamLocked}
         />
       </aside>
 
@@ -86,7 +97,7 @@ export const ProtectedLayout = () => {
       {/* Accessible Backdrop */}
       <div 
         className={`fixed inset-0 bg-[#040617]/70 backdrop-blur-sm z-40 transition-opacity duration-200 md:hidden ${
-          isMobileDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          isMobileDrawerOpen && !isExamLocked ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         onClick={() => setIsMobileDrawerOpen(false)}
         aria-hidden="true"
@@ -98,8 +109,8 @@ export const ProtectedLayout = () => {
         aria-modal="true"
         aria-label="Mobile Navigation Drawer"
         className={`fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#0a1142] text-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out md:hidden ${
-          isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+          isMobileDrawerOpen && !isExamLocked ? 'translate-x-0' : '-translate-x-full'
+        } ${isExamLocked ? 'opacity-25 pointer-events-none' : ''}`}
       >
         <Sidebar 
           isExpanded={true}
@@ -107,6 +118,7 @@ export const ProtectedLayout = () => {
           onCloseMobile={() => setIsMobileDrawerOpen(false)}
           user={user}
           onLogout={logout}
+          isExamLocked={isExamLocked}
         />
       </aside>
 
@@ -114,8 +126,9 @@ export const ProtectedLayout = () => {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Topbar: Fixed 64px height invariant (flex-shrink: 0) */}
         <Topbar 
-          onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+          onOpenMobileDrawer={isExamLocked ? undefined : () => setIsMobileDrawerOpen(true)}
           user={user}
+          isExamLocked={isExamLocked}
         />
 
         {/* Main Content Area: Isolated Independent Scrollport */}
@@ -133,3 +146,11 @@ export const ProtectedLayout = () => {
     </div>
   );
 };
+
+export const ProtectedLayout = () => (
+  <ExamLockProvider>
+    <ProtectedLayoutContent />
+  </ExamLockProvider>
+);
+
+export default ProtectedLayout;

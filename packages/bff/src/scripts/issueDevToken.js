@@ -43,6 +43,9 @@ async function issueToken() {
   const nowSec = Math.floor(Date.now() / 1000);
 
   // 1. Establish session in Redis
+  if (redis.status === 'wait' || redis.status === 'close') {
+    await redis.connect();
+  }
   const sessionKey = `session:${sessionId}`;
   await redis.hset(sessionKey, {
     userId: String(student.student_id),

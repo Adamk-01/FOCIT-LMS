@@ -39,8 +39,8 @@ const configuredTotal = parseInt(
 
 // Total active workers across all cluster containers
 const totalClusterWorkers = Math.max(1, clusterWorkers * estimatedContainers);
-// Bounded partition per worker with a safety floor of 5 connections
-const partitionedConnections = Math.max(5, Math.floor(configuredTotal / totalClusterWorkers));
+// Bounded partition per worker with a safety floor of 1 connection (hard ceiling configuredTotal wins)
+const partitionedConnections = Math.max(1, Math.floor(configuredTotal / totalClusterWorkers));
 
 logger.info(
   {

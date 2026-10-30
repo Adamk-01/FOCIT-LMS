@@ -162,6 +162,14 @@ export function DigitalLibraryPage() {
   const items = itemsResponse?.data || [];
   const meta = itemsResponse?.meta || { total: 0, totalPages: 1, page: 1, _degraded: false };
 
+  // Immediate scroll & awareness preview handler
+  const handlePreview = useCallback((item) => {
+    const mainEl = document.getElementById('main-content');
+    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setPreviewItem(item);
+  }, []);
+
   // Manual retry handler for degraded Moodle sync
   const handleRetryMoodleSync = async () => {
     setIsRevalidatingMoodle(true);
@@ -267,7 +275,7 @@ export function DigitalLibraryPage() {
                 <LibraryItemCard
                   key={item.id}
                   item={item}
-                  onPreview={setPreviewItem}
+                  onPreview={handlePreview}
                   onDownload={handleDownload}
                 />
               ))}

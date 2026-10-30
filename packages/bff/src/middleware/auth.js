@@ -16,6 +16,9 @@ import config from '../config.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { pool } from '../db/index.js';
+import { verifyEdgeTicket } from '../services/edgeTicketService.js';
+
+const STREAM_ROUTE_REGEX = /^\/library\/items\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/stream$/i;
 
 /**
  * Constant-time string comparison preventing side-channel timing analysis attacks.
@@ -44,6 +47,32 @@ export async function authMiddleware(req, res, next) {
 
   // Public calendar feed bypass authenticated exclusively via high-entropy capability token (?token=...)
   if (req.method === 'GET' && (req.path.endsWith('/timetable/calendar.ics') || req.path.includes('/timetable/calendar.ics'))) {
+    return next();
+  }
+
+  // Capability Ticket Stream Verification (Mozilla PDF.js 206 Partial Content Range Worker)
+  const streamMatch = req.method === 'GET' ? STREAM_ROUTE_REGEX.exec(req.path) : null;
+  if (streamMatch && req.query?.ticket) {
+    const itemId = streamMatch[1];
+    const clientIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || '';
+    const verification = verifyEdgeTicket(
+      req.query.ticket,
+      itemId,
+      clientIp,
+      userAgent,
+      false
+    );
+
+    if (!verification.valid) {
+      return res.status(403).json({
+        error: `Invalid or expired stream capability ticket: ${verification.reason}`,
+        code: 'STREAM_TICKET_INVALID',
+      });
+    }
+
+    // Populate authoritative identity from the cryptographically verified ticket
+    req.user = { id: verification.payload.sub, viaCapabilityTicket: true };
     return next();
   }
 

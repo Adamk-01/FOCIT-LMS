@@ -607,27 +607,6 @@ router.put('/items/:id/progress', async (req, res, next) => {
 router.get('/items/:id/stream', async (req, res, next) => {
   const { id } = req.params;
   const ticket = req.query.ticket;
-  let studentId = req.user?.student_id || req.user?.id || req.user?.username;
-
-  if (ticket) {
-    const clientIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
-    const userAgent = req.headers['user-agent'] || '';
-    const verifyRes = verifyEdgeTicket(ticket, id, clientIp, userAgent, false);
-    if (!verifyRes.valid) {
-      return res.status(403).json({
-        type: 'https://focit.uniosun.edu.ng/errors/invalid-ticket',
-        title: 'Capability Ticket Rejected',
-        status: 403,
-        detail: `Edge capability ticket verification failed: ${verifyRes.reason}`,
-        code: 'INVALID_TICKET'
-      });
-    }
-    studentId = studentId || verifyRes.payload?.sub || 'ticket_student';
-  } else if (!studentId) {
-    studentId = 'anonymous_student';
-  }
-
-  const isDownload = req.query.download === '1' || req.query.download === 'true';
 
   // 0. Strict Canonical UUID Validation: Eliminates PostgreSQL 22P02 syntax errors & path traversal
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -641,58 +620,103 @@ router.get('/items/:id/stream', async (req, res, next) => {
     });
   }
 
-  try {
-    // 1. Verify item existence in PostgreSQL metadata ledger
-    const { rows } = await pool.query(`
-      SELECT id, title, file_url, file_size_bytes, mime_type, is_published, embargo_until
-      FROM library_items
-      WHERE id = $1 LIMIT 1;
-    `, [id]);
+  let studentId = req.user?.student_id || req.user?.id || req.user?.username;
 
-    const item = rows[0];
-    if (!item) {
-      return res.status(404).json({
-        type: 'https://focit.uniosun.edu.ng/errors/file-not-found',
-        title: 'Resource Not Found',
-        status: 404,
-        detail: `The requested library item '${id}' does not exist in the catalog.`,
-        code: 'FILE_NOT_FOUND'
-      });
-    }
-
-    // 2. Embargo security check
-    if (!item.is_published || (item.embargo_until && new Date(item.embargo_until) > new Date())) {
+  if (ticket && !req.user?.viaCapabilityTicket) {
+    const clientIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || '';
+    const verifyRes = verifyEdgeTicket(ticket, id, clientIp, userAgent, false);
+    if (!verifyRes.valid) {
       return res.status(403).json({
-        type: 'https://focit.uniosun.edu.ng/errors/embargoed-resource',
-        title: 'Access Restricted',
+        type: 'https://focit.uniosun.edu.ng/errors/invalid-ticket',
+        title: 'Capability Ticket Rejected',
         status: 403,
-        detail: 'This examination paper or resource is currently under academic embargo.',
-        code: 'EMBARGOED_RESOURCE'
+        detail: `Edge capability ticket verification failed: ${verifyRes.reason}`,
+        code: 'INVALID_TICKET'
       });
     }
+    studentId = verifyRes.payload?.sub || studentId || 'ticket_student';
+    req.user = { id: studentId, viaCapabilityTicket: true };
+  } else if (!studentId) {
+    studentId = 'anonymous_student';
+  }
 
-    // 3. Locate physical file on disk (.cache/library/${id}.pdf)
-    const localPath = path.join(LIBRARY_DIR, `${id}.pdf`);
-    let stat;
-    try {
-      stat = await fs.stat(localPath);
-    } catch (fsErr) {
-      if (fsErr.code === 'ENOENT') {
-        logger.warn({ id, localPath }, '[Library Stream] Physical binary missing from local cache');
+  const isDownload = req.query.download === '1' || req.query.download === 'true';
+  const localPath = path.join(LIBRARY_DIR, `${id}.pdf`);
+
+  try {
+    let fileSize;
+    let mimeType = 'application/pdf';
+    let filename = `${id}.pdf`;
+    let isFastPath = false;
+
+    // Fast Path (Cache Hit): Zero-DB Range Serving for verified capability tickets
+    // If ticket is valid and binary is in local cache, bypass PostgreSQL completely (Invariants 6 & 7)
+    if (req.user?.viaCapabilityTicket) {
+      try {
+        const stat = await fs.stat(localPath);
+        fileSize = stat.size;
+        isFastPath = true;
+      } catch (fsErr) {
+        if (fsErr.code !== 'ENOENT') {
+          throw fsErr;
+        }
+        // Cache miss: fall through to slow path (PostgreSQL verification / potential hydration)
+      }
+    }
+
+    if (!isFastPath) {
+      // Slow Path: Verify item existence and embargo in PostgreSQL metadata ledger
+      const { rows } = await pool.query(`
+        SELECT id, title, file_url, file_size_bytes, mime_type, is_published, embargo_until
+        FROM library_items
+        WHERE id = $1 LIMIT 1;
+      `, [id]);
+
+      const item = rows[0];
+      if (!item) {
         return res.status(404).json({
-          type: 'https://focit.uniosun.edu.ng/errors/binary-missing',
-          title: 'File Content Missing',
+          type: 'https://focit.uniosun.edu.ng/errors/file-not-found',
+          title: 'Resource Not Found',
           status: 404,
-          detail: 'The physical binary file for this catalog item is missing from storage.',
+          detail: `The requested library item '${id}' does not exist in the catalog.`,
           code: 'FILE_NOT_FOUND'
         });
       }
-      throw fsErr;
-    }
 
-    const fileSize = stat.size;
-    const sanitizedTitle = (item.title || 'document').replace(/[^a-zA-Z0-9_\-.]/g, '_');
-    const filename = `${sanitizedTitle}.pdf`;
+      // Embargo security check
+      if (!item.is_published || (item.embargo_until && new Date(item.embargo_until) > new Date())) {
+        return res.status(403).json({
+          type: 'https://focit.uniosun.edu.ng/errors/embargoed-resource',
+          title: 'Access Restricted',
+          status: 403,
+          detail: 'This examination paper or resource is currently under academic embargo.',
+          code: 'EMBARGOED_RESOURCE'
+        });
+      }
+
+      // Locate physical file on disk (.cache/library/${id}.pdf)
+      try {
+        const stat = await fs.stat(localPath);
+        fileSize = stat.size;
+      } catch (fsErr) {
+        if (fsErr.code === 'ENOENT') {
+          logger.warn({ id, localPath }, '[Library Stream] Physical binary missing from local cache');
+          return res.status(404).json({
+            type: 'https://focit.uniosun.edu.ng/errors/binary-missing',
+            title: 'File Content Missing',
+            status: 404,
+            detail: 'The physical binary file for this catalog item is missing from storage.',
+            code: 'FILE_NOT_FOUND'
+          });
+        }
+        throw fsErr;
+      }
+
+      mimeType = item.mime_type || 'application/pdf';
+      const sanitizedTitle = (item.title || 'document').replace(/[^a-zA-Z0-9_\-.]/g, '_');
+      filename = `${sanitizedTitle}.pdf`;
+    }
 
     // 4. Evaluate RFC 9110 Range Header
     const rangeHeader = req.headers.range;
@@ -730,10 +754,14 @@ router.get('/items/:id/stream', async (req, res, next) => {
       recordTelemetry(studentId, id, isDownload ? 'DOWNLOAD' : 'VIEW');
     }
 
-    // 6. Set HTTP Headers
+    // 6. Set HTTP Headers (RFC 9110 / RFC 9111 Cache-Key Hygiene)
+    const etag = `"focit-vault-${id}-${fileSize}"`;
+    res.setHeader('ETag', etag);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, s-maxage=604800, max-age=0, must-revalidate');
-    res.setHeader('Content-Type', item.mime_type || 'application/pdf');
+    // Sanitize Vary: strictly Range and Accept-Encoding to prevent edge cache shattering across user sessions
+    res.setHeader('Vary', 'Range, Accept-Encoding');
+    res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', isDownload ? `attachment; filename="${filename}"` : `inline; filename="${filename}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
 

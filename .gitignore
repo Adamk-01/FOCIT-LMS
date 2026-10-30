@@ -43,3 +43,11 @@ faculy-logo.jpg
 ui_template.jpeg
 
 .neon
+
+# Uploaded files and staging buffers
+packages/bff/uploads/
+uploads/
+
+# Postman
+.postman/
+postman/

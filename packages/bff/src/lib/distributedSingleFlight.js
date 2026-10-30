@@ -35,6 +35,7 @@
  */
 
 import crypto from 'node:crypto';
+import EventEmitter from 'node:events';
 import IORedis from 'ioredis';
 import config from '../config.js';
 import { redis } from './redis.js';
@@ -53,6 +54,10 @@ end
 export const MAX_CONCURRENT_KEYS = 2000;
 export const MAX_L2_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2MB
 export const MAX_INBAND_PAYLOAD_BYTES = 32 * 1024;    // 32KB
+
+// Redis Pub/Sub Topology: Single Pattern Subscription
+export const CHANNEL_PREFIX = 'focit:channel:';
+export const PATTERN_SUBSCRIPTION = 'focit:channel:*';
 
 /**
  * Domain error when local flight capacity is saturated (Heap DoS defense).
@@ -115,16 +120,20 @@ export function toCanonicalKey(rawKey) {
 }
 
 /**
- * Process-wide Singleton Redis Subscriber with Set-Based Channel Multiplexing.
- * Eliminates Node.js EventEmitter MaxListenersExceededWarning while preventing socket leaks.
+ * Process-wide Singleton Redis Subscriber with Set-Based Channel Multiplexing
+ * and Single Boot-Time Pattern Subscription (psubscribe).
+ * Eliminates per-request subscribe/unsubscribe roundtrips and Node.js EventEmitter MaxListeners warnings.
  */
 export class RedisSubscriberDispatcher {
   constructor() {
     this.client = null;
+    this.subscriberEvents = new EventEmitter();
+    this.subscriberEvents.setMaxListeners(0); // Unlimited multiplexed listeners without warning
     /** @type {Map<string, Set<(message: string) => void>>} channel -> Set of callbacks */
     this.channelCallbacks = new Map();
     this.isConnecting = false;
     this.isClosed = false;
+    this.isPatternSubscribed = false;
     this._initClient();
   }
 
@@ -142,37 +151,49 @@ export class RedisSubscriberDispatcher {
         },
       });
 
-      this.client.on('message', (channel, message) => {
-        const callbacks = this.channelCallbacks.get(channel);
-        if (callbacks && callbacks.size > 0) {
-          for (const callback of callbacks) {
-            try {
-              callback(message);
-            } catch (cbErr) {
-              logger.error({ channel, err: cbErr?.message }, '[RedisSubDispatcher] Callback error');
-            }
-          }
-        }
+      // Multiplexed Pattern Message Dispatcher (Grill Guard 1)
+      this.client.on('pmessage', (_pattern, channel, message) => {
+        this.subscriberEvents.emit(channel, message);
       });
 
       this.client.on('error', (err) => {
         logger.warn({ err: err?.message || err }, '[RedisSubDispatcher] Subscriber connection notice');
       });
 
-      this.client.on('connect', () => {
+      this.client.on('ready', async () => {
         logger.info('[RedisSubDispatcher] Subscriber singleton connected to Redis cluster');
+        await this._ensurePatternSubscribed();
       });
     } catch (err) {
       logger.warn({ err: err?.message || err }, '[RedisSubDispatcher] Failed to initialize client');
     }
   }
 
+  async _ensurePatternSubscribed() {
+    if (!this.client || this.client.status !== 'ready' || this.isClosed || this.isPatternSubscribed || this._subscribing) return;
+    this._subscribing = true;
+    try {
+      await this.client.psubscribe(PATTERN_SUBSCRIPTION);
+      this.isPatternSubscribed = true;
+      logger.info({ pattern: PATTERN_SUBSCRIPTION }, '[RedisSubDispatcher] Boot-time pattern subscription established');
+    } catch (err) {
+      logger.warn({ pattern: PATTERN_SUBSCRIPTION, err: err?.message || err }, '[RedisSubDispatcher] psubscribe failed');
+    } finally {
+      this._subscribing = false;
+    }
+  }
+
   /**
-   * Ensures the underlying subscriber TCP socket is connected.
+   * Ensures the underlying subscriber TCP socket is connected and pattern subscribed.
    */
   async ensureConnected() {
     if (this.isClosed || !this.client) return false;
-    if (this.client.status === 'ready') return true;
+    if (this.client.status === 'ready') {
+      if (!this.isPatternSubscribed) {
+        await this._ensurePatternSubscribed();
+      }
+      return true;
+    }
     if (this.client.status === 'connecting' || this.isConnecting) return false;
 
     if (this.client.status === 'wait') {
@@ -180,7 +201,11 @@ export class RedisSubscriberDispatcher {
       try {
         await this.client.connect();
         this.isConnecting = false;
-        return this.client.status === 'ready';
+        if (this.client.status === 'ready') {
+          await this._ensurePatternSubscribed();
+          return true;
+        }
+        return false;
       } catch (err) {
         this.isConnecting = false;
         logger.debug({ err: err?.message || err }, '[RedisSubDispatcher] Connect attempt deferred');
@@ -191,7 +216,7 @@ export class RedisSubscriberDispatcher {
   }
 
   /**
-   * Registers a listener callback for a channel.
+   * Registers a listener callback for a channel via pattern event routing.
    *
    * @param {string} channel
    * @param {(message: string) => void} callback
@@ -199,24 +224,15 @@ export class RedisSubscriberDispatcher {
   async subscribe(channel, callback) {
     if (this.isClosed) return;
     let set = this.channelCallbacks.get(channel);
-    const isNewChannel = !set || set.size === 0;
-
     if (!set) {
       set = new Set();
       this.channelCallbacks.set(channel, set);
     }
     set.add(callback);
+    this.subscriberEvents.on(channel, callback);
 
-    if (isNewChannel) {
-      const connected = await this.ensureConnected();
-      if (connected && this.client?.status === 'ready') {
-        try {
-          await this.client.subscribe(channel);
-        } catch (err) {
-          logger.warn({ channel, err: err?.message || err }, '[RedisSubDispatcher] SUBSCRIBE command failed');
-        }
-      }
-    }
+    // Boot-time / lazy pattern connection check (no per-channel subscribe sent over TCP)
+    this.ensureConnected().catch(() => {});
   }
 
   /**
@@ -228,20 +244,13 @@ export class RedisSubscriberDispatcher {
   async unsubscribe(channel, callback) {
     if (this.isClosed) return;
     const set = this.channelCallbacks.get(channel);
-    if (!set) return;
-
-    set.delete(callback);
-
-    if (set.size === 0) {
-      this.channelCallbacks.delete(channel);
-      if (this.client?.status === 'ready') {
-        try {
-          await this.client.unsubscribe(channel);
-        } catch (err) {
-          logger.debug({ channel, err: err?.message || err }, '[RedisSubDispatcher] UNSUBSCRIBE command failed');
-        }
+    if (set) {
+      set.delete(callback);
+      if (set.size === 0) {
+        this.channelCallbacks.delete(channel);
       }
     }
+    this.subscriberEvents.removeListener(channel, callback);
   }
 
   /**
@@ -250,8 +259,12 @@ export class RedisSubscriberDispatcher {
   async close() {
     this.isClosed = true;
     this.channelCallbacks.clear();
+    this.subscriberEvents.removeAllListeners();
     if (this.client) {
       try {
+        if (this.isPatternSubscribed && this.client.status === 'ready') {
+          await this.client.punsubscribe(PATTERN_SUBSCRIPTION).catch(() => {});
+        }
         await this.client.quit();
       } catch {
         this.client.disconnect();
@@ -371,6 +384,25 @@ export class DistributedSingleFlight {
   }
 
   /**
+   * Ensures both the Redis command client and pattern subscriber singleton are connected.
+   */
+  async ensureConnected() {
+    const promises = [];
+    if (this.subDispatcher) {
+      promises.push(this.subDispatcher.ensureConnected());
+    }
+    if (redis && redis.status === 'wait') {
+      promises.push(
+        redis.connect().catch((err) => {
+          logger.debug({ err: err?.message }, '[DistributedSingleFlight] Lazy Redis connect attempt deferred');
+        })
+      );
+    }
+    await Promise.all(promises);
+    return redis?.status === 'ready';
+  }
+
+  /**
    * Internal Layer 2 cluster-wide distributed coordination.
    *
    * @private
@@ -379,6 +411,13 @@ export class DistributedSingleFlight {
     const { timeoutMs, contenderTimeoutMs, l2TtlSeconds, bypassL2 } = opts;
 
     // Zero-Trust Fallback: If Redis client is offline or unavailable, fail-open to local execution
+    if (redis && redis.status === 'wait') {
+      try {
+        await redis.connect();
+      } catch (connErr) {
+        logger.debug({ err: connErr?.message }, '[DistributedSingleFlight] Lazy Redis connect attempt deferred');
+      }
+    }
     const isRedisReady = redis && redis.status === 'ready';
     if (!isRedisReady) {
       return workerFn(signal);
@@ -465,6 +504,25 @@ export class DistributedSingleFlight {
         }
 
         return freshData;
+      } catch (leaderErr) {
+        // UPSTREAM ERROR PROPAGATION (Grill Guard 2):
+        // Broadcast transient failure envelope over Pub/Sub so Contenders fail fast in synchronization.
+        // CRITICAL INVARIANT: DO NOT write error to L2 Redis cache key (prevents cache poisoning).
+        try {
+          const failureEnvelope = JSON.stringify({
+            __err: true,
+            status: 'ERROR',
+            error: {
+              message: leaderErr?.message || 'Upstream fetch failure',
+              code: leaderErr?.code || 'UPSTREAM_FAILURE',
+              statusCode: leaderErr?.statusCode || 502,
+            },
+          });
+          await redis.publish(channel, failureEnvelope);
+        } catch (pubErr) {
+          logger.warn({ channel, err: pubErr?.message }, '[DistributedSingleFlight] Error PUBLISH broadcast failed');
+        }
+        throw leaderErr;
       } finally {
         // Safe Atomic Lock Release via Lua
         try {
@@ -514,6 +572,14 @@ export class DistributedSingleFlight {
 
         try {
           const msg = JSON.parse(msgRaw);
+
+          // Fast Fail on Upstream Error Envelope (Grill Guard 2):
+          if (msg.__err || msg.status === 'ERROR') {
+            const err = new Error(msg.error?.message || msg.message || 'Upstream fetch failure');
+            if (msg.error?.code) err.code = msg.error.code;
+            if (msg.error?.statusCode) err.statusCode = msg.error.statusCode;
+            return reject(err);
+          }
 
           if (msg.status === 'READY') {
             // Fast In-Band Resolution: Zero roundtrips to Redis L2
@@ -618,6 +684,22 @@ export class DistributedSingleFlight {
                 }
               }
               return resolve(freshData);
+            } catch (promoFetchErr) {
+              try {
+                await redis.publish(
+                  channel,
+                  JSON.stringify({
+                    __err: true,
+                    status: 'ERROR',
+                    error: {
+                      message: promoFetchErr?.message || 'Upstream fetch failure',
+                      code: promoFetchErr?.code || 'UPSTREAM_FAILURE',
+                      statusCode: promoFetchErr?.statusCode || 502,
+                    },
+                  })
+                );
+              } catch {}
+              return reject(promoFetchErr);
             } finally {
               try {
                 await redis.eval(LUA_RELEASE_LOCK, 1, lockKey, promoToken);

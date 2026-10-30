@@ -12,7 +12,7 @@ import { logger } from './logger.js';
 export const redis = new IORedis(config.redis.url, {
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
-  lazyConnect: true,
+  lazyConnect: process.env.NODE_ENV === 'test',
   enableOfflineQueue: false, // Strict Fail-Closed: Never buffer commands in offline memory
   retryStrategy(times) {
     if (times > 5 && (process.env.NODE_ENV === 'test' || !process.env.NODE_ENV)) {

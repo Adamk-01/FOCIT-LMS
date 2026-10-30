@@ -33,6 +33,24 @@ function getCachedGradebook(key) {
   return { status: 'EXPIRED', data: entry.data };
 }
 
+
+export function invalidateGradeCache(courseId, studentId) {
+  if (courseId && studentId) {
+    gradeCache.delete(`${courseId}:${studentId}`);
+    const normalized = courseId.replace(/\s+/g, '');
+    gradeCache.delete(`${normalized}:${studentId}`);
+  } else if (courseId) {
+    const normalized = courseId.replace(/\s+/g, '');
+    for (const key of gradeCache.keys()) {
+      if (key.startsWith(`${courseId}:`) || key.startsWith(`${normalized}:`)) {
+        gradeCache.delete(key);
+      }
+    }
+  } else {
+    gradeCache.clear();
+  }
+}
+
 function setCachedGradebook(key, data) {
   // Prune oldest entries if cache exceeds 1,000 items
   if (gradeCache.size > 1000) {
@@ -63,7 +81,12 @@ async function fetchCourseGrades(courseId, studentId) {
       c.title AS course_title
     FROM grade_items g
     JOIN courses c ON c.course_id = g.course_id
-    WHERE g.course_id = $1 AND g.student_id = $2
+    WHERE (
+      g.course_id = $1 
+      OR c.code = $1 
+      OR UPPER(REPLACE(g.course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+      OR UPPER(REPLACE(c.code, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+    ) AND g.student_id = $2
     ORDER BY g.graded_at ASC;
   `, [courseId, studentId]);
 
@@ -95,7 +118,19 @@ async function fetchCourseGrades(courseId, studentId) {
   else if (cumulativePercentage < 60) overallLetter = 'C';
   else if (cumulativePercentage < 70) overallLetter = 'B';
 
-  const courseMeta = result.rows[0] || { course_code: courseId, course_title: 'Course Assessment' };
+  let courseMeta = result.rows[0];
+  if (!courseMeta) {
+    const cRes = await pool.query(`
+      SELECT code AS course_code, title AS course_title
+      FROM courses
+      WHERE course_id = $1 
+         OR code = $1 
+         OR UPPER(REPLACE(course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+         OR UPPER(REPLACE(code, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+      LIMIT 1
+    `, [courseId]);
+    courseMeta = cRes.rows[0] || { course_code: courseId, course_title: 'Course Assessment' };
+  }
 
   return {
     courseId,

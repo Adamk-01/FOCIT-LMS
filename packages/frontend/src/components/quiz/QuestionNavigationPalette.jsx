@@ -25,12 +25,12 @@ export function QuestionNavigationPalette({
 
   return (
     <aside className="space-y-6">
-      <section className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-gray-200 dark:border-slate-800 shadow-card space-y-5">
-        <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
-          <h2 className="text-sm font-bold text-[#0a1142] dark:text-[#ffb81c] font-display">
+      <section className="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 border border-gray-200 dark:border-slate-800 shadow-card space-y-5">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3.5 gap-2">
+          <h2 className="text-sm font-bold text-[#0a1142] dark:text-[#ffb81c] font-display whitespace-nowrap">
             Quiz Navigation
           </h2>
-          <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold">
+          <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 shrink-0">
             {answeredCount}/{totalQuestions} Answered
           </span>
         </div>
@@ -39,7 +39,7 @@ export function QuestionNavigationPalette({
         <div
           role="navigation"
           aria-label="Questions list"
-          className="grid grid-cols-5 gap-2.5"
+          className="grid grid-cols-5 gap-2.5 sm:gap-3"
         >
           {questions.map((q, idx) => {
             const isCurrent = idx === currentQuestionIndex;
@@ -53,9 +53,9 @@ export function QuestionNavigationPalette({
                 aria-label={`Question ${idx + 1}${hasAnswered ? ' - Answered' : ' - Unanswered'}`}
                 aria-current={isCurrent ? 'true' : undefined}
                 className={`
-                  min-w-[44px] min-h-[44px] aspect-square rounded-xl text-xs font-extrabold flex items-center justify-center transition-all relative
+                  w-full h-10 sm:h-11 max-w-[48px] mx-auto rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center transition-all relative
                   touch-manipulation focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:ring-offset-2
-                  ${isCurrent ? 'ring-2 ring-offset-2 ring-[#0a1142] dark:ring-[#ffb81c] z-10' : ''}
+                  ${isCurrent ? 'ring-2 ring-offset-2 ring-amber-400 dark:ring-[#ffb81c] z-10 font-black' : ''}
                   ${hasAnswered
                     ? 'bg-[#0a1142] dark:bg-indigo-600 text-white shadow-sm hover:bg-[#16258f] dark:hover:bg-indigo-500'
                     : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'}
@@ -68,7 +68,7 @@ export function QuestionNavigationPalette({
         </div>
 
         {/* Progress Metric */}
-        <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-1 text-xs text-gray-600 dark:text-slate-400">
+        <div className="p-3 bg-gray-50 dark:bg-slate-800/80 rounded-xl space-y-1.5 text-xs text-gray-600 dark:text-slate-400">
           <div className="flex items-center justify-between">
             <span>Completed:</span>
             <span className="font-bold text-[#0a1142] dark:text-[#ffb81c]">{percentComplete}%</span>
@@ -93,9 +93,9 @@ export function QuestionNavigationPalette({
           type="button"
           onClick={onOpenFinishModal}
           disabled={isSubmitting}
-          className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-gray-100 dark:bg-slate-800 hover:bg-[#0a1142] dark:hover:bg-indigo-600 text-gray-800 dark:text-slate-200 hover:text-white text-xs font-bold transition-all border border-gray-200 dark:border-slate-700 disabled:opacity-50 touch-manipulation flex items-center justify-center"
+          className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-gray-100 dark:bg-slate-800 hover:bg-[#0a1142] dark:hover:bg-indigo-600 text-gray-800 dark:text-slate-200 hover:text-white text-xs sm:text-sm font-bold transition-all border border-gray-200 dark:border-slate-700 disabled:opacity-50 touch-manipulation flex items-center justify-center cursor-pointer shadow-sm active:scale-[0.99]"
         >
-          Finish attempt...
+          {isSubmitting ? 'Submitting...' : 'Finish attempt...'}
         </button>
       </section>
     </aside>

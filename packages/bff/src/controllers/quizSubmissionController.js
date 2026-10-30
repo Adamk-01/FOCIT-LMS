@@ -12,6 +12,7 @@
  */
 
 import { pool } from '../db/index.js';
+import { invalidateGradeCache } from '../routes/grades.js';
 import { logger } from '../lib/logger.js';
 import {
   allocateQuizAttempt,
@@ -135,7 +136,10 @@ export async function submitQuizAttemptHandler(req, res, next) {
     const dueAt = new Date(attempt.due_at).getTime();
     const GRACE_PERIOD_MS = 3000;
     const isOverdue = serverNow > (dueAt + GRACE_PERIOD_MS);
-    const submissionMode = isOverdue ? 'EXPIRED_AUTO_SUBMIT' : 'STANDARD';
+    const requestedMode = req.body?.submissionMode;
+    const submissionMode = isOverdue
+      ? 'EXPIRED_AUTO_SUBMIT'
+      : (requestedMode === 'FULLSCREEN_VIOLATION_AUTO_SUBMIT' ? 'FULLSCREEN_VIOLATION' : 'STANDARD');
 
     // 6. Relational Set-Difference Guard (Detects Poisoned/Foreign Question IDs)
     if (answers.length > 0) {
@@ -201,60 +205,96 @@ export async function submitQuizAttemptHandler(req, res, next) {
       `, [attemptId, JSON.stringify(canonicalAnswers)]);
     }
 
-    // 7. Deterministic Scoring Evaluation via Authoritative Answer Key
-    const scoringQuery = await client.query(`
+    // 7. Atomic Scoring, CAS State Transition & Outbox Insertion (Single CTE Execution)
+    const finalizedResult = await client.query(`
+      WITH calculated_grade AS (
+        SELECT 
+          $1::varchar AS attempt_id,
+          COALESCE(SUM(CASE WHEN qaa.selected_option_id = qq.correct_option_id THEN qq.points ELSE 0 END), 0)::numeric AS calculated_score,
+          COALESCE(SUM(qq.points), 0)::numeric AS total_points,
+          COUNT(qq.question_id)::int AS total_questions,
+          COUNT(qaa.selected_option_id)::int AS answered_questions
+        FROM quiz_questions qq
+        LEFT JOIN quiz_attempt_answers qaa 
+          ON qaa.question_id = qq.question_id 
+         AND qaa.attempt_id = $1
+        WHERE qq.quiz_id = $2
+      ),
+      sealed_attempt AS (
+        UPDATE quiz_attempts qa
+        SET 
+          status = 'SUBMITTED',
+          submitted_at = NOW(),
+          score = cg.calculated_score,
+          total_points = cg.total_points,
+          submission_mode = $3
+        FROM calculated_grade cg
+        WHERE qa.attempt_id = $1 
+          AND qa.status = 'IN_PROGRESS'
+          AND qa.student_id = $4
+          AND qa.quiz_id = $2
+        RETURNING 
+          qa.attempt_id, 
+          qa.student_id, 
+          qa.quiz_id, 
+          qa.status, 
+          qa.score, 
+          qa.total_points, 
+          qa.submitted_at, 
+          qa.submission_mode
+      ),
+      enqueued_outbox AS (
+        INSERT INTO outbox_events (
+          event_id,
+          aggregate_type,
+          aggregate_id,
+          event_type,
+          payload,
+          status,
+          delivery_attempts,
+          idempotency_key,
+          created_at
+        )
+        SELECT
+          gen_random_uuid(),
+          'QUIZ_ATTEMPT',
+          sa.attempt_id,
+          'QUIZ_SUBMITTED',
+          jsonb_build_object(
+            'attemptId', sa.attempt_id,
+            'quizId', sa.quiz_id,
+            'studentId', sa.student_id,
+            'score', sa.score,
+            'totalPoints', sa.total_points,
+            'submissionMode', sa.submission_mode,
+            'submittedAt', sa.submitted_at
+          ),
+          'PENDING',
+          0,
+          $5,
+          NOW()
+        FROM sealed_attempt sa
+        RETURNING outbox_events.event_id
+      )
       SELECT 
-        COALESCE(SUM(CASE WHEN qaa.selected_option_id = qq.correct_option_id THEN qq.points ELSE 0 END), 0)::numeric AS calculated_score,
-        COALESCE(SUM(qq.points), 0)::numeric AS total_points,
-        COUNT(qq.question_id)::int AS total_questions,
-        COUNT(qaa.selected_option_id)::int AS answered_questions
-      FROM quiz_questions qq
-      LEFT JOIN quiz_attempt_answers qaa 
-        ON qaa.question_id = qq.question_id 
-       AND qaa.attempt_id = $1
-      WHERE qq.quiz_id = $2;
-    `, [attemptId, quizId]);
+        sa.attempt_id, 
+        sa.student_id, 
+        sa.quiz_id, 
+        sa.status, 
+        sa.score, 
+        sa.total_points, 
+        sa.submitted_at, 
+        sa.submission_mode,
+        cg.total_questions,
+        cg.answered_questions,
+        eo.event_id AS outbox_event_id
+      FROM sealed_attempt sa
+      CROSS JOIN calculated_grade cg
+      LEFT JOIN enqueued_outbox eo ON true;
+    `, [attemptId, quizId, submissionMode, studentId, idempotencyKey]);
 
-    const scoring = scoringQuery.rows[0] || {
-      calculated_score: 0,
-      total_points: 0,
-      total_questions: 0,
-      answered_questions: 0,
-    };
-
-    // 8. Atomic Compare-And-Swap (CAS) State Transition
-    const casResult = await client.query(`
-      UPDATE quiz_attempts
-      SET 
-        status = 'SUBMITTED',
-        submitted_at = NOW(),
-        score = $1,
-        total_points = $2,
-        submission_mode = $3
-      WHERE attempt_id = $4 
-        AND status = 'IN_PROGRESS'
-        AND student_id = $5
-        AND quiz_id = $6
-      RETURNING 
-        attempt_id, 
-        student_id, 
-        quiz_id, 
-        status, 
-        score, 
-        total_points, 
-        submitted_at, 
-        submission_mode;
-    `, [
-      scoring.calculated_score,
-      scoring.total_points,
-      submissionMode,
-      attemptId,
-      studentId,
-      quizId,
-    ]);
-
-    // Concurrency collision defense: Zero rows mutated means concurrent CAS won
-    if (casResult.rowCount === 0) {
+    // Concurrency collision defense: Zero rows returned means concurrent CAS won
+    if (finalizedResult.rows.length === 0) {
       await client.query('ROLLBACK');
       logger.warn({ attemptId, studentId }, '[QuizSubmission] Concurrency collision during CAS update');
       return res.status(409).json({
@@ -263,55 +303,85 @@ export async function submitQuizAttemptHandler(req, res, next) {
       });
     }
 
-    const finalizedAttempt = casResult.rows[0];
+    const finalizedAttempt = finalizedResult.rows[0];
+    const outboxEventId = finalizedAttempt.outbox_event_id;
 
-    // 9. Transactional Outbox Event Insertion (Bound to the SAME physical commit)
-    const outboxResult = await client.query(`
-      INSERT INTO outbox_events (
-        event_id,
-        aggregate_type,
-        aggregate_id,
-        event_type,
-        payload,
+    
+    // 9. Synchronize score to Gradebook ledger (grade_items)
+    const quizMetaResult = await client.query(
+      'SELECT quiz_id, title, course_id, total_points FROM quizzes WHERE quiz_id = $1',
+      [quizId]
+    );
+    const quizMeta = quizMetaResult.rows[0] || {
+      title: 'Quiz Assessment',
+      course_id: req.params.courseId || 'CSC204',
+      total_points: finalizedAttempt.total_points || 10,
+    };
+
+    const finalScore = Number(finalizedAttempt.score) || 0;
+    const finalTotal = Number(finalizedAttempt.total_points) || Number(quizMeta.total_points) || 10;
+    const finalPct = finalTotal > 0 ? Math.round((finalScore / finalTotal) * 100) : 0;
+    const letterGrade =
+      finalPct >= 70 ? 'A' :
+      finalPct >= 60 ? 'B' :
+      finalPct >= 50 ? 'C' :
+      finalPct >= 45 ? 'D' : 'F';
+
+    await client.query(`
+      WITH deleted_stale AS (
+        DELETE FROM grade_items
+        WHERE (
+          course_id = $1 
+          OR UPPER(REPLACE(course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+        )
+          AND student_id = $2
+          AND (
+            item_name = $3
+            OR (item_name ILIKE '%Quiz 1%' AND $3 ILIKE '%Quiz 1%')
+          )
+      )
+      INSERT INTO grade_items (
+        id,
+        course_id,
+        student_id,
+        item_name,
+        category,
+        weight_percent,
+        grade,
+        max_grade,
+        percentage,
+        letter_grade,
+        feedback,
         status,
-        delivery_attempts,
-        idempotency_key,
-        created_at
+        graded_at
       ) VALUES (
         gen_random_uuid(),
-        'QUIZ_ATTEMPT',
         $1,
-        'QUIZ_SUBMITTED',
-        jsonb_build_object(
-          'attemptId', $1::varchar,
-          'quizId', $2::varchar,
-          'studentId', $3::varchar,
-          'score', $4::numeric,
-          'totalPoints', $5::numeric,
-          'submissionMode', $6::varchar,
-          'submittedAt', $7::timestamptz
-        ),
-        'PENDING',
-        0,
-        $8,
+        $2,
+        $3,
+        'QUIZ',
+        10,
+        $4,
+        $5,
+        $6,
+        $7,
+        'Assessment finalized and graded via examination engine',
+        'GRADED',
         NOW()
-      )
-      RETURNING event_id;
+      );
     `, [
-      finalizedAttempt.attempt_id,
-      finalizedAttempt.quiz_id,
-      finalizedAttempt.student_id,
-      finalizedAttempt.score,
-      finalizedAttempt.total_points,
-      finalizedAttempt.submission_mode,
-      finalizedAttempt.submitted_at,
-      idempotencyKey,
+      quizMeta.course_id,
+      studentId,
+      quizMeta.title,
+      finalScore,
+      finalTotal,
+      finalPct,
+      letterGrade,
     ]);
-
-    const outboxEventId = outboxResult.rows[0]?.event_id;
 
     // 10. Commit the Atomic Transaction
     await client.query('COMMIT');
+    invalidateGradeCache(quizMeta.course_id, studentId);
 
     logger.info(
       { 
@@ -335,8 +405,8 @@ export async function submitQuizAttemptHandler(req, res, next) {
       submittedAt: finalizedAttempt.submitted_at,
       submissionMode: finalizedAttempt.submission_mode,
       outboxEventId,
-      answeredCount: scoring.answered_questions,
-      totalQuestions: scoring.total_questions,
+      answeredCount: finalizedAttempt.answered_questions,
+      totalQuestions: finalizedAttempt.total_questions,
     });
   } catch (err) {
     // 12. Transaction Rollback & Error Quarantine Boundary

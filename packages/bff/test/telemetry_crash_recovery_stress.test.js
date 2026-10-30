@@ -1,6 +1,7 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert';
 import crypto from 'node:crypto';
+import { redis } from '../src/lib/redis.js';
 import {
   recordTelemetryEvent,
   rotateAndDrainTelemetry,
@@ -14,6 +15,12 @@ import {
   VIEW_LEASE_TTL_MS,
   DOWNLOAD_DEBOUNCE_TTL_MS,
 } from '../src/services/telemetryBufferService.js';
+
+after(async () => {
+  if (redis) {
+    await redis.quit().catch(() => redis.disconnect());
+  }
+});
 
 test('CYBERSECURITY: UUID Validation & Parameter Sanitization', async () => {
   const validUuid = crypto.randomUUID();

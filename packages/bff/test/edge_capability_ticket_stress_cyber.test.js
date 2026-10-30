@@ -44,6 +44,22 @@ test('CYBERSECURITY (PHASE 13D): Ticket Generation & Tamper Resistance', () => {
   assert.strictEqual(forgedResult.valid, false);
   assert.strictEqual(forgedResult.reason, 'INVALID_SIGNATURE');
 
+  // 4b. Attack (Trap 3): Truncated signature byteLength mismatch (Must NOT throw ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH)
+  const truncatedTicket = `${b64Payload}.short`;
+  assert.doesNotThrow(() => {
+    const truncatedResult = verifyEdgeTicket(truncatedTicket, itemId, clientIp, userAgent, false);
+    assert.strictEqual(truncatedResult.valid, false);
+    assert.strictEqual(truncatedResult.reason, 'INVALID_SIGNATURE');
+  });
+
+  // 4c. Attack (Trap 3): Oversized signature byteLength mismatch
+  const oversizedTicket = `${b64Payload}.${'x'.repeat(128)}`;
+  assert.doesNotThrow(() => {
+    const oversizedResult = verifyEdgeTicket(oversizedTicket, itemId, clientIp, userAgent, false);
+    assert.strictEqual(oversizedResult.valid, false);
+    assert.strictEqual(oversizedResult.reason, 'INVALID_SIGNATURE');
+  });
+
   // 5. Attack: Resource Item ID Mismatch (using ticket for Item A to fetch Item B)
   const anotherItemId = crypto.randomUUID();
   const mismatchResult = verifyEdgeTicket(ticketData.ticket, anotherItemId, clientIp, userAgent, false);

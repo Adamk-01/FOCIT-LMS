@@ -25,6 +25,7 @@ export function ProfileHeader({
                 src={profile.avatar_url}
                 alt={profile.full_name}
                 className="w-full h-full object-cover"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-tr from-[#0a1142] to-[#16258f] flex items-center justify-center text-[#ffb81c] text-3xl font-black">

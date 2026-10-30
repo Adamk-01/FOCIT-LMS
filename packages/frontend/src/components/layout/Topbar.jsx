@@ -32,11 +32,12 @@ const ROUTE_NAME_MAP = {
   'question-bank': 'Question Bank & AI',
 };
 
-export const Topbar = ({ onOpenMobileDrawer, user }) => {
+export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const location = useLocation();
   const isFetching = useIsFetching();
   const { unreadCount, totalCount } = useNotifications();
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
 
   const studentId = user?.username || user?.id || 'student1';
   const { data: profile } = useQuery({
@@ -85,14 +86,20 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
-          onClick={onOpenMobileDrawer}
+          disabled={isExamLocked}
+          onClick={isExamLocked ? undefined : onOpenMobileDrawer}
           aria-label="Open Navigation Drawer"
-          className="p-2 -ml-2 rounded-lg text-gray-600 dark:text-gray-300 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 md:hidden transition-colors"
+          className={`p-2 -ml-2 rounded-lg text-gray-600 dark:text-gray-300 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 md:hidden transition-colors ${isExamLocked ? "opacity-30 pointer-events-none cursor-not-allowed" : ""}`}
         >
           <Menu size={22} />
         </button>
 
-        <nav aria-label="Breadcrumb" className="min-w-0 hidden sm:block">
+        <nav aria-label="Breadcrumb" className={`min-w-0 hidden sm:block ${isExamLocked ? "opacity-30 pointer-events-none select-none cursor-not-allowed" : ""}`}>
+            {isExamLocked && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 mr-2">
+                🔒 Exam in Progress
+              </span>
+            )}
           <ol className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium truncate">
             {breadcrumbs.map((crumb, idx) => {
               const isLast = idx === breadcrumbs.length - 1;
@@ -202,11 +209,12 @@ export const Topbar = ({ onOpenMobileDrawer, user }) => {
             className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#0a1142] to-[#16258f] text-[#ffb81c] font-bold text-xs flex items-center justify-center ring-2 ring-[#ffb81c]/50 group-hover:ring-[#ffb81c] shadow-sm transition-all overflow-hidden shrink-0"
             aria-hidden="true"
           >
-            {avatarUrl ? (
+            {avatarUrl && !avatarLoadError ? (
               <img
                 src={avatarUrl}
                 alt={studentFullName || user?.username || 'Student Avatar'}
                 className="w-full h-full object-cover"
+                onError={() => setAvatarLoadError(true)}
               />
             ) : (
               studentFirstName ? studentFirstName.slice(0, 2).toUpperCase() : 'JD'

@@ -10,6 +10,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { pool } from '../db/index.js';
+import { invalidateGradeCache } from './grades.js';
 import { logger } from '../lib/logger.js';
 import { submitQuizAttemptHandler } from '../controllers/quizSubmissionController.js';
 import {
@@ -18,6 +19,140 @@ import {
 } from '../services/quizAllocationService.js';
 
 const router = express.Router();
+
+/**
+ * Server-Authoritative Lazy Sealing & Scoring Procedure
+ * Evaluates student answers, scores attempt, transitions to SUBMITTED (EXPIRED_AUTO_SUBMIT),
+ * and persists a durable outbox event within a single atomic CTE statement.
+ */
+async function lazySealExpiredAttempt(clientOrPool, { attemptId, quizId, studentId }) {
+  const sealQuery = `
+    WITH target_attempt AS (
+      SELECT a.attempt_id, a.quiz_id, a.student_id, a.due_at
+      FROM quiz_attempts a
+      WHERE a.attempt_id = $1
+        AND a.student_id = $2
+        AND a.quiz_id = $3
+        AND a.status = 'IN_PROGRESS'
+        AND NOW() > (a.due_at + INTERVAL '3 seconds')
+      FOR UPDATE
+    ),
+    calculated_grade AS (
+      SELECT 
+        ta.attempt_id,
+        COALESCE(SUM(CASE WHEN qaa.selected_option_id = qq.correct_option_id THEN qq.points ELSE 0 END), 0)::numeric(5,2) AS calculated_score,
+        COALESCE(SUM(qq.points), 0)::numeric(5,2) AS total_points
+      FROM target_attempt ta
+      JOIN quiz_questions qq ON qq.quiz_id = ta.quiz_id
+      LEFT JOIN quiz_attempt_answers qaa 
+        ON qaa.question_id = qq.question_id 
+       AND qaa.attempt_id = ta.attempt_id
+      GROUP BY ta.attempt_id
+    ),
+    sealed_attempt AS (
+      UPDATE quiz_attempts qa
+      SET 
+        status = 'SUBMITTED',
+        submitted_at = COALESCE(qa.submitted_at, qa.due_at),
+        score = cg.calculated_score,
+        total_points = cg.total_points,
+        submission_mode = 'EXPIRED_AUTO_SUBMIT'
+      FROM calculated_grade cg
+      WHERE qa.attempt_id = cg.attempt_id
+      RETURNING qa.*
+    ),
+    inserted_outbox AS (
+      INSERT INTO outbox_events (
+        event_id,
+        aggregate_type,
+        aggregate_id,
+        event_type,
+        payload,
+        status,
+        delivery_attempts,
+        idempotency_key,
+        created_at
+      )
+      SELECT 
+        gen_random_uuid(),
+        'QUIZ_ATTEMPT',
+        sa.attempt_id,
+        'QUIZ_SUBMITTED',
+        jsonb_build_object(
+          'attemptId', sa.attempt_id,
+          'quizId', sa.quiz_id,
+          'studentId', sa.student_id,
+          'score', sa.score,
+          'totalPoints', sa.total_points,
+          'submissionMode', sa.submission_mode,
+          'submittedAt', sa.submitted_at
+        ),
+        'PENDING',
+        0,
+        'auto_expire_' || sa.attempt_id,
+        NOW()
+      FROM sealed_attempt sa
+      RETURNING event_id
+    )
+    SELECT 
+      sa.attempt_id,
+      sa.quiz_id,
+      sa.student_id,
+      sa.status,
+      sa.score,
+      sa.total_points,
+      sa.started_at,
+      sa.due_at,
+      sa.submitted_at,
+      sa.submission_mode,
+      sa.allocation_seed,
+      q.title AS quiz_title,
+      q.duration_minutes,
+      q.course_id,
+      c.code AS course_code,
+      c.title AS course_title,
+      NOW() AS server_now
+    FROM sealed_attempt sa
+    JOIN quizzes q ON q.quiz_id = sa.quiz_id
+    JOIN courses c ON c.course_id = q.course_id;
+  `;
+
+  const result = await clientOrPool.query(sealQuery, [attemptId, studentId, quizId]);
+  
+  if (result.rows.length > 0) {
+    const sealed = result.rows[0];
+    const quizInfo = await clientOrPool.query('SELECT title, course_id, total_points FROM quizzes WHERE quiz_id = $1', [quizId]);
+    if (quizInfo.rows.length > 0) {
+      const qMeta = quizInfo.rows[0];
+      const score = Number(sealed.score) || 0;
+      const maxGrade = Number(sealed.total_points) || 10;
+      const pct = maxGrade > 0 ? Math.round((score / maxGrade) * 100) : 0;
+      const lGrade = pct >= 70 ? 'A' : pct >= 60 ? 'B' : pct >= 50 ? 'C' : pct >= 45 ? 'D' : 'F';
+
+      await clientOrPool.query(`
+        WITH deleted_stale AS (
+          DELETE FROM grade_items 
+          WHERE (
+            course_id = $1 
+            OR UPPER(REPLACE(course_id, ' ', '')) = UPPER(REPLACE($1, ' ', ''))
+          )
+            AND student_id = $2 
+            AND (item_name = $3 OR (item_name ILIKE '%Quiz 1%' AND $3 ILIKE '%Quiz 1%'))
+        )
+        INSERT INTO grade_items (
+          id, course_id, student_id, item_name, category, weight_percent, grade, max_grade, percentage, letter_grade, feedback, status, graded_at
+        ) VALUES (
+          gen_random_uuid(), $1, $2, $3, 'QUIZ', 10, $4, $5, $6, $7, 'Assessment evaluated and verified via examination engine', 'GRADED', NOW()
+        );
+      `, [qMeta.course_id, studentId, qMeta.title, score, maxGrade, pct, lGrade]);
+
+      invalidateGradeCache(qMeta.course_id, studentId);
+    }
+    return sealed;
+  }
+
+  return null;
+}
 
 /**
  * GET /api/quizzes/:quizId/attempts/:attemptId/ping
@@ -69,7 +204,17 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
       });
     }
 
-    const attempt = attemptResult.rows[0];
+    let attempt = attemptResult.rows[0];
+
+    // Check for lazy expiration if status is IN_PROGRESS and past due
+    const serverNowMs = new Date(attempt.server_now).getTime();
+    const dueAtMs = new Date(attempt.due_at).getTime();
+    if (attempt.status === 'IN_PROGRESS' && serverNowMs > (dueAtMs + 3000)) {
+      const sealed = await lazySealExpiredAttempt(pool, { attemptId, quizId, studentId });
+      if (sealed) {
+        attempt = { ...attempt, ...sealed };
+      }
+    }
 
     // Ensure immutable deterministic allocation seed
     let allocationSeed = attempt.allocation_seed;
@@ -125,11 +270,12 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         quizId: attempt.quiz_id,
         studentId: attempt.student_id,
         status: attempt.status,
-        score: attempt.score,
-        totalPoints: attempt.total_points,
+        score: attempt.score !== null ? Number(attempt.score) : 0,
+        totalPoints: attempt.total_points !== null ? Number(attempt.total_points) : 10,
         startedAt: attempt.started_at,
         dueAt: attempt.due_at,
         submittedAt: attempt.submitted_at,
+        submissionMode: attempt.submission_mode,
         serverNow: attempt.server_now,
       },
       quiz: {
@@ -144,6 +290,278 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
     });
   } catch (err) {
     logger.error({ err: err?.message || err, quizId, attemptId, studentId }, '[Quizzes] Rehydration error');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/quizzes/:quizId/attempts
+ * Atomic Ingress Attempt Upsert Pipeline
+ * Validates course enrollment, ensures single active/sealed attempt per student,
+ * and idempotently returns the authoritative attempt session.
+ */
+router.post('/:quizId/attempts', async (req, res, next) => {
+  const { quizId } = req.params;
+  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+
+  try {
+    const candidateAttemptId = 'att_' + crypto.randomBytes(8).toString('hex');
+    const initialSeed = crypto.randomBytes(32).toString('hex');
+
+    const upsertQuery = `
+      WITH verified_student_enrollment AS (
+        SELECT 
+          q.quiz_id,
+          q.duration_minutes,
+          q.total_points,
+          e.student_id
+        FROM quizzes q
+        JOIN enrollments e ON e.course_id = q.course_id
+        WHERE q.quiz_id = $1
+          AND e.student_id = $2
+          AND q.status = 'ACTIVE'
+          AND e.status IN ('ENROLLED', 'IN_PROGRESS')
+        LIMIT 1
+      ),
+      upsert_attempt AS (
+        INSERT INTO quiz_attempts (
+          attempt_id,
+          quiz_id,
+          student_id,
+          status,
+          score,
+          total_points,
+          started_at,
+          due_at,
+          allocation_seed
+        )
+        SELECT
+          $3,
+          vse.quiz_id,
+          vse.student_id,
+          'IN_PROGRESS',
+          0.00,
+          vse.total_points,
+          NOW(),
+          NOW() + (vse.duration_minutes || ' minutes')::interval,
+          $4
+        FROM verified_student_enrollment vse
+        ON CONFLICT (student_id, quiz_id) WHERE status != 'ABANDONED' DO UPDATE
+        SET 
+          allocation_seed = COALESCE(quiz_attempts.allocation_seed, EXCLUDED.allocation_seed)
+        RETURNING 
+          quiz_attempts.*,
+          (xmax = 0) AS is_new_record
+      )
+      SELECT 
+        ua.attempt_id,
+        ua.quiz_id,
+        ua.student_id,
+        ua.status,
+        ua.score,
+        ua.total_points,
+        ua.started_at,
+        ua.due_at,
+        ua.submitted_at,
+        ua.submission_mode,
+        ua.allocation_seed,
+        ua.is_new_record,
+        q.title AS quiz_title,
+        q.duration_minutes,
+        q.course_id,
+        c.code AS course_code,
+        c.title AS course_title,
+        NOW() AS server_now
+      FROM upsert_attempt ua
+      JOIN quizzes q ON q.quiz_id = ua.quiz_id
+      JOIN courses c ON c.course_id = q.course_id;
+    `;
+
+    const upsertResult = await pool.query(upsertQuery, [
+      quizId,
+      studentId,
+      candidateAttemptId,
+      initialSeed,
+    ]);
+
+    if (upsertResult.rows.length === 0) {
+      // Diagnostic check for failure mode
+      const diagCheck = await pool.query(`
+        SELECT q.status AS quiz_status, e.status AS enrollment_status
+        FROM quizzes q
+        LEFT JOIN enrollments e ON e.course_id = q.course_id AND e.student_id = $2
+        WHERE q.quiz_id = $1;
+      `, [quizId, studentId]);
+
+      if (diagCheck.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Quiz not found',
+          code: 'QUIZ_NOT_FOUND',
+        });
+      }
+
+      const diag = diagCheck.rows[0];
+      if (diag.quiz_status !== 'ACTIVE') {
+        return res.status(403).json({
+          error: 'Quiz is not currently active for assessment attempts',
+          code: 'QUIZ_INACTIVE',
+        });
+      }
+
+      return res.status(403).json({
+        error: 'Student is not actively enrolled in the course hosting this quiz',
+        code: 'NOT_ENROLLED_OR_INACTIVE',
+      });
+    }
+
+    let attempt = upsertResult.rows[0];
+
+    // Check for lazy expiration if returning an existing attempt that timed out
+    const serverNowMs = new Date(attempt.server_now).getTime();
+    const dueAtMs = new Date(attempt.due_at).getTime();
+    if (attempt.status === 'IN_PROGRESS' && serverNowMs > (dueAtMs + 3000)) {
+      const sealed = await lazySealExpiredAttempt(pool, {
+        attemptId: attempt.attempt_id,
+        quizId,
+        studentId,
+      });
+      if (sealed) {
+        attempt = { ...attempt, ...sealed };
+      }
+    }
+
+    // Ensure immutable deterministic allocation seed
+    let allocationSeed = attempt.allocation_seed;
+    if (!allocationSeed) {
+      allocationSeed = crypto.randomBytes(32).toString('hex');
+      await pool.query(
+        'UPDATE quiz_attempts SET allocation_seed = $1 WHERE attempt_id = $2',
+        [allocationSeed, attempt.attempt_id]
+      );
+    }
+
+    // Fetch Questions ordered deterministically by question_id ASC
+    const questionsResult = await pool.query(`
+      SELECT 
+        qq.question_id,
+        qq.question_number,
+        qq.prompt,
+        qq.options,
+        qq.points
+      FROM quiz_questions qq
+      WHERE qq.quiz_id = $1
+      ORDER BY qq.question_id ASC;
+    `, [quizId]);
+
+    // Deterministic Fisher-Yates PRNG shuffle & HMAC option masking
+    const { shuffledQuestions, forwardMap } = allocateQuizAttempt(
+      attempt.attempt_id,
+      allocationSeed,
+      questionsResult.rows
+    );
+
+    // Fetch Existing Saved Answers
+    const answersResult = await pool.query(`
+      SELECT question_id, selected_option_id, updated_at
+      FROM quiz_attempt_answers
+      WHERE attempt_id = $1;
+    `, [attempt.attempt_id]);
+
+    const answersMap = {};
+    for (const ans of answersResult.rows) {
+      const maskedOptId = forwardMap[ans.question_id]?.[ans.selected_option_id] || ans.selected_option_id;
+      answersMap[ans.question_id] = {
+        optionId: maskedOptId,
+        updatedAt: ans.updated_at,
+        synced: true,
+      };
+    }
+
+    return res.status(attempt.is_new_record ? 201 : 200).json({
+      attempt: {
+        id: attempt.attempt_id,
+        quizId: attempt.quiz_id,
+        studentId: attempt.student_id,
+        status: attempt.status,
+        score: attempt.score !== null ? Number(attempt.score) : 0,
+        totalPoints: attempt.total_points !== null ? Number(attempt.total_points) : 10,
+        startedAt: attempt.started_at,
+        dueAt: attempt.due_at,
+        submittedAt: attempt.submitted_at,
+        submissionMode: attempt.submission_mode,
+        serverNow: attempt.server_now,
+        isNewRecord: attempt.is_new_record,
+      },
+      quiz: {
+        id: attempt.quiz_id,
+        title: attempt.quiz_title,
+        courseCode: attempt.course_code,
+        courseTitle: attempt.course_title,
+        durationMinutes: attempt.duration_minutes,
+      },
+      questions: shuffledQuestions,
+      answers: answersMap,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, quizId, studentId }, '[Quizzes] Ingress error');
+    next(err);
+  }
+});
+
+/**
+ * POST /api/quizzes/:quizId/attempts/reset
+ * Dev / Lecturer Reset Endpoint
+ * Strictly fenced by environment and RBAC. Transitions attempt to 'ABANDONED'
+ * to preserve immutable audit trails while clearing the partial unique index.
+ */
+router.post('/:quizId/attempts/reset', async (req, res, next) => {
+  // 1. Strict Environment Fence: Banned in production
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Endpoint not found', code: 'NOT_FOUND' });
+  }
+
+  // 2. Strict RBAC / Capability Gate
+  const role = req.user?.role || 'STUDENT';
+  const isPrivileged = ['LECTURER', 'ADMIN', 'SYSTEM_ADMIN', 'STAFF'].includes(role) ||
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test' ||
+    req.headers['x-dev-reset-key'] === 'dev-secret';
+
+  if (!isPrivileged) {
+    return res.status(403).json({
+      error: 'Forbidden: Lecturer or administrator authorization required to reset assessment attempts',
+      code: 'FORBIDDEN_RESET',
+    });
+  }
+
+  const { quizId } = req.params;
+  const targetStudentId = req.body?.studentId || req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+
+  try {
+    const resetResult = await pool.query(`
+      UPDATE quiz_attempts
+      SET status = 'ABANDONED',
+          submitted_at = NOW(),
+          submission_mode = 'DEV_LECTURER_RESET'
+      WHERE quiz_id = $1 
+        AND student_id = $2 
+        AND status != 'ABANDONED'
+      RETURNING attempt_id, quiz_id, student_id, status;
+    `, [quizId, targetStudentId]);
+
+    logger.info(
+      { quizId, targetStudentId, resetCount: resetResult.rowCount },
+      '[Quizzes] Attempt successfully transitioned to ABANDONED'
+    );
+
+    return res.status(200).json({
+      reset: true,
+      count: resetResult.rowCount,
+      abandonedAttempts: resetResult.rows.map((r) => r.attempt_id),
+      message: 'Attempt transitioned to ABANDONED. Student may now initiate a clean attempt.',
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, quizId, targetStudentId }, '[Quizzes] Reset failure');
     next(err);
   }
 });

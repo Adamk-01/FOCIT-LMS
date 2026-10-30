@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api';
 import { useQuizTimer } from './useQuizTimer';
 
@@ -94,20 +94,23 @@ function getQuizIdempotencyKey(studentId, attemptId, answersArray) {
  */
 export function useQuizAttempt({ quizId, attemptId, studentId }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
 
-  // 1. Fetch Authoritative Quiz Attempt & Skew Context
+  // 1. Fetch Authoritative Quiz Attempt & Skew Context (Supports atomic ingress when attemptId is null)
   const {
     data: attemptData,
     isLoading,
     error: fetchError,
     refetch,
   } = useQuery({
-    queryKey: ['quiz-attempt', quizId, attemptId],
+    queryKey: ['quiz-attempt', quizId, attemptId || 'active'],
     queryFn: async () => {
       const clientSend = Date.now();
-      const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}`);
+      const res = attemptId
+        ? await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}`)
+        : await apiClient.post(`/quizzes/${quizId}/attempts`);
       const clientReceive = Date.now();
-      return {
+      const payload = {
         ...res.data,
         _telemetry: {
           clientSend,
@@ -115,20 +118,35 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
           rtt: clientReceive - clientSend,
         },
       };
+
+      // Synchronize newly minted or resolved attemptId to URL search params without page reload
+      if (!attemptId && payload?.attempt?.id) {
+        setSearchParams(
+          (prev) => {
+            const nextParams = new URLSearchParams(prev);
+            nextParams.set('attemptId', payload.attempt.id);
+            return nextParams;
+          },
+          { replace: true }
+        );
+      }
+
+      return payload;
     },
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
 
   const attempt = attemptData?.attempt;
+  const activeAttemptId = attemptId || attempt?.id;
   const quiz = attemptData?.quiz;
   const questions = useMemo(() => attemptData?.questions || [], [attemptData?.questions]);
   const serverInitialAnswers = useMemo(() => attemptData?.answers || {}, [attemptData?.answers]);
 
   // Scoped sessionStorage Sandbox Key (Doctrine Invariant 4)
   const storageKey = useMemo(
-    () => `focit_quiz_draft:${studentId}:${attemptId}`,
-    [studentId, attemptId]
+    () => `focit_quiz_draft:${studentId}:${activeAttemptId || 'init'}`,
+    [studentId, activeAttemptId]
   );
 
   // Synchronously hydrate selected answers from scoped sessionStorage
@@ -215,9 +233,10 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
         optionId: val.optionId,
       }));
 
+      if (!activeAttemptId) return;
       autoSaveAbortRef.current = new AbortController();
       await apiClient.post(
-        `/quizzes/${quizId}/attempts/${attemptId}/save`,
+        `/quizzes/${quizId}/attempts/${activeAttemptId}/save`,
         { answers: payload },
         { signal: autoSaveAbortRef.current.signal }
       );
@@ -240,7 +259,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
         setSyncStatus('OFFLINE');
       }
     }
-  }, [storageKey, quizId, attemptId]);
+  }, [storageKey, quizId, activeAttemptId]);
 
   // Network online/offline event handlers
   useEffect(() => {
@@ -297,7 +316,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   const [submitError, setSubmitError] = useState(null);
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (customMode = 'STANDARD') => {
       // Abort any pending background auto-save to eliminate race conditions
       if (autoSaveAbortRef.current) {
         autoSaveAbortRef.current.abort();
@@ -308,11 +327,16 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
         optionId: val.optionId,
       }));
 
-      const idempotencyKey = getQuizIdempotencyKey(studentId, attemptId, answersArray);
+      const targetId = activeAttemptId || attemptId;
+      if (!targetId) throw new Error('Attempt ID not resolved');
+      const idempotencyKey = getQuizIdempotencyKey(studentId, targetId, answersArray);
 
       const res = await apiClient.post(
-        `/quizzes/${quizId}/attempts/${attemptId}/submit`,
-        { answers: answersArray },
+        `/quizzes/${quizId}/attempts/${targetId}/submit`,
+        {
+          answers: answersArray,
+          submissionMode: typeof customMode === 'string' ? customMode : 'STANDARD',
+        },
         {
           headers: {
             'Idempotency-Key': idempotencyKey,
@@ -328,20 +352,29 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
       try {
         sessionStorage.removeItem(storageKey);
       } catch {}
+
+      // Automatically exit fullscreen upon assessment submission
+      if (typeof document !== 'undefined' && document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+
+      // Invalidate gradebook and course quizzes cache so gradebook reflects the score immediately
+      queryClient.invalidateQueries({ queryKey: ['course-grades'] });
+      queryClient.invalidateQueries({ queryKey: ['course-quizzes'] });
     },
     onError: (err) => {
       setSubmitError(err);
     },
   });
 
-  const triggerSubmit = useCallback(async () => {
+  const triggerSubmit = useCallback(async (customMode = 'STANDARD') => {
     // Hardware execution mutex: blocks frantic double-clicks while request is in-flight
     if (inFlightSubmitMutexRef.current || submitMutation.isPending) return;
     inFlightSubmitMutexRef.current = true;
     setSubmitError(null);
 
     try {
-      await submitMutation.mutateAsync();
+      await submitMutation.mutateAsync(customMode);
     } catch {
       // Mutation error handled in submitMutation.onError
     } finally {
@@ -366,7 +399,9 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   const handleWakeHeartbeat = useCallback(async () => {
     try {
       const clientSend = Date.now();
-      const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}/ping`);
+      const targetId = activeAttemptId || attemptId;
+      if (!targetId) return;
+      const res = await apiClient.get(`/quizzes/${quizId}/attempts/${targetId}/ping`);
       const clientReceive = Date.now();
       const freshServerNow = res.data?.serverNow;
       if (freshServerNow) {
@@ -391,7 +426,10 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     timerRef.current = timer;
   }, [timer]);
 
-  const isFinalized = attempt?.status === 'SUBMITTED' || Boolean(submissionReceipt);
+  const isFinalized = 
+    attempt?.status === 'SUBMITTED' || 
+    attempt?.status === 'EXPIRED' || 
+    Boolean(submissionReceipt);
   const activeQuestion = questions[activeQuestionIndex] || questions[0];
   const activeAnswer = activeQuestion ? selectedAnswers[activeQuestion.id]?.optionId : null;
   const answeredCount = useMemo(() => Object.keys(selectedAnswers).length, [selectedAnswers]);

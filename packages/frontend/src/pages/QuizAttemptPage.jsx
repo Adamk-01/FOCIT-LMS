@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useParams, useSearchParams, Navigate } from 'react-router-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useExamLock } from '../contexts/ExamLockContext';
 import { useQuizAttempt } from '../hooks/useQuizAttempt';
 import { QuizHeaderTimer } from '../components/quiz/QuizHeaderTimer';
 import { QuizQuestionCard } from '../components/quiz/QuizQuestionCard';
@@ -23,20 +24,17 @@ import { ProctoringCurtainModal } from '../components/quiz/ProctoringCurtainModa
  * 5. Native HTML Top Layer <dialog> Modal with In-Flight Mutation Lock
  * 6. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
  * 7. Milestone 10.1: Anti-Cheat Soft-Lockdown & Telemetry Proctoring Curtain
+ * 8. Zero-Trust Navigation Lockdown via ExamLockContext
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
 export function QuizAttemptPage() {
   const { courseId = 'CSC204', quizId, attemptId: paramAttemptId } = useParams();
   const [searchParams] = useSearchParams();
-  const attemptId = paramAttemptId || searchParams.get('attemptId') || (quizId === 'quiz_csc204_1' ? 'att_csc204_john' : null);
+  const attemptId = paramAttemptId || searchParams.get('attemptId') || null;
   const { user } = useAuth();
   const studentId = user?.username || user?.id || 'student1';
-
-  // If directly navigating without a quiz ID, redirect back to course quizzes tab
-  if (!quizId) {
-    return <Navigate to={`/courses/${encodeURIComponent(courseId)}?tab=quizzes`} replace />;
-  }
+  const { setExamLocked } = useExamLock();
 
   const {
     attempt,
@@ -67,12 +65,29 @@ export function QuizAttemptPage() {
   const {
     lockdownState,
     infractionCount,
+    fullscreenExits,
     enterFullscreenProctoring,
   } = useAntiCheat({
     quizId,
     attemptId,
-    enabled: !isFinalized && !isLoading && !fetchError && Boolean(attempt),
+    enabled: !isFinalized && !isLoading && !fetchError && !isSubmitting && Boolean(attempt),
+    isSubmitting,
+    onViolationAutoSubmit: (mode) => triggerSubmit(mode),
   });
+
+  // Zero-Trust Navigation Lock during active assessment
+  useEffect(() => {
+    const isLocked = !isFinalized && !isLoading && !fetchError && Boolean(attempt);
+    setExamLocked(isLocked);
+    return () => {
+      setExamLocked(false);
+    };
+  }, [isFinalized, isLoading, fetchError, attempt, setExamLocked]);
+
+  // If directly navigating without a quiz ID, redirect back to course quizzes tab
+  if (!quizId) {
+    return <Navigate to={`/courses/${encodeURIComponent(courseId)}?tab=quizzes`} replace />;
+  }
 
   // 1. Loading State
   if (isLoading) {
@@ -120,8 +135,8 @@ export function QuizAttemptPage() {
         syncStatus={syncStatus}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <main className="lg:col-span-3 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        <main className="lg:col-span-8 space-y-6">
           <QuizQuestionCard
             question={activeQuestion}
             activeAnswer={activeAnswer}
@@ -135,14 +150,16 @@ export function QuizAttemptPage() {
           />
         </main>
 
-        <QuestionNavigationPalette
-          questions={questions}
-          currentQuestionIndex={currentQuestionIndex}
-          selectedAnswers={selectedAnswers}
-          onSelectQuestion={navigateToQuestion}
-          onOpenFinishModal={() => setShowConfirmModal(true)}
-          isSubmitting={isSubmitting}
-        />
+        <div className="lg:col-span-4">
+          <QuestionNavigationPalette
+            questions={questions}
+            currentQuestionIndex={currentQuestionIndex}
+            selectedAnswers={selectedAnswers}
+            onSelectQuestion={navigateToQuestion}
+            onOpenFinishModal={() => setShowConfirmModal(true)}
+            isSubmitting={isSubmitting}
+          />
+        </div>
       </div>
 
       <QuizSubmissionModal
@@ -159,6 +176,7 @@ export function QuizAttemptPage() {
       <ProctoringCurtainModal
         lockdownState={lockdownState}
         infractionCount={infractionCount}
+        fullscreenExits={fullscreenExits}
         onResumeExam={enterFullscreenProctoring}
       />
     </div>
