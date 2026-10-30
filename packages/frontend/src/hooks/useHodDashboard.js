@@ -48,13 +48,28 @@ async function getJson(path, signal) {
   return res.data;
 }
 
+export function useHodLecturers() {
+  return useQuery({
+    queryKey: ['hod-lecturers'],
+    queryFn: async ({ signal }) => {
+      const data = await getJson('/hod/lecturers', signal);
+      return data?.lecturers ?? [];
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useHodAllocations(semesterId) {
   return useQuery({
     queryKey: ['hod-allocations', semesterId],
     queryFn: async ({ signal }) => {
       const q = semesterId ? `?semesterId=${encodeURIComponent(semesterId)}` : '';
       const data = await getJson(`/hod/allocations${q}`, signal);
-      return data?.allocations ?? [];
+      const allocations = data?.allocations ?? [];
+      allocations.semesterId = data?.semesterId;
+      allocations.departmentName = data?.departmentName;
+      allocations.departmentCode = data?.departmentCode;
+      return allocations;
     },
     staleTime: 30 * 1000,
   });

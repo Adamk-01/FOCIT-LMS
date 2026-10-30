@@ -15,9 +15,10 @@ const router = Router();
 async function requireHod(req, res, next) {
   try {
     const { rows } = await db.query(
-      `SELECT advisor_id, full_name, department_id
-       FROM staff_advisors
-       WHERE email = $1 AND role = 'HOD'
+      `SELECT sa.advisor_id, sa.full_name, sa.department_id, d.name AS department_name, d.code AS department_code
+       FROM staff_advisors sa
+       LEFT JOIN departments d ON d.id = sa.department_id
+       WHERE sa.email = $1 AND sa.role = 'HOD'
        LIMIT 1`,
       [req.user.email]
     );
@@ -33,10 +34,30 @@ async function requireHod(req, res, next) {
 
 router.use(requireHod);
 
+// ─── 0. Department Lecturers List ──────────────────────────────
+router.get('/lecturers', async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT advisor_id AS lecturer_id, staff_number, full_name, email, role
+       FROM staff_advisors
+       WHERE department_id = $1 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')
+       ORDER BY full_name ASC`,
+      [req.hodScope.department_id]
+    );
+    res.json({ lecturers: rows });
+  } catch (err) { next(err); }
+});
+
 // ─── 1. Course Allocation Matrix ─────────────────────────────
 router.get('/allocations', async (req, res, next) => {
   try {
-    const { semesterId } = req.query;
+    let { semesterId } = req.query;
+    if (!semesterId) {
+      const activeSemRes = await db.query(
+        `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+      );
+      semesterId = activeSemRes.rows[0]?.id || '2026_RAIN';
+    }
     const { rows } = await db.query(
       `SELECT c.course_id, c.code, c.title, c.units, c.level,
               hca.id AS allocation_id, sa.advisor_id AS lecturer_id,
@@ -48,9 +69,14 @@ router.get('/allocations', async (req, res, next) => {
        LEFT JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
        WHERE c.department_id = $1 AND c.is_active = TRUE
        ORDER BY c.code`,
-      [req.hodScope.department_id, semesterId || '']
+      [req.hodScope.department_id, semesterId]
     );
-    res.json({ allocations: rows });
+    res.json({
+      allocations: rows,
+      semesterId,
+      departmentName: req.hodScope.department_name || 'Department Control Plane',
+      departmentCode: req.hodScope.department_code || req.hodScope.department_id || 'HOD',
+    });
   } catch (err) { next(err); }
 });
 
@@ -70,7 +96,7 @@ router.post('/allocations', async (req, res, next) => {
       }
       const lecturer = await client.query(
         `SELECT advisor_id FROM staff_advisors
-         WHERE advisor_id = $1 AND department_id = $2 AND role = 'LEVEL_ADVISOR'`,
+         WHERE advisor_id = $1 AND department_id = $2 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')`,
         [lecturerId, req.hodScope.department_id]
       );
       if (lecturer.rowCount === 0) {
@@ -175,29 +201,74 @@ router.post('/clearance/override', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ─── 3. Cohort Analytics (GPA distribution + at-risk) ────────
+// ─── 3. Cohort Analytics (GPA distribution + at-risk + summary) ────────
 router.get('/analytics', async (req, res, next) => {
   try {
+    const deptId = req.hodScope.department_id;
+
+    // 1. Department Aggregate Summary KPI metrics
+    const { rows: summaryRows } = await db.query(
+      `SELECT 
+        COUNT(s.student_id)::int AS total_cohort,
+        COUNT(s.student_id) FILTER (WHERE s.current_gpa IS NOT NULL)::int AS graded_cohort,
+        ROUND(COALESCE(AVG(s.current_gpa) FILTER (WHERE s.current_gpa IS NOT NULL), 0)::numeric, 2)::float AS dept_cgpa_index,
+        COUNT(s.student_id) FILTER (WHERE s.current_gpa >= 3.50)::int AS honours_count,
+        COUNT(s.student_id) FILTER (WHERE s.current_gpa < 1.50)::int AS at_risk_count,
+        COUNT(s.student_id) FILTER (WHERE s.current_gpa < 1.50)::int AS critical_risk_count,
+        COUNT(s.student_id) FILTER (WHERE s.current_gpa >= 1.50 AND s.current_gpa < 2.00)::int AS standing_probation_count,
+        COUNT(s.student_id) FILTER (WHERE s.level IN (100, 200))::int AS foundational_pool
+       FROM students s
+       JOIN programmes p ON p.id = s.programme_id
+       WHERE p.department_id = $1`,
+      [deptId]
+    );
+
+    const summary = summaryRows[0] || {
+      total_cohort: 0,
+      graded_cohort: 0,
+      dept_cgpa_index: 0,
+      honours_count: 0,
+      at_risk_count: 0,
+      critical_risk_count: 0,
+      standing_probation_count: 0,
+      foundational_pool: 0,
+    };
+
+    // 2. GPA Distribution by Level
     const { rows: dist } = await db.query(
       `SELECT s.level,
-              COUNT(*) FILTER (WHERE s.current_gpa < 1.50) AS bucket_lt_1_5,
-              COUNT(*) FILTER (WHERE s.current_gpa >= 1.50 AND s.current_gpa < 2.50) AS bucket_1_5_2_5,
-              COUNT(*) FILTER (WHERE s.current_gpa >= 2.50 AND s.current_gpa < 3.50) AS bucket_2_5_3_5,
-              COUNT(*) FILTER (WHERE s.current_gpa >= 3.50) AS bucket_gte_3_5
+              COUNT(*)::int AS total_enrolled,
+              COUNT(*) FILTER (WHERE s.current_gpa < 1.50)::int AS probation_risk,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 1.50 AND s.current_gpa < 2.50)::int AS third_class,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 2.50 AND s.current_gpa < 3.50)::int AS second_lower,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 3.50)::int AS first_or_second_upper,
+              COUNT(*) FILTER (WHERE s.current_gpa < 1.50)::int AS bucket_lt_1_5,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 1.50 AND s.current_gpa < 2.50)::int AS bucket_1_5_2_5,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 2.50 AND s.current_gpa < 3.50)::int AS bucket_2_5_3_5,
+              COUNT(*) FILTER (WHERE s.current_gpa >= 3.50)::int AS bucket_gte_3_5
        FROM students s
        JOIN programmes p ON p.id = s.programme_id
        WHERE p.department_id = $1
        GROUP BY s.level ORDER BY s.level`,
-      [req.hodScope.department_id]
+      [deptId]
     );
+
+    // 3. At-Risk Students
     const { rows: atRisk } = await db.query(
-      `SELECT s.full_name, s.matric_number, s.level, s.current_gpa
+      `SELECT s.full_name, s.matric_number, s.level, s.current_gpa, p.code AS programme_code
        FROM students s JOIN programmes p ON p.id = s.programme_id
        WHERE p.department_id = $1 AND s.current_gpa < 1.50
        ORDER BY s.current_gpa ASC LIMIT 100`,
-      [req.hodScope.department_id]
+      [deptId]
     );
-    res.json({ gpaDistribution: dist, atRiskStudents: atRisk });
+
+    res.json({
+      summary,
+      gpaDistribution: dist,
+      atRiskStudents: atRisk,
+      departmentName: req.hodScope.department_name || 'Department Control Plane',
+      departmentCode: req.hodScope.department_code || req.hodScope.department_id || 'HOD',
+    });
   } catch (err) { next(err); }
 });
 

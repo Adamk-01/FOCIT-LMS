@@ -156,7 +156,7 @@ router.get('/courses', async (req, res, next) => {
           FROM enrollments e 
           WHERE e.course_id = c.course_id 
             AND e.semester_id = $2 
-            AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+            AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
         ) AS verified_enrolled_students
       FROM courses c
       JOIN departments d ON d.id = c.department_id
@@ -240,7 +240,7 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
       JOIN departments d ON d.id = p.department_id
       WHERE e.course_id = $1 
         AND e.semester_id = $2
-        AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+        AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
         AND ($3::varchar IS NULL OR (
           s.full_name ILIKE '%' || $3 || '%' 
           OR s.matric_number ILIKE '%' || $3 || '%'
@@ -315,7 +315,7 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
        FROM enrollments e
        JOIN students s ON s.student_id = e.student_id
        JOIN programmes p ON p.id = s.programme_id
-       WHERE e.course_id = $1 AND e.semester_id = $2 AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+       WHERE e.course_id = $1 AND e.semester_id = $2 AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
        ORDER BY s.matric_number ASC`,
       [courseId, targetSemesterId]
     );
@@ -388,14 +388,25 @@ router.post('/courses/:courseId/grades/ingest', async (req, res, next) => {
     const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
 
     // 1. Course Authorization
-    const authCheck = await client.query(
-      `SELECT 1 FROM hod_course_allocations 
-       WHERE course_id = $1 AND semester_id = $2 AND (lecturer_id = $3 OR $4 = TRUE)
-       LIMIT 1`,
-      [courseId, targetSemesterId, lecturerId, req.lecturerScope.isSystemAdmin || req.lecturerScope.role === 'HOD']
+    const courseRes = await client.query(
+      `SELECT course_id, code, title, department_id FROM courses WHERE course_id = $1 LIMIT 1`,
+      [courseId]
     );
+    if (courseRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found', code: 'COURSE_NOT_FOUND' });
+    }
+    const course = courseRes.rows[0];
 
-    if (authCheck.rows.length === 0) {
+    const isAllocated = (await client.query(
+      `SELECT 1 FROM hod_course_allocations 
+       WHERE course_id = $1 AND semester_id = $2 AND lecturer_id = $3 LIMIT 1`,
+      [courseId, targetSemesterId, lecturerId]
+    )).rows.length > 0;
+
+    const isDeptHod = req.lecturerScope.role === 'HOD' && req.lecturerScope.department_id === course.department_id;
+    const isSysAdmin = Boolean(req.lecturerScope.isSystemAdmin);
+
+    if (!isAllocated && !isDeptHod && !isSysAdmin) {
       return res.status(403).json({
         error: 'Access denied: You are not authorized to record grades for this course',
         code: 'FORBIDDEN_GRADE_INGESTION'
@@ -419,28 +430,64 @@ router.post('/courses/:courseId/grades/ingest', async (req, res, next) => {
         continue;
       }
 
-      let numericGrade = null;
-      if (rawTotal !== undefined && rawTotal !== null && rawTotal !== '') {
-        numericGrade = parseFloat(rawTotal);
-      } else if (rawCa !== undefined || rawExam !== undefined) {
-        const caVal = parseFloat(rawCa) || 0;
-        const examVal = parseFloat(rawExam) || 0;
-        numericGrade = caVal + examVal;
-      }
+      const hasTotal = rawTotal !== undefined && rawTotal !== null && String(rawTotal).trim() !== '';
+      const hasCa = rawCa !== undefined && rawCa !== null && String(rawCa).trim() !== '';
+      const hasExam = rawExam !== undefined && rawExam !== null && String(rawExam).trim() !== '';
 
-      if (numericGrade !== null && (isNaN(numericGrade) || numericGrade < 0 || numericGrade > 100)) {
-        errors.push({ matric, error: 'Calculated score out of valid bounds (0 - 100)' });
+      if (!hasTotal && !hasCa && !hasExam) {
+        errors.push({ matric, error: 'Record contains no grade scores (skipped to avoid clearing existing grade)' });
         continue;
       }
 
-      // Check enrollment existence
+      // Validate caScore and examScore bounds even when a total is supplied
+      let caVal = 0;
+      let examVal = 0;
+
+      if (hasCa) {
+        const parsedCa = Number(rawCa);
+        if (isNaN(parsedCa) || parsedCa < 0 || parsedCa > 40) {
+          errors.push({ matric, error: `Invalid CA score '${rawCa}': must be a valid number between 0 and 40` });
+          continue;
+        }
+        caVal = parsedCa;
+      }
+
+      if (hasExam) {
+        const parsedExam = Number(rawExam);
+        if (isNaN(parsedExam) || parsedExam < 0 || parsedExam > 60) {
+          errors.push({ matric, error: `Invalid Exam score '${rawExam}': must be a valid number between 0 and 60` });
+          continue;
+        }
+        examVal = parsedExam;
+      }
+
+      let numericGrade = null;
+      if (hasTotal) {
+        const parsed = Number(rawTotal);
+        if (isNaN(parsed) || parsed < 0 || parsed > 100) {
+          errors.push({ matric, error: `Invalid Total score '${rawTotal}': must be a valid number between 0 and 100` });
+          continue;
+        }
+        numericGrade = parsed;
+      } else {
+        numericGrade = Math.round((caVal + examVal) * 100) / 100;
+      }
+
+      if (numericGrade < 0 || numericGrade > 100) {
+        errors.push({ matric, error: `Calculated total score (${numericGrade}) is out of bounds (0 - 100)` });
+        continue;
+      }
+
+      // Check enrollment existence: only actively enrolled students
       const findRes = await client.query(
         `SELECT e.enrollment_id, e.student_id 
          FROM enrollments e
          JOIN students s ON s.student_id = e.student_id
-         WHERE (s.matric_number ILIKE $1 OR s.student_id = $1)
+         WHERE (UPPER(TRIM(s.matric_number)) = UPPER(TRIM($1)) OR s.student_id = $1)
            AND e.course_id = $2
            AND e.semester_id = $3
+           AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
+           AND s.is_active = TRUE
          LIMIT 1`,
         [matric, courseId, targetSemesterId]
       );
@@ -455,7 +502,7 @@ router.post('/courses/:courseId/grades/ingest', async (req, res, next) => {
       await client.query(
         `UPDATE enrollments
          SET grade = $1,
-             status = CASE WHEN $1 IS NOT NULL AND $1 >= 0 THEN 'COMPLETED' ELSE status END
+             updated_at = NOW()
          WHERE enrollment_id = $2`,
         [numericGrade, enrollmentId]
       );
