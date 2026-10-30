@@ -152,7 +152,7 @@ router.get('/:courseId/forum/threads/:threadId/replies', async (req, res, next) 
  */
 router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next) => {
   const { courseId, threadId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const studentId = req.user?.student_id || req.user?.studentId || req.user?.id || req.user?.username || 'student1';
   const { body } = req.body || {};
 
   if (!body || !body.trim()) {
@@ -218,17 +218,50 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       });
     }
 
-    // 2. Fetch author identity and avatar
-    const studentQuery = await client.query(
-      `SELECT s.full_name, sp.avatar_url 
-       FROM students s 
-       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
-       WHERE s.student_id = $1 LIMIT 1;`,
-      [studentId]
-    );
+    // 2. Fetch author identity (resolve staff vs student)
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
 
-    const authorName = studentQuery.rows[0]?.full_name || 'Student Participant';
-    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
+    let authorId = studentId;
+    let authorName = 'Participant';
+    let authorRole = 'STUDENT';
+    let avatarUrl = null;
+
+    if (isStaffRole) {
+      const staffRes = await client.query(
+        `SELECT advisor_id, full_name, role 
+         FROM staff_advisors 
+         WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+         LIMIT 1`,
+        [String(studentId), req.user?.email ? String(req.user.email).trim() : '']
+      );
+      if (staffRes.rows.length > 0) {
+        authorId = staffRes.rows[0].advisor_id;
+        authorName = staffRes.rows[0].full_name;
+        authorRole = staffRes.rows[0].role || userRole;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Course Faculty';
+        authorRole = userRole || 'STAFF';
+      }
+    } else {
+      const studentQuery = await client.query(
+        `SELECT s.student_id, s.full_name, sp.avatar_url 
+         FROM students s 
+         LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+         WHERE s.student_id = $1 OR UPPER(s.matric_number) = UPPER($1) OR UPPER(s.username) = UPPER($1)
+         ORDER BY (s.student_id = $1) DESC, s.student_id ASC
+         LIMIT 1;`,
+        [String(studentId)]
+      );
+      if (studentQuery.rows.length > 0) {
+        authorId = studentQuery.rows[0].student_id;
+        authorName = studentQuery.rows[0].full_name;
+        avatarUrl = studentQuery.rows[0].avatar_url || null;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Student Participant';
+      }
+      authorRole = 'STUDENT';
+    }
 
     // 3. Insert reply
     const insertRes = await client.query(
@@ -239,9 +272,9 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
          author_role,
          body,
          created_at
-       ) VALUES ($1, $2, $3, 'STUDENT', $4, NOW())
+       ) VALUES ($1, $2, $3, $4, $5, NOW())
        RETURNING *;`,
-      [threadId, studentId, authorName, body.trim()]
+      [threadId, authorId, authorName, authorRole, body.trim()]
     );
 
     // 4. Increment replies count and update last_post_at on parent thread
@@ -263,9 +296,9 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       body: newReply.body,
       createdAt: newReply.created_at,
       author: {
-        id: studentId,
+        id: authorId,
         name: authorName,
-        role: 'STUDENT',
+        role: authorRole,
         avatarUrl,
         initials: authorName
           .split(' ')
@@ -290,7 +323,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
  */
 router.post('/:courseId/forum/threads', async (req, res, next) => {
   const { courseId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const studentId = req.user?.student_id || req.user?.studentId || req.user?.id || req.user?.username || 'student1';
   const { title, body } = req.body;
 
   if (!title || !title.trim() || !body || !body.trim()) {
@@ -337,15 +370,50 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         retryAfterSeconds: waitSec,
       });
     }
-    const studentQuery = await pool.query(
-      `SELECT s.full_name, sp.avatar_url 
-       FROM students s 
-       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
-       WHERE s.student_id = $1 LIMIT 1`,
-      [studentId]
-    );
-    const authorName = studentQuery.rows[0]?.full_name || 'John Doe';
-    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
+    // Resolve author identity (resolve staff vs student)
+    const userRole = String(req.user?.role || '').toUpperCase();
+    const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+
+    let authorId = studentId;
+    let authorName = 'Participant';
+    let authorRole = 'STUDENT';
+    let avatarUrl = null;
+
+    if (isStaffRole) {
+      const staffRes = await pool.query(
+        `SELECT advisor_id, full_name, role 
+         FROM staff_advisors 
+         WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+         LIMIT 1`,
+        [String(studentId), req.user?.email ? String(req.user.email).trim() : '']
+      );
+      if (staffRes.rows.length > 0) {
+        authorId = staffRes.rows[0].advisor_id;
+        authorName = staffRes.rows[0].full_name;
+        authorRole = staffRes.rows[0].role || userRole;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Course Faculty';
+        authorRole = userRole || 'STAFF';
+      }
+    } else {
+      const studentQuery = await pool.query(
+        `SELECT s.student_id, s.full_name, sp.avatar_url 
+         FROM students s 
+         LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+         WHERE s.student_id = $1 OR UPPER(s.matric_number) = UPPER($1) OR UPPER(s.username) = UPPER($1)
+         ORDER BY (s.student_id = $1) DESC, s.student_id ASC
+         LIMIT 1`,
+        [String(studentId)]
+      );
+      if (studentQuery.rows.length > 0) {
+        authorId = studentQuery.rows[0].student_id;
+        authorName = studentQuery.rows[0].full_name;
+        avatarUrl = studentQuery.rows[0].avatar_url || null;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Student Participant';
+      }
+      authorRole = 'STUDENT';
+    }
 
     const insertResult = await pool.query(`
       INSERT INTO forum_threads (
@@ -358,9 +426,9 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         replies_count,
         last_post_at,
         created_at
-      ) VALUES ($1, $2, $3, 'STUDENT', $4, $5, 0, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, 0, NOW(), NOW())
       RETURNING *;
-    `, [courseId, studentId, authorName, title.trim(), body.trim()]);
+    `, [courseId, authorId, authorName, authorRole, title.trim(), body.trim()]);
 
     const newThread = insertResult.rows[0];
 

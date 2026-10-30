@@ -136,7 +136,7 @@ export const Sidebar = ({
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
   const isHod = role === 'HOD';
   const isLecturer = role === 'LECTURER';
-  const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'DEAN', 'STAFF'].includes(role);
+  const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'STAFF'].includes(role);
 
   let navItems = [];
   if (isAdmin) {

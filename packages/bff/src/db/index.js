@@ -12,8 +12,6 @@
 
 import pg from 'pg';
 import net from 'node:net';
-import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
-import ws from 'ws';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 if (typeof net.setDefaultAutoSelectFamily === 'function') {
@@ -22,8 +20,18 @@ if (typeof net.setDefaultAutoSelectFamily === 'function') {
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
 
-// Configure Neon WebSocket transport for Node.js environments (bypasses port 5432 ISP firewalls)
-neonConfig.webSocketConstructor = ws;
+// Dynamically and safely load Neon serverless driver when available
+let NeonPool = pg.Pool;
+try {
+  const neonModule = await import('@neondatabase/serverless');
+  NeonPool = neonModule.Pool || neonModule.default?.Pool || pg.Pool;
+  const wsModule = await import('ws');
+  if (neonModule.neonConfig) {
+    neonModule.neonConfig.webSocketConstructor = wsModule.default || wsModule;
+  }
+} catch (_) {
+  // Graceful fallback to native pg.Pool in non-Neon or offline environments
+}
 
 // Ephemeral Async Context Storage for Request Trace Propagation
 export const traceStorage = new AsyncLocalStorage();

@@ -56,6 +56,9 @@ import libraryRouter from './routes/library.js';
 import { pool } from './db/index.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
+import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
+import { notificationBroadcaster } from './services/notificationBroadcaster.js';
+import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
 
 const app = express();
 

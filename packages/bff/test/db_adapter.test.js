@@ -109,7 +109,7 @@ test('DatabaseAdapter.transaction: Pipelines BEGIN + SET LOCAL in 1 RTT and Auto
   // Step 1: Pipelined multi-statement BEGIN + SET LOCAL (1 single RTT)
   assert.strictEqual(
     capturedClient.queryHistory[0].text,
-    "BEGIN; SET LOCAL application_name = 'focit_bff:00-deadlock-trace-test-123'"
+    "BEGIN; SET LOCAL statement_timeout = '8000ms'; SET LOCAL application_name = 'focit_bff:00-deadlock-trace-test-123';"
   );
   // Step 2: Mutation query
   assert.strictEqual(

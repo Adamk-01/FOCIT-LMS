@@ -516,7 +516,7 @@ function AnalyticsTerminal() {
                   <tr key={s.matric_number} className="hover:bg-red-50/30">
                     <td className="py-2.5 px-4 font-bold text-gray-900">{s.full_name}</td>
                     <td className="py-2.5 px-4 font-mono font-semibold text-gray-700">{s.matric_number}</td>
-                    <td className="py-2.5 px-4 text-gray-600">{s.programme_code || 'B.Sc. CSC'}</td>
+                    <td className="py-2.5 px-4 text-gray-600">{s.programme_code || 'Undergraduate'}</td>
                     <td className="py-2.5 px-4 text-center font-bold">{s.level}L</td>
                     <td className="py-2.5 px-4 text-center">
                       <span className="font-mono font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded">

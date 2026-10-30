@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { ProtectedLayout } from './layouts/ProtectedLayout';
@@ -8,22 +8,41 @@ import { CourseDetailPage } from './pages/CourseDetailPage';
 import { QuizAttemptPage } from './pages/QuizAttemptPage';
 import { GradebookPage } from './pages/GradebookPage';
 import { ForumPage } from './pages/ForumPage';
-import { QuestionBankPage } from './pages/QuestionBankPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CourseRegistrationPage } from './pages/CourseRegistrationPage';
-import { LevelAdvisorDashboardPage } from './pages/LevelAdvisorDashboardPage';
 import { StudentProfilePage } from './pages/StudentProfilePage';
 import { CalendarPage } from './pages/CalendarPage';
 import { CoursesPage } from './pages/CoursesPage';
-import { DigitalLibraryPage } from './pages/DigitalLibraryPage';
-import { AdminDashboardPage } from './pages/AdminDashboardPage';
-import { AdminUsersPage } from './pages/admin/AdminUsersPage';
-import { AdminOutboxPage } from './pages/admin/AdminOutboxPage';
-import { AdminAuditPage } from './pages/admin/AdminAuditPage';
-import { AdminProfilePage } from './pages/admin/AdminProfilePage';
-import { HodDashboardPage } from './pages/HodDashboardPage';
-import { LecturerDashboardPage } from './pages/LecturerDashboardPage';
 import { LoginPage } from './pages/LoginPage';
+
+// ─── Code-Split Lazily Loaded Role & Heavy Modules for Ultra-Low Latency ───────
+const QuestionBankPage = lazy(() => import('./pages/QuestionBankPage'));
+const DigitalLibraryPage = lazy(() => import('./pages/DigitalLibraryPage'));
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage'));
+const AdminOutboxPage = lazy(() => import('./pages/admin/AdminOutboxPage'));
+const AdminAuditPage = lazy(() => import('./pages/admin/AdminAuditPage'));
+const AdminProfilePage = lazy(() => import('./pages/admin/AdminProfilePage'));
+const HodDashboardPage = lazy(() => import('./pages/HodDashboardPage'));
+const LecturerDashboardPage = lazy(() => import('./pages/LecturerDashboardPage'));
+const LevelAdvisorDashboardPage = lazy(() => import('./pages/LevelAdvisorDashboardPage'));
+
+function LazyWrapper({ children }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[400px] text-gray-400">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-[#0a1142] border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-semibold text-gray-500 font-mono">Loading workspace module...</span>
+          </div>
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 /**
  * Dynamic Root Index Redirector based on Authenticated Role
@@ -56,7 +75,7 @@ function RoleRouteGuard({ allowedRoles, fallbackPath, children }) {
     if (['ADMIN', 'SYSTEM_ADMIN'].includes(role)) return <Navigate to="/admin" replace />;
     if (role === 'HOD') return <Navigate to="/hod" replace />;
     if (role === 'LECTURER') return <Navigate to="/lecturer" replace />;
-    if (['LEVEL_ADVISOR', 'DEAN', 'ADVISOR', 'STAFF'].includes(role)) {
+    if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(role)) {
       return <Navigate to="/advisor/registrations" replace />;
     }
     if (role === 'STUDENT') return <Navigate to="/dashboard" replace />;
@@ -87,43 +106,63 @@ export const router = createBrowserRouter([
       },
       {
         path: 'admin',
-        element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminDashboardPage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><AdminDashboardPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'hod',
-        element: <RoleRouteGuard allowedRoles={['HOD', 'ADMIN', 'SYSTEM_ADMIN']}><HodDashboardPage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['HOD', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><HodDashboardPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'lecturer',
         element: (
           <RoleRouteGuard allowedRoles={['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN']}>
-            <LecturerDashboardPage />
+            <LazyWrapper><LecturerDashboardPage /></LazyWrapper>
           </RoleRouteGuard>
         ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'admin/users',
-        element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminUsersPage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><AdminUsersPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'admin/outbox',
-        element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminOutboxPage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><AdminOutboxPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'admin/audit',
-        element: <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}><AdminAuditPage /></RoleRouteGuard>,
+        element: (
+          <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><AdminAuditPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
         errorElement: <RouteErrorBoundary />,
       },
       {
         path: 'admin/profile',
         element: (
           <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER']}>
-            <AdminProfilePage />
+            <LazyWrapper><AdminProfilePage /></LazyWrapper>
           </RoleRouteGuard>
         ),
         errorElement: <RouteErrorBoundary />,
@@ -139,7 +178,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'library',
-        element: <DigitalLibraryPage />,
+        element: <LazyWrapper><DigitalLibraryPage /></LazyWrapper>,
         errorElement: <RouteErrorBoundary />,
       },
       {
@@ -155,10 +194,31 @@ export const router = createBrowserRouter([
         path: 'advisor/registrations',
         element: (
           <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER']}>
-            <LevelAdvisorDashboardPage />
+            <LazyWrapper><LevelAdvisorDashboardPage /></LazyWrapper>
           </RoleRouteGuard>
         ),
         errorElement: <RouteErrorBoundary />,
+      },
+      // Registration Clearance & Advisor URL Aliases
+      {
+        path: 'advisor',
+        element: <Navigate to="/advisor/registrations" replace />,
+      },
+      {
+        path: 'advisor/registration',
+        element: <Navigate to="/advisor/registrations" replace />,
+      },
+      {
+        path: 'advisor-registration',
+        element: <Navigate to="/advisor/registrations" replace />,
+      },
+      {
+        path: 'clearance',
+        element: <Navigate to="/advisor/registrations" replace />,
+      },
+      {
+        path: 'registration/clearance',
+        element: <Navigate to="/advisor/registrations" replace />,
       },
       {
         path: 'profile',
@@ -214,7 +274,7 @@ export const router = createBrowserRouter([
         path: 'courses/:courseId/question-bank',
         element: (
           <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
-            <QuestionBankPage />
+            <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),
         errorElement: <RouteErrorBoundary />,
@@ -223,7 +283,7 @@ export const router = createBrowserRouter([
         path: 'question-bank',
         element: (
           <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
-            <QuestionBankPage />
+            <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),
         errorElement: <RouteErrorBoundary />,
@@ -232,7 +292,7 @@ export const router = createBrowserRouter([
         path: 'lecturer/question-bank',
         element: (
           <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
-            <QuestionBankPage />
+            <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),
         errorElement: <RouteErrorBoundary />,
@@ -240,3 +300,5 @@ export const router = createBrowserRouter([
     ]
   }
 ]);
+
+export default router;
