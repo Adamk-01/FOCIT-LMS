@@ -162,7 +162,26 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
     });
   }
 
-  // 1. Resolve author identity first so rate limits and persistence share the identical ID
+  // 1. Early Redis Fast-Path check keyed by rawId before touching PostgreSQL
+  const earlyRedisKey = `spam:forum:reply:${rawId}`;
+  try {
+    if (redis && typeof redis.set === 'function') {
+      const acquired = await redis.set(earlyRedisKey, '1', 'EX', 5, 'NX');
+      if (!acquired) {
+        const ttl = await redis.ttl(earlyRedisKey);
+        const waitSec = ttl > 0 ? ttl : 5;
+        return res.status(429).json({
+          error: `Please wait ${waitSec} second(s) before posting another reply`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfterSeconds: waitSec,
+        });
+      }
+    }
+  } catch (_) {
+    // Non-fatal: PostgreSQL relational check acts as authoritative fallback
+  }
+
+  // 2. Resolve author identity from pool query without holding a transactional client
   const userRole = String(req.user?.role || '').toUpperCase();
   const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
   const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
@@ -172,10 +191,9 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
   let authorRole = 'STUDENT';
   let avatarUrl = null;
 
-  const client = await pool.connect();
   try {
     if (isStaffRole) {
-      const staffRes = await client.query(
+      const staffRes = await pool.query(
         `SELECT advisor_id, full_name, role 
          FROM staff_advisors 
          WHERE advisor_id = $1 
@@ -201,7 +219,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
         authorRole = userRole || 'STAFF';
       }
     } else {
-      const studentQuery = await client.query(
+      const studentQuery = await pool.query(
         `SELECT s.student_id, s.full_name, sp.avatar_url 
          FROM students s 
          LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
@@ -227,28 +245,34 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       authorRole = 'STUDENT';
     }
 
-    // 2. Distributed Anti-Spam Rate Limit Check: Redis Fast-Path (<2ms) using resolved authorId
-    const redisReplyKey = `spam:forum:reply:${authorId}`;
-    try {
-      if (redis && typeof redis.set === 'function') {
-        const acquired = await redis.set(redisReplyKey, '1', 'EX', 5, 'NX');
-        if (!acquired) {
-          const ttl = await redis.ttl(redisReplyKey);
-          const waitSec = ttl > 0 ? ttl : 5;
-          return res.status(429).json({
-            error: `Please wait ${waitSec} second(s) before posting another reply`,
-            code: 'RATE_LIMIT_EXCEEDED',
-            retryAfterSeconds: waitSec,
-          });
+    // 3. Retain resolved authorId Redis check after lookup if authorId differs from rawId
+    if (authorId !== rawId) {
+      const resolvedRedisKey = `spam:forum:reply:${authorId}`;
+      try {
+        if (redis && typeof redis.set === 'function') {
+          const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 5, 'NX');
+          if (!acquired) {
+            const ttl = await redis.ttl(resolvedRedisKey);
+            const waitSec = ttl > 0 ? ttl : 5;
+            return res.status(429).json({
+              error: `Please wait ${waitSec} second(s) before posting another reply`,
+              code: 'RATE_LIMIT_EXCEEDED',
+              retryAfterSeconds: waitSec,
+            });
+          }
         }
-      }
-    } catch (_) {
-      // Non-fatal: PostgreSQL relational check acts as authoritative fallback
+      } catch (_) {}
     }
+  } catch (lookupErr) {
+    logger.error({ err: lookupErr?.message || lookupErr, rawId }, '[Forum] Author lookup error');
+  }
 
+  // 4. Acquire the reply-route pool client ONLY when the transaction needs it
+  const client = await pool.connect();
+  try {
     await client.query('BEGIN');
 
-    // 3. Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
+    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
     const rateCheck = await client.query(
       `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
        FROM forum_replies
@@ -267,7 +291,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       });
     }
 
-    // 4. Verify thread exists and lock it
+    // 5. Verify thread exists and lock it
     const threadCheck = await client.query(
       `SELECT thread_id, course_id, replies_count FROM forum_threads WHERE thread_id = $1 AND course_id = $2 FOR UPDATE;`,
       [threadId, courseId]
@@ -281,7 +305,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       });
     }
 
-    // 5. Insert reply
+    // 6. Insert reply
     const insertRes = await client.query(
       `INSERT INTO forum_replies (
          thread_id,
@@ -295,7 +319,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       [threadId, authorId, authorName, authorRole, body.trim()]
     );
 
-    // 6. Increment replies count and update last_post_at on parent thread
+    // 7. Increment replies count and update last_post_at on parent thread
     await client.query(
       `UPDATE forum_threads
        SET replies_count = replies_count + 1,
@@ -351,8 +375,27 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
     });
   }
 
+  // 1. Early Redis Fast-Path check keyed by rawId before touching PostgreSQL (15s interval)
+  const earlyRedisKey = `spam:forum:thread:${rawId}`;
   try {
-    // 1. Resolve author identity first so rate limits and persistence share the identical ID
+    if (redis && typeof redis.set === 'function') {
+      const acquired = await redis.set(earlyRedisKey, '1', 'EX', 15, 'NX');
+      if (!acquired) {
+        const ttl = await redis.ttl(earlyRedisKey);
+        const waitSec = ttl > 0 ? ttl : 15;
+        return res.status(429).json({
+          error: `Please wait ${waitSec} seconds before starting another discussion topic`,
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfterSeconds: waitSec,
+        });
+      }
+    }
+  } catch (_) {
+    // Non-fatal: PostgreSQL relational check acts as authoritative fallback
+  }
+
+  try {
+    // 2. Resolve author identity
     const userRole = String(req.user?.role || '').toUpperCase();
     const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
     const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
@@ -415,26 +458,26 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       authorRole = 'STUDENT';
     }
 
-    // 2. Distributed Anti-Spam Rate Limit Check for Threads: 15s interval using resolved authorId
-    const redisThreadKey = `spam:forum:thread:${authorId}`;
-    try {
-      if (redis && typeof redis.set === 'function') {
-        const acquired = await redis.set(redisThreadKey, '1', 'EX', 15, 'NX');
-        if (!acquired) {
-          const ttl = await redis.ttl(redisThreadKey);
-          const waitSec = ttl > 0 ? ttl : 15;
-          return res.status(429).json({
-            error: `Please wait ${waitSec} seconds before starting another discussion topic`,
-            code: 'RATE_LIMIT_EXCEEDED',
-            retryAfterSeconds: waitSec,
-          });
+    // 3. Retain resolved authorId Redis check after lookup if authorId differs from rawId
+    if (authorId !== rawId) {
+      const resolvedRedisKey = `spam:forum:thread:${authorId}`;
+      try {
+        if (redis && typeof redis.set === 'function') {
+          const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 15, 'NX');
+          if (!acquired) {
+            const ttl = await redis.ttl(resolvedRedisKey);
+            const waitSec = ttl > 0 ? ttl : 15;
+            return res.status(429).json({
+              error: `Please wait ${waitSec} seconds before starting another discussion topic`,
+              code: 'RATE_LIMIT_EXCEEDED',
+              retryAfterSeconds: waitSec,
+            });
+          }
         }
-      }
-    } catch (_) {
-      // Non-fatal: PostgreSQL relational check acts as authoritative fallback
+      } catch (_) {}
     }
 
-    // 3. Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
+    // 4. Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
     const rateCheck = await pool.query(
       `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
        FROM forum_threads

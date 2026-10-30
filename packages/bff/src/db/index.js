@@ -190,7 +190,6 @@ function createDomainPool(connectionUrl, poolName) {
   const domainConfig = {
     ...poolConfig,
     connectionString: connectionUrl,
-    ssl: isDomainNeon ? { rejectUnauthorized: false } : poolConfig.ssl,
   };
   const dPool = new DomainPoolClass(domainConfig);
   dPool.on('error', (err) => {
