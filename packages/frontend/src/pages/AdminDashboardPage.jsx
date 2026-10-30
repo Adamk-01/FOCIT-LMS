@@ -27,8 +27,11 @@ export function AdminDashboardPage() {
   const { user } = useAuth();
   const role = String(user?.role || '').toUpperCase();
   if (user && !['ADMIN', 'SYSTEM_ADMIN'].includes(role)) {
-    if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
-      return <Navigate to="/advisor/registrations" replace />;
+    if (role === 'HOD') {
+      return <Navigate to="/hod" replace />;
+    }
+    if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(role)) {
+      return <Navigate to="/lecturer" replace />;
     }
     return <Navigate to="/dashboard" replace />;
   }

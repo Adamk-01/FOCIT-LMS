@@ -82,10 +82,10 @@ function AllocationMatrix() {
   const [savingCourseId, setSavingCourseId] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
-  const activeSemester = selectedSemester || allocations.semesterId || '2026_RAIN';
+  const activeSemester = selectedSemester || allocations.semesterId || '';
 
   const handleAssignLecturer = async (courseId, lecturerId) => {
-    if (!lecturerId) return;
+    if (!lecturerId || !activeSemester) return;
     setSavingCourseId(courseId);
     setSuccessMsg(null);
     try {

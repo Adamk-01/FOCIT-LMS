@@ -13,6 +13,7 @@
  */
 
 import { Router } from 'express';
+import { requireRole } from '../middleware/auth.js';
 import {
   getCurrentRegistrationState,
   saveRegistrationDraft,
@@ -31,8 +32,19 @@ router.put('/draft', saveRegistrationDraft);
 router.post('/submit', submitRegistration);
 
 // Level Advisor & Department Clearance Routes
-router.get('/advisor/cohort', getAdvisorCohort);
-router.post('/advisor/batch-approve', batchApproveRegistrations);
-router.post('/advisor/reject', rejectRegistration);
+const requireAdvisorGovernance = requireRole([
+  'LEVEL_ADVISOR',
+  'HOD',
+  'DEAN',
+  'SENATE_OFFICER',
+  'ADMIN',
+  'SYSTEM_ADMIN',
+  'ADVISOR',
+  'STAFF',
+]);
+
+router.get('/advisor/cohort', requireAdvisorGovernance, getAdvisorCohort);
+router.post('/advisor/batch-approve', requireAdvisorGovernance, batchApproveRegistrations);
+router.post('/advisor/reject', requireAdvisorGovernance, rejectRegistration);
 
 export default router;

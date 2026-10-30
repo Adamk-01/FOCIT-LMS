@@ -1,8 +1,7 @@
-import React, { useEffect } from 'react';
-import { useParams, useSearchParams, Navigate } from 'react-router-dom';
+import React from 'react';
+import { useParams } from 'react-router-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useExamLock } from '../contexts/ExamLockContext';
 import { useQuizAttempt } from '../hooks/useQuizAttempt';
 import { QuizHeaderTimer } from '../components/quiz/QuizHeaderTimer';
 import { QuizQuestionCard } from '../components/quiz/QuizQuestionCard';
@@ -10,8 +9,6 @@ import { QuestionNavigationPalette } from '../components/quiz/QuestionNavigation
 import { QuizSubmissionModal } from '../components/quiz/QuizSubmissionModal';
 import { QuizFinalizedView } from '../components/quiz/QuizFinalizedView';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
-import { useAntiCheat } from '../hooks/useAntiCheat';
-import { ProctoringCurtainModal } from '../components/quiz/ProctoringCurtainModal';
 
 /**
  * Quiz Attempt Page Presentation Shell
@@ -23,18 +20,13 @@ import { ProctoringCurtainModal } from '../components/quiz/ProctoringCurtainModa
  * 4. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
  * 5. Native HTML Top Layer <dialog> Modal with In-Flight Mutation Lock
  * 6. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
- * 7. Milestone 10.1: Anti-Cheat Soft-Lockdown & Telemetry Proctoring Curtain
- * 8. Zero-Trust Navigation Lockdown via ExamLockContext
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
 export function QuizAttemptPage() {
-  const { courseId = 'CSC204', quizId, attemptId: paramAttemptId } = useParams();
-  const [searchParams] = useSearchParams();
-  const attemptId = paramAttemptId || searchParams.get('attemptId') || null;
+  const { courseId, quizId, attemptId } = useParams();
   const { user } = useAuth();
-  const studentId = user?.username || user?.id || 'student1';
-  const { setExamLocked } = useExamLock();
+  const studentId = user?.student_id || user?.id || user?.username;
 
   const {
     attempt,
@@ -61,40 +53,28 @@ export function QuizAttemptPage() {
     triggerSubmit,
   } = useQuizAttempt({ quizId, attemptId, studentId });
 
-  // Milestone 10.1: Anti-Cheat Soft-Lockdown & Telemetry Proctoring Hook
-  const {
-    lockdownState,
-    infractionCount,
-    fullscreenExits,
-    enterFullscreenProctoring,
-  } = useAntiCheat({
-    quizId,
-    attemptId,
-    enabled: !isFinalized && !isLoading && !fetchError && !isSubmitting && Boolean(attempt),
-    isSubmitting,
-    onViolationAutoSubmit: (mode) => triggerSubmit(mode),
-  });
+  if (!studentId) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorAlertCallout error={{ message: 'Authenticated student session required to participate in assessments.' }} />
+      </div>
+    );
+  }
 
-  // Zero-Trust Navigation Lock during active assessment
-  useEffect(() => {
-    const isLocked = !isFinalized && !isLoading && !fetchError && Boolean(attempt);
-    setExamLocked(isLocked);
-    return () => {
-      setExamLocked(false);
-    };
-  }, [isFinalized, isLoading, fetchError, attempt, setExamLocked]);
-
-  // If directly navigating without a quiz ID, redirect back to course quizzes tab
-  if (!quizId) {
-    return <Navigate to={`/courses/${encodeURIComponent(courseId)}?tab=quizzes`} replace />;
+  if (!quizId || !attemptId) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <ErrorAlertCallout error={{ message: 'Invalid or missing quiz attempt identifier. Please select an active quiz from your course assessments.' }} />
+      </div>
+    );
   }
 
   // 1. Loading State
   if (isLoading) {
     return (
       <div className="max-w-5xl mx-auto p-12 text-center space-y-4">
-        <RefreshCw size={36} className="animate-spin text-[#0a1142] dark:text-[#ffb81c] mx-auto" aria-hidden="true" />
-        <p className="text-gray-600 dark:text-slate-400 font-medium">Securing authoritative attempt context & clock anchor...</p>
+        <RefreshCw size={36} className="animate-spin text-[#0a1142] mx-auto" aria-hidden="true" />
+        <p className="text-gray-600 font-medium">Securing authoritative attempt context & clock anchor...</p>
       </div>
     );
   }
@@ -102,9 +82,9 @@ export function QuizAttemptPage() {
   // 2. Error Boundary
   if (fetchError || !attempt) {
     return (
-      <div className="max-w-2xl mx-auto p-8 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-2xl text-center space-y-4">
-        <AlertCircle size={40} className="text-red-600 dark:text-red-400 mx-auto" aria-hidden="true" />
-        <h2 className="text-lg font-bold text-red-900 dark:text-red-200">Quiz Attempt Unavailable</h2>
+      <div className="max-w-2xl mx-auto p-8 bg-red-50 border border-red-200 rounded-2xl text-center space-y-4">
+        <AlertCircle size={40} className="text-red-600 mx-auto" aria-hidden="true" />
+        <h2 className="text-lg font-bold text-red-900">Quiz Attempt Unavailable</h2>
         <ErrorAlertCallout error={fetchError} onRetry={() => refetch()} />
       </div>
     );
@@ -135,8 +115,8 @@ export function QuizAttemptPage() {
         syncStatus={syncStatus}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-        <main className="lg:col-span-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <main className="lg:col-span-3 space-y-6">
           <QuizQuestionCard
             question={activeQuestion}
             activeAnswer={activeAnswer}
@@ -150,16 +130,14 @@ export function QuizAttemptPage() {
           />
         </main>
 
-        <div className="lg:col-span-4">
-          <QuestionNavigationPalette
-            questions={questions}
-            currentQuestionIndex={currentQuestionIndex}
-            selectedAnswers={selectedAnswers}
-            onSelectQuestion={navigateToQuestion}
-            onOpenFinishModal={() => setShowConfirmModal(true)}
-            isSubmitting={isSubmitting}
-          />
-        </div>
+        <QuestionNavigationPalette
+          questions={questions}
+          currentQuestionIndex={currentQuestionIndex}
+          selectedAnswers={selectedAnswers}
+          onSelectQuestion={navigateToQuestion}
+          onOpenFinishModal={() => setShowConfirmModal(true)}
+          isSubmitting={isSubmitting}
+        />
       </div>
 
       <QuizSubmissionModal
@@ -170,14 +148,6 @@ export function QuizAttemptPage() {
         error={submitError}
         answeredCount={answeredCount}
         totalQuestions={questions.length}
-      />
-
-      {/* Milestone 10.1: Accessible Soft-Lockdown Proctoring Curtain */}
-      <ProctoringCurtainModal
-        lockdownState={lockdownState}
-        infractionCount={infractionCount}
-        fullscreenExits={fullscreenExits}
-        onResumeExam={enterFullscreenProctoring}
       />
     </div>
   );

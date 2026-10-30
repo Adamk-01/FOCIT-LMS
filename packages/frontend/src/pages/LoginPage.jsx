@@ -70,8 +70,10 @@ export const LoginPage = () => {
         destination = isStaffRole ? '/admin/profile' : '/profile?tab=security';
       } else if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
         destination = '/admin';
-      } else if (['LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole)) {
-        destination = '/advisor/registrations';
+      } else if (userRole === 'HOD') {
+        destination = '/hod';
+      } else if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole)) {
+        destination = '/lecturer';
       }
 
       const redirectPath = location.state?.from?.pathname;

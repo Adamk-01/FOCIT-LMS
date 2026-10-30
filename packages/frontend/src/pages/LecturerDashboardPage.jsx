@@ -227,7 +227,7 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
 
-  const { data: rosterData, isLoading, error } = useLecturerCourseStudents(selectedCourseId, {
+  const { data: rosterData, isLoading, error, refetch: refetchRoster } = useLecturerCourseStudents(selectedCourseId, {
     search,
     level: levelFilter,
   });
@@ -369,9 +369,11 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                   <th className="py-2.5 px-4 font-semibold">Student Name</th>
                   <th className="py-2.5 px-4 font-semibold">Programme</th>
                   <th className="py-2.5 px-4 font-semibold">Level</th>
-                  <th className="py-2.5 px-4 font-semibold">CA / Grade</th>
+                  <th className="py-2.5 px-4 font-semibold">CBT CA Score</th>
+                  <th className="py-2.5 px-4 font-semibold">Final Grade</th>
+                  <th className="py-2.5 px-4 font-semibold">Role</th>
                   <th className="py-2.5 px-4 font-semibold">Status</th>
-                  <th className="py-2.5 px-4 font-semibold">Enrolled Date</th>
+                  <th className="py-2.5 px-4 font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -383,6 +385,15 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                     <td className="py-2.5 px-4 text-xs text-gray-600">{student.programme_code || student.programme_name}</td>
                     <td className="py-2.5 px-4 text-xs font-semibold text-gray-600">{student.level}L</td>
                     <td className="py-2.5 px-4">
+                      {student.ca_test_score !== null && student.ca_test_score !== undefined && !isNaN(Number(student.ca_test_score)) ? (
+                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                          {Math.min(40, Math.max(0, Number(student.ca_test_score))).toFixed(1)} / 40
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400 font-mono italic">No Test</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4">
                       {student.grade !== null && student.grade !== undefined ? (
                         <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-blue-50 text-[#0a1142] border border-blue-200">
                           {student.grade}%
@@ -392,12 +403,58 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
                       )}
                     </td>
                     <td className="py-2.5 px-4">
+                      {student.is_course_rep ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                          Course Rep
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Student</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
                         {student.enrollment_status}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-xs text-gray-400 font-mono">
-                      {student.enrolled_at ? new Date(student.enrolled_at).toLocaleDateString() : '—'}
+                    <td className="py-2.5 px-4">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const newStatus = !student.is_course_rep;
+                            const nonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('session_nonce') : null;
+                            const res = await fetch(`/api/lecturer/courses/${encodeURIComponent(selectedCourseId)}/students/${encodeURIComponent(student.student_id)}/assign-rep`, {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                ...(nonce ? { 'x-session-nonce': nonce } : {}),
+                              },
+                              body: JSON.stringify({ isRep: newStatus }),
+                            });
+
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              throw new Error(data.error || `Failed to update representative (HTTP ${res.status})`);
+                            }
+
+                            if (typeof refetchRoster === 'function') {
+                              await refetchRoster();
+                            }
+                          } catch (e) {
+                            console.error('Failed to update course rep', e);
+                            alert(e.message || 'Failed to update Course Representative designation.');
+                          }
+                        }}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded transition-colors ${
+                          student.is_course_rep
+                            ? 'text-red-700 bg-red-50 hover:bg-red-100'
+                            : 'text-[#0a1142] bg-gray-100 hover:bg-gray-200'
+                        }`}
+                      >
+                        {student.is_course_rep ? 'Revoke Rep' : 'Make Rep'}
+                      </button>
                     </td>
                   </tr>
                 ))}

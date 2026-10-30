@@ -45,11 +45,15 @@ router.post('/login', async (req, res) => {
   }
 
   const candidateId = studentId.trim();
+  // Normalize candidate identifier for flexible matching (strip dashes, whitespace, normalize slashes)
+  const cleanedId = candidateId.replace(/\s+/g, '').toUpperCase();
+  const normalizedSlashId = cleanedId.replace(/-/g, '/');
+  const alphanumericOnly = cleanedId.replace(/[^A-Z0-9]/g, '');
 
   try {
-    // 1. Query Authoritative Student Identity
+    // Step 1: Query exact student matches (exact student_id, matric, or username)
     let user = null;
-    const studentRes = await pool.query(
+    const exactStudentRes = await pool.query(
       `
       SELECT 
         s.student_id,
@@ -64,20 +68,31 @@ router.post('/login', async (req, res) => {
         'STUDENT' AS role
       FROM students s
       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
-      WHERE s.student_id = $1 
-         OR s.username = $1 
+      WHERE s.student_id = $1
          OR s.matric_number = $1
+         OR s.username = $1
          OR UPPER(s.matric_number) = UPPER($1)
-         OR UPPER(s.matric_number) = UPPER(CASE WHEN $1 LIKE 'FOCIT/%' THEN $1 ELSE 'FOCIT/' || $1 END)
+         OR UPPER(s.username) = UPPER($1)
+      ORDER BY
+        CASE 
+          WHEN s.student_id = $1 THEN 1
+          WHEN s.matric_number = $1 THEN 2
+          WHEN s.username = $1 THEN 3
+          WHEN UPPER(s.matric_number) = UPPER($1) THEN 4
+          WHEN UPPER(s.username) = UPPER($1) THEN 5
+          ELSE 6
+        END ASC,
+        s.student_id ASC
+      LIMIT 1
       `,
       [candidateId]
     );
 
-    if (studentRes.rows.length > 0) {
-      user = studentRes.rows[0];
+    if (exactStudentRes.rows.length > 0) {
+      user = exactStudentRes.rows[0];
     } else {
-      // 2. Query Staff Advisors & Governance Officers
-      const staffRes = await pool.query(
+      // Step 2: Check exact staff IDs before accepting any normalized student match
+      const exactStaffRes = await pool.query(
         `
         SELECT 
           advisor_id AS student_id,
@@ -91,13 +106,109 @@ router.post('/login', async (req, res) => {
           COALESCE(must_change_password, FALSE) AS must_change_password,
           role
         FROM staff_advisors
-        WHERE advisor_id = $1 OR staff_number = $1 OR UPPER(staff_number) = UPPER($1) OR email = $1
+        WHERE advisor_id = $1
+           OR staff_number = $1
+           OR email = $1
+           OR UPPER(advisor_id) = UPPER($1)
+           OR UPPER(staff_number) = UPPER($1)
+           OR LOWER(email) = LOWER($1)
+        ORDER BY
+          CASE
+            WHEN advisor_id = $1 THEN 1
+            WHEN staff_number = $1 THEN 2
+            WHEN email = $1 THEN 3
+            WHEN UPPER(advisor_id) = UPPER($1) THEN 4
+            WHEN UPPER(staff_number) = UPPER($1) THEN 5
+            WHEN LOWER(email) = LOWER($1) THEN 6
+            ELSE 7
+          END ASC,
+          advisor_id ASC
+        LIMIT 1
         `,
         [candidateId]
       );
 
-      if (staffRes.rows.length > 0) {
-        user = staffRes.rows[0];
+      if (exactStaffRes.rows.length > 0) {
+        user = exactStaffRes.rows[0];
+      } else {
+        // Step 3: Check normalized candidate matches for students
+        const normalizedStudentRes = await pool.query(
+          `
+          SELECT 
+            s.student_id,
+            s.matric_number,
+            s.username,
+            s.full_name,
+            s.email,
+            s.level,
+            s.account_status,
+            sp.password_hash,
+            COALESCE(sp.must_change_password, FALSE) AS must_change_password,
+            'STUDENT' AS role
+          FROM students s
+          LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+          WHERE UPPER(s.matric_number) = $1
+             OR UPPER(s.username) = $1
+             OR UPPER(s.matric_number) = $2
+             OR UPPER(s.matric_number) = 'FOCIT/' || $2
+             OR UPPER(s.matric_number) = 'FOCIT/' || $4
+             OR UPPER(s.matric_number) = 'CSC/' || $2
+             OR UPPER(s.matric_number) = 'CSC/' || $4
+             OR REGEXP_REPLACE(UPPER(s.matric_number), '[^A-Z0-9]', '', 'g') = $3
+             OR REGEXP_REPLACE(UPPER(s.username), '[^A-Z0-9]', '', 'g') = $3
+          ORDER BY
+            CASE
+              WHEN UPPER(s.matric_number) = $1 OR UPPER(s.username) = $1 THEN 1
+              WHEN UPPER(s.matric_number) = $2 THEN 2
+              WHEN UPPER(s.matric_number) = 'FOCIT/' || $2 THEN 3
+              ELSE 4
+            END ASC,
+            s.student_id ASC
+          LIMIT 1
+          `,
+          [cleanedId, normalizedSlashId, alphanumericOnly, candidateId]
+        );
+
+        if (normalizedStudentRes.rows.length > 0) {
+          user = normalizedStudentRes.rows[0];
+        } else {
+          // Step 4: Check normalized candidate matches for staff advisors
+          const normalizedStaffRes = await pool.query(
+            `
+            SELECT 
+              advisor_id AS student_id,
+              staff_number AS matric_number,
+              advisor_id AS username,
+              full_name,
+              email,
+              assigned_level AS level,
+              account_status,
+              password_hash,
+              COALESCE(must_change_password, FALSE) AS must_change_password,
+              role
+            FROM staff_advisors
+            WHERE UPPER(advisor_id) = $1
+               OR UPPER(staff_number) = $1
+               OR UPPER(staff_number) = $2
+               OR REGEXP_REPLACE(UPPER(advisor_id), '[^A-Z0-9]', '', 'g') = $3
+               OR REGEXP_REPLACE(UPPER(staff_number), '[^A-Z0-9]', '', 'g') = $3
+            ORDER BY
+              CASE
+                WHEN UPPER(advisor_id) = $1 THEN 1
+                WHEN UPPER(staff_number) = $1 THEN 2
+                WHEN UPPER(staff_number) = $2 THEN 3
+                ELSE 4
+              END ASC,
+              advisor_id ASC
+            LIMIT 1
+            `,
+            [cleanedId, normalizedSlashId, alphanumericOnly]
+          );
+
+          if (normalizedStaffRes.rows.length > 0) {
+            user = normalizedStaffRes.rows[0];
+          }
+        }
       }
     }
 

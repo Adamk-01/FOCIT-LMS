@@ -219,7 +219,7 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
     );
     const course = courseRes.rows[0];
 
-    // 3. Query Enrolled Cohort
+    // 3. Query Enrolled Cohort with aggregated CA Test and Practice Quiz scores
     const studentsQuery = `
       SELECT 
         s.student_id,
@@ -233,7 +233,25 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
         e.enrollment_id,
         e.status AS enrollment_status,
         e.enrolled_at,
-        e.grade
+        e.grade,
+        COALESCE(e.is_course_rep, FALSE) AS is_course_rep,
+        (
+          SELECT CASE 
+            WHEN COUNT(qa.attempt_id) = 0 THEN NULL
+            ELSE ROUND(AVG(
+              CASE 
+                WHEN COALESCE(q.total_points, 0) > 0 THEN (qa.score / q.total_points) * 40.0
+                ELSE qa.score
+              END
+            )::numeric, 1)::float
+          END
+          FROM quiz_attempts qa
+          JOIN quizzes q ON q.quiz_id = qa.quiz_id
+          WHERE qa.student_id = s.student_id
+            AND q.course_id = $1
+            AND (q.semester_id = $2 OR q.semester_id IS NULL)
+            AND qa.status = 'SUBMITTED'
+        ) AS ca_test_score
       FROM enrollments e
       JOIN students s ON s.student_id = e.student_id
       JOIN programmes p ON p.id = s.programme_id
@@ -264,6 +282,109 @@ router.get('/courses/:courseId/students', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// ─── 3b. Assign or Toggle Course Representative ──────────────────────────────
+router.post('/courses/:courseId/students/:studentId/assign-rep', async (req, res, next) => {
+  const { courseId, studentId } = req.params;
+  const { isRep, semesterId } = req.body || {};
+  const lecturerId = req.lecturerScope.advisor_id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Resolve Target Active Semester
+    const termRes = await client.query(
+      `SELECT s.id 
+       FROM academic_semesters s
+       LEFT JOIN academic_sessions sess ON sess.id = s.session_id
+       ORDER BY (sess.is_current = TRUE) DESC, s.created_at DESC 
+       LIMIT 1`
+    );
+    const targetSemesterId = semesterId || req.query?.semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    // 2. Fetch Course details and enforce allocation check
+    const courseRes = await client.query(
+      `SELECT course_id, code, title, department_id FROM courses WHERE course_id = $1 LIMIT 1`,
+      [courseId]
+    );
+    if (courseRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Course not found', code: 'COURSE_NOT_FOUND' });
+    }
+    const course = courseRes.rows[0];
+
+    const isAllocated = (await client.query(
+      `SELECT 1 FROM hod_course_allocations 
+       WHERE course_id = $1 AND semester_id = $2 AND lecturer_id = $3 LIMIT 1`,
+      [courseId, targetSemesterId, lecturerId]
+    )).rows.length > 0;
+
+    const isDeptHod = req.lecturerScope.role === 'HOD' && req.lecturerScope.department_id === course.department_id;
+    const isSysAdmin = Boolean(req.lecturerScope.isSystemAdmin);
+
+    if (!isAllocated && !isDeptHod && !isSysAdmin) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'Forbidden: You must be allocated to teach this course in the active semester to designate a Course Representative.',
+        code: 'FORBIDDEN_COURSE_ALLOCATION',
+      });
+    }
+
+    const setRep = isRep !== undefined ? Boolean(isRep) : true;
+    const appointedBy = String(lecturerId || req.lecturerScope.username || req.user?.username || 'STAFF').slice(0, 64);
+
+    // 3. Limit update strictly to active enrollments in the selected semester
+    const updateRes = await client.query(
+      `UPDATE enrollments
+       SET is_course_rep = $1, updated_at = NOW()
+       WHERE course_id = $2 
+         AND student_id = $3 
+         AND semester_id = $4
+         AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
+       RETURNING enrollment_id, course_id, student_id, semester_id, is_course_rep`,
+      [setRep, courseId, studentId, targetSemesterId]
+    );
+
+    if (updateRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Active student enrollment not found for this course in the specified semester',
+        code: 'ENROLLMENT_NOT_FOUND',
+      });
+    }
+
+    // 4. Synchronize with course_representatives table used by attendance & access control
+    if (setRep) {
+      await client.query(
+        `INSERT INTO course_representatives (course_id, semester_id, student_id, appointed_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (course_id, semester_id, student_id) 
+         DO UPDATE SET appointed_by = EXCLUDED.appointed_by`,
+        [courseId, targetSemesterId, studentId, appointedBy]
+      );
+    } else {
+      await client.query(
+        `DELETE FROM course_representatives 
+         WHERE course_id = $1 AND student_id = $2 AND semester_id = $3`,
+        [courseId, studentId, targetSemesterId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: setRep ? 'Student designated as Course Representative' : 'Course Representative designation revoked',
+      enrollment: updateRes.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
   }
 });
 
