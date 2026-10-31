@@ -1,6 +1,6 @@
 -- Migration 019: Forum Author & Roster Representative Hardening
--- Allows academic staff to author forum threads without violating student_id foreign key constraint.
--- Rejects unresolved student authors before removing the foreign key constraint.
+-- Allows academic staff to author forum threads and replies without violating student_id foreign key constraint.
+-- Rejects unresolved student authors before removing foreign key constraints.
 
 DO $$
 BEGIN
@@ -11,9 +11,18 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Integrity check failed: forum_threads contains student-authored records with unresolved student_id';
   END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM forum_replies fr
+    LEFT JOIN students s ON s.student_id = fr.student_id
+    WHERE fr.author_role = 'STUDENT' AND s.student_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Integrity check failed: forum_replies contains student-authored records with unresolved student_id';
+  END IF;
 END $$;
 
 ALTER TABLE forum_threads DROP CONSTRAINT IF EXISTS forum_threads_student_id_fkey;
+ALTER TABLE forum_replies DROP CONSTRAINT IF EXISTS forum_replies_student_id_fkey;
 
 -- Ensure is_course_rep column exists on enrollments
 ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS is_course_rep BOOLEAN DEFAULT FALSE;
