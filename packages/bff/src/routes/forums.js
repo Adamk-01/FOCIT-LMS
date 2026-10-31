@@ -162,8 +162,13 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
     });
   }
 
-  // 1. Early Redis Fast-Path check keyed by rawId before touching PostgreSQL
-  const earlyRedisKey = `spam:forum:reply:${rawId}`;
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+  const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
+  const rawNamespace = isStaffRole ? 'staff' : 'student';
+
+  // 1. Early Redis Fast-Path check namespaced by user role before touching PostgreSQL
+  const earlyRedisKey = `spam:forum:reply:${rawNamespace}:${rawId}`;
   try {
     if (redis && typeof redis.set === 'function') {
       const acquired = await redis.set(earlyRedisKey, '1', 'EX', 5, 'NX');
@@ -182,10 +187,6 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
   }
 
   // 2. Resolve author identity from pool query without holding a transactional client
-  const userRole = String(req.user?.role || '').toUpperCase();
-  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
-  const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
-
   let authorId = rawId;
   let authorName = 'Participant';
   let authorRole = 'STUDENT';
@@ -245,9 +246,11 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       authorRole = 'STUDENT';
     }
 
-    // 3. Retain resolved authorId Redis check after lookup if authorId differs from rawId
-    if (authorId !== rawId) {
-      const resolvedRedisKey = `spam:forum:reply:${authorId}`;
+    // 3. Compare constructed Redis key values before acquiring the secondary key
+    const resolvedNamespace = authorRole === 'STUDENT' ? 'student' : 'staff';
+    const resolvedRedisKey = `spam:forum:reply:${resolvedNamespace}:${authorId}`;
+
+    if (resolvedRedisKey !== earlyRedisKey) {
       try {
         if (redis && typeof redis.set === 'function') {
           const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 5, 'NX');
@@ -375,8 +378,13 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
     });
   }
 
-  // 1. Early Redis Fast-Path check keyed by rawId before touching PostgreSQL (15s interval)
-  const earlyRedisKey = `spam:forum:thread:${rawId}`;
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+  const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
+  const rawNamespace = isStaffRole ? 'staff' : 'student';
+
+  // 1. Early Redis Fast-Path check namespaced by user role before touching PostgreSQL (15s interval)
+  const earlyRedisKey = `spam:forum:thread:${rawNamespace}:${rawId}`;
   try {
     if (redis && typeof redis.set === 'function') {
       const acquired = await redis.set(earlyRedisKey, '1', 'EX', 15, 'NX');
@@ -396,10 +404,6 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
 
   try {
     // 2. Resolve author identity
-    const userRole = String(req.user?.role || '').toUpperCase();
-    const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
-    const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
-
     let authorId = rawId;
     let authorName = 'Participant';
     let authorRole = 'STUDENT';
@@ -458,9 +462,11 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       authorRole = 'STUDENT';
     }
 
-    // 3. Retain resolved authorId Redis check after lookup if authorId differs from rawId
-    if (authorId !== rawId) {
-      const resolvedRedisKey = `spam:forum:thread:${authorId}`;
+    // 3. Compare constructed Redis key values before acquiring the secondary key
+    const resolvedNamespace = authorRole === 'STUDENT' ? 'student' : 'staff';
+    const resolvedRedisKey = `spam:forum:thread:${resolvedNamespace}:${authorId}`;
+
+    if (resolvedRedisKey !== earlyRedisKey) {
       try {
         if (redis && typeof redis.set === 'function') {
           const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 15, 'NX');
