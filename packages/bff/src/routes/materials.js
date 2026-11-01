@@ -465,10 +465,14 @@ router.get(
 );
 
 // ─── 4. Lecturer Material Upload (PDF, PPTX, DOCX) ─────────────────────────────
-// Route mounted under /api/courses, so path is /:courseId/upload -> /api/courses/:courseId/upload
+// Supports both canonical /:courseId/upload and legacy /courses/:courseId/upload prefixes
 router.post(
-  '/:courseId/upload',
+  ['/:courseId/upload', '/courses/:courseId/upload'],
   async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+    }
+
     const { courseId } = req.params;
     const { title, description, fileUrl, fileType, fileSize } = req.body || {};
 
@@ -495,7 +499,14 @@ router.post(
       });
     }
 
-    if (isSafeRelative && (trimmedUrl.includes('..') || /%2e%2e/i.test(trimmedUrl) || trimmedUrl.includes('\\'))) {
+    let decodedUrl = trimmedUrl;
+    try {
+      decodedUrl = decodeURIComponent(trimmedUrl);
+    } catch (_) {
+      return res.status(400).json({ error: 'Malformed fileUrl encoding', code: 'INVALID_PATH' });
+    }
+
+    if (isSafeRelative && (decodedUrl.includes('..') || trimmedUrl.includes('..') || /%2e%2e/i.test(trimmedUrl) || decodedUrl.includes('\\') || trimmedUrl.includes('\\'))) {
       return res.status(400).json({
         error: 'Path traversal characters (..) are not permitted in fileUrl',
         code: 'INVALID_PATH',
@@ -522,19 +533,30 @@ router.post(
       // 3. Restrict uploads to authorized course staff (Lecturer allocated to course, Department HOD, or System Admin)
       const userRole = String(req.user?.role || '').toUpperCase();
       const rawUserId = req.user?.username || req.user?.id || req.user?.student_id;
+      const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
       const isSysAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(userRole);
 
       // Resolve authoritative staff record before allocation and HOD checks
       const staffRes = await pool.query(
         `SELECT advisor_id, department_id, full_name, role 
          FROM staff_advisors 
-         WHERE advisor_id = $1 OR staff_number = $1 OR (email IS NOT NULL AND email = $2)
+         WHERE advisor_id = $1 
+            OR staff_number = $1 
+            OR ($2::varchar IS NOT NULL AND LOWER(email) = LOWER($2))
+         ORDER BY 
+           CASE 
+             WHEN advisor_id = $1 THEN 1
+             WHEN staff_number = $1 THEN 2
+             WHEN $2::varchar IS NOT NULL AND LOWER(email) = LOWER($2) THEN 3
+             ELSE 4
+           END ASC,
+           advisor_id ASC
          LIMIT 1`,
-        [String(rawUserId), req.user?.email ? String(req.user.email).trim() : '']
+        [String(rawUserId), userEmail]
       );
       const staff = staffRes.rows[0];
-      const canonicalLecturerId = staff?.advisor_id || rawUserId;
-      const staffDeptId = staff?.department_id;
+      const canonicalLecturerId = staff?.advisor_id || null;
+      const staffDeptId = staff?.department_id || null;
 
       const termRes = await pool.query(
         `SELECT s.id 
@@ -591,10 +613,14 @@ router.post(
 );
 
 // ─── 5. Fetch Lecturer Uploaded Materials ──────────────────────────────────────
-// Route mounted under /api/courses, so path is /:courseId/uploaded -> /api/courses/:courseId/uploaded
+// Supports both canonical /:courseId/uploaded and legacy /courses/:courseId/uploaded prefixes
 router.get(
-  '/:courseId/uploaded',
+  ['/:courseId/uploaded', '/courses/:courseId/uploaded'],
   async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+    }
+
     const { courseId } = req.params;
     try {
       // 1. Resolve canonical course record
@@ -609,13 +635,21 @@ router.get(
       const isStaff = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
 
       if (!isStaff) {
-        // Resolve authoritative student_id from students table (handling student_id, matric_number, or username)
+        // Resolve authoritative student_id with deterministic priority
         const rawIdentifier = req.user?.student_id || req.user?.id || req.user?.username;
         const studentRes = await pool.query(
           `SELECT student_id FROM students 
            WHERE student_id = $1 OR UPPER(matric_number) = UPPER($1) OR UPPER(username) = UPPER($1) 
+           ORDER BY 
+             CASE 
+               WHEN student_id = $1 THEN 1
+               WHEN UPPER(matric_number) = UPPER($1) THEN 2
+               WHEN UPPER(username) = UPPER($1) THEN 3
+               ELSE 4
+             END ASC,
+             student_id ASC
            LIMIT 1`,
-          [rawIdentifier]
+          [String(rawIdentifier)]
         );
         const canonicalStudentId = studentRes.rows[0]?.student_id || rawIdentifier;
 

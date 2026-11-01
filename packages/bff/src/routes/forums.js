@@ -152,7 +152,7 @@ router.get('/:courseId/forum/threads/:threadId/replies', async (req, res, next) 
  */
 router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next) => {
   const { courseId, threadId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const rawId = req.user?.student_id || req.user?.studentId || req.user?.id || req.user?.username || 'student1';
   const { body } = req.body || {};
 
   if (!body || !body.trim()) {
@@ -162,13 +162,18 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
     });
   }
 
-  // Distributed Anti-Spam Rate Limit Check: Redis Fast-Path (<2ms)
-  const redisReplyKey = `spam:forum:reply:${studentId}`;
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+  const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
+  const rawNamespace = isStaffRole ? 'staff' : 'student';
+
+  // 1. Early Redis Fast-Path check namespaced by user role before touching PostgreSQL
+  const earlyRedisKey = `spam:forum:reply:${rawNamespace}:${rawId}`;
   try {
     if (redis && typeof redis.set === 'function') {
-      const acquired = await redis.set(redisReplyKey, '1', 'EX', 5, 'NX');
+      const acquired = await redis.set(earlyRedisKey, '1', 'EX', 5, 'NX');
       if (!acquired) {
-        const ttl = await redis.ttl(redisReplyKey);
+        const ttl = await redis.ttl(earlyRedisKey);
         const waitSec = ttl > 0 ? ttl : 5;
         return res.status(429).json({
           error: `Please wait ${waitSec} second(s) before posting another reply`,
@@ -181,16 +186,101 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
     // Non-fatal: PostgreSQL relational check acts as authoritative fallback
   }
 
+  // 2. Resolve author identity from pool query without holding a transactional client
+  let authorId = rawId;
+  let authorName = 'Participant';
+  let authorRole = 'STUDENT';
+  let avatarUrl = null;
+
+  try {
+    if (isStaffRole) {
+      const staffRes = await pool.query(
+        `SELECT advisor_id, full_name, role 
+         FROM staff_advisors 
+         WHERE advisor_id = $1 
+            OR staff_number = $1 
+            OR ($2::varchar IS NOT NULL AND LOWER(email) = LOWER($2))
+         ORDER BY 
+           CASE 
+             WHEN advisor_id = $1 THEN 1
+             WHEN staff_number = $1 THEN 2
+             WHEN $2::varchar IS NOT NULL AND LOWER(email) = LOWER($2) THEN 3
+             ELSE 4
+           END ASC,
+           advisor_id ASC
+         LIMIT 1`,
+        [String(rawId), userEmail]
+      );
+      if (staffRes.rows.length > 0) {
+        authorId = staffRes.rows[0].advisor_id;
+        authorName = staffRes.rows[0].full_name;
+        authorRole = staffRes.rows[0].role || userRole;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Course Faculty';
+        authorRole = userRole || 'STAFF';
+      }
+    } else {
+      const studentQuery = await pool.query(
+        `SELECT s.student_id, s.full_name, sp.avatar_url 
+         FROM students s 
+         LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+         WHERE s.student_id = $1 OR UPPER(s.matric_number) = UPPER($1) OR UPPER(s.username) = UPPER($1)
+         ORDER BY 
+           CASE 
+             WHEN s.student_id = $1 THEN 1
+             WHEN UPPER(s.matric_number) = UPPER($1) THEN 2
+             WHEN UPPER(s.username) = UPPER($1) THEN 3
+             ELSE 4
+           END ASC,
+           s.student_id ASC
+         LIMIT 1;`,
+        [String(rawId)]
+      );
+      if (studentQuery.rows.length > 0) {
+        authorId = studentQuery.rows[0].student_id;
+        authorName = studentQuery.rows[0].full_name;
+        avatarUrl = studentQuery.rows[0].avatar_url || null;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Student Participant';
+      }
+      authorRole = 'STUDENT';
+    }
+
+    // 3. Compare constructed Redis key values before acquiring the secondary key
+    const resolvedNamespace = authorRole === 'STUDENT' ? 'student' : 'staff';
+    const resolvedRedisKey = `spam:forum:reply:${resolvedNamespace}:${authorId}`;
+
+    if (resolvedRedisKey !== earlyRedisKey) {
+      try {
+        if (redis && typeof redis.set === 'function') {
+          const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 5, 'NX');
+          if (!acquired) {
+            const ttl = await redis.ttl(resolvedRedisKey);
+            const waitSec = ttl > 0 ? ttl : 5;
+            return res.status(429).json({
+              error: `Please wait ${waitSec} second(s) before posting another reply`,
+              code: 'RATE_LIMIT_EXCEEDED',
+              retryAfterSeconds: waitSec,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+  } catch (lookupErr) {
+    logger.error({ err: lookupErr?.message || lookupErr, rawId }, '[Forum] Author lookup error');
+  }
+
+  // 4. Acquire the reply-route pool client ONLY when the transaction needs it
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger
+    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
     const rateCheck = await client.query(
       `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
        FROM forum_replies
        WHERE student_id = $1;`,
-      [studentId]
+      [authorId]
     );
 
     const elapsed = rateCheck.rows[0]?.elapsed_seconds;
@@ -204,7 +294,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       });
     }
 
-    // 1. Verify thread exists and lock it
+    // 5. Verify thread exists and lock it
     const threadCheck = await client.query(
       `SELECT thread_id, course_id, replies_count FROM forum_threads WHERE thread_id = $1 AND course_id = $2 FOR UPDATE;`,
       [threadId, courseId]
@@ -218,19 +308,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       });
     }
 
-    // 2. Fetch author identity and avatar
-    const studentQuery = await client.query(
-      `SELECT s.full_name, sp.avatar_url 
-       FROM students s 
-       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
-       WHERE s.student_id = $1 LIMIT 1;`,
-      [studentId]
-    );
-
-    const authorName = studentQuery.rows[0]?.full_name || 'Student Participant';
-    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
-
-    // 3. Insert reply
+    // 6. Insert reply
     const insertRes = await client.query(
       `INSERT INTO forum_replies (
          thread_id,
@@ -239,12 +317,12 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
          author_role,
          body,
          created_at
-       ) VALUES ($1, $2, $3, 'STUDENT', $4, NOW())
+       ) VALUES ($1, $2, $3, $4, $5, NOW())
        RETURNING *;`,
-      [threadId, studentId, authorName, body.trim()]
+      [threadId, authorId, authorName, authorRole, body.trim()]
     );
 
-    // 4. Increment replies count and update last_post_at on parent thread
+    // 7. Increment replies count and update last_post_at on parent thread
     await client.query(
       `UPDATE forum_threads
        SET replies_count = replies_count + 1,
@@ -263,9 +341,9 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       body: newReply.body,
       createdAt: newReply.created_at,
       author: {
-        id: studentId,
+        id: authorId,
         name: authorName,
-        role: 'STUDENT',
+        role: authorRole,
         avatarUrl,
         initials: authorName
           .split(' ')
@@ -276,8 +354,8 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
       },
     });
   } catch (err) {
-    await client.query('ROLLBACK');
-    logger.error({ err: err?.message || err, courseId, threadId, studentId }, '[Forum] Reply creation error');
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error({ err: err?.message || err, courseId, threadId, rawId }, '[Forum] Reply creation error');
     next(err);
   } finally {
     client.release();
@@ -290,7 +368,7 @@ router.post('/:courseId/forum/threads/:threadId/replies', async (req, res, next)
  */
 router.post('/:courseId/forum/threads', async (req, res, next) => {
   const { courseId } = req.params;
-  const studentId = req.user?.username || req.user?.id || req.user?.studentId || 'student1';
+  const rawId = req.user?.student_id || req.user?.studentId || req.user?.id || req.user?.username || 'student1';
   const { title, body } = req.body;
 
   if (!title || !title.trim() || !body || !body.trim()) {
@@ -300,13 +378,18 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
     });
   }
 
-  // Distributed Anti-Spam Rate Limit Check for Threads: 15s interval
-  const redisThreadKey = `spam:forum:thread:${studentId}`;
+  const userRole = String(req.user?.role || '').toUpperCase();
+  const isStaffRole = ['ADMIN', 'SYSTEM_ADMIN', 'LECTURER', 'HOD', 'LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole);
+  const userEmail = req.user?.email && typeof req.user.email === 'string' && req.user.email.trim() ? req.user.email.trim() : null;
+  const rawNamespace = isStaffRole ? 'staff' : 'student';
+
+  // 1. Early Redis Fast-Path check namespaced by user role before touching PostgreSQL (15s interval)
+  const earlyRedisKey = `spam:forum:thread:${rawNamespace}:${rawId}`;
   try {
     if (redis && typeof redis.set === 'function') {
-      const acquired = await redis.set(redisThreadKey, '1', 'EX', 15, 'NX');
+      const acquired = await redis.set(earlyRedisKey, '1', 'EX', 15, 'NX');
       if (!acquired) {
-        const ttl = await redis.ttl(redisThreadKey);
+        const ttl = await redis.ttl(earlyRedisKey);
         const waitSec = ttl > 0 ? ttl : 15;
         return res.status(429).json({
           error: `Please wait ${waitSec} seconds before starting another discussion topic`,
@@ -320,12 +403,92 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
   }
 
   try {
-    // Authoritative Cluster Rate-Limit Check against PostgreSQL ledger
+    // 2. Resolve author identity
+    let authorId = rawId;
+    let authorName = 'Participant';
+    let authorRole = 'STUDENT';
+    let avatarUrl = null;
+
+    if (isStaffRole) {
+      const staffRes = await pool.query(
+        `SELECT advisor_id, full_name, role 
+         FROM staff_advisors 
+         WHERE advisor_id = $1 
+            OR staff_number = $1 
+            OR ($2::varchar IS NOT NULL AND LOWER(email) = LOWER($2))
+         ORDER BY 
+           CASE 
+             WHEN advisor_id = $1 THEN 1
+             WHEN staff_number = $1 THEN 2
+             WHEN $2::varchar IS NOT NULL AND LOWER(email) = LOWER($2) THEN 3
+             ELSE 4
+           END ASC,
+           advisor_id ASC
+         LIMIT 1`,
+        [String(rawId), userEmail]
+      );
+      if (staffRes.rows.length > 0) {
+        authorId = staffRes.rows[0].advisor_id;
+        authorName = staffRes.rows[0].full_name;
+        authorRole = staffRes.rows[0].role || userRole;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Course Faculty';
+        authorRole = userRole || 'STAFF';
+      }
+    } else {
+      const studentQuery = await pool.query(
+        `SELECT s.student_id, s.full_name, sp.avatar_url 
+         FROM students s 
+         LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
+         WHERE s.student_id = $1 OR UPPER(s.matric_number) = UPPER($1) OR UPPER(s.username) = UPPER($1)
+         ORDER BY 
+           CASE 
+             WHEN s.student_id = $1 THEN 1
+             WHEN UPPER(s.matric_number) = UPPER($1) THEN 2
+             WHEN UPPER(s.username) = UPPER($1) THEN 3
+             ELSE 4
+           END ASC,
+           s.student_id ASC
+         LIMIT 1`,
+        [String(rawId)]
+      );
+      if (studentQuery.rows.length > 0) {
+        authorId = studentQuery.rows[0].student_id;
+        authorName = studentQuery.rows[0].full_name;
+        avatarUrl = studentQuery.rows[0].avatar_url || null;
+      } else {
+        authorName = req.user?.name || req.user?.username || 'Student Participant';
+      }
+      authorRole = 'STUDENT';
+    }
+
+    // 3. Compare constructed Redis key values before acquiring the secondary key
+    const resolvedNamespace = authorRole === 'STUDENT' ? 'student' : 'staff';
+    const resolvedRedisKey = `spam:forum:thread:${resolvedNamespace}:${authorId}`;
+
+    if (resolvedRedisKey !== earlyRedisKey) {
+      try {
+        if (redis && typeof redis.set === 'function') {
+          const acquired = await redis.set(resolvedRedisKey, '1', 'EX', 15, 'NX');
+          if (!acquired) {
+            const ttl = await redis.ttl(resolvedRedisKey);
+            const waitSec = ttl > 0 ? ttl : 15;
+            return res.status(429).json({
+              error: `Please wait ${waitSec} seconds before starting another discussion topic`,
+              code: 'RATE_LIMIT_EXCEEDED',
+              retryAfterSeconds: waitSec,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Authoritative Cluster Rate-Limit Check against PostgreSQL ledger using resolved authorId
     const rateCheck = await pool.query(
       `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::int AS elapsed_seconds
        FROM forum_threads
        WHERE student_id = $1;`,
-      [studentId]
+      [authorId]
     );
 
     const elapsed = rateCheck.rows[0]?.elapsed_seconds;
@@ -337,15 +500,6 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         retryAfterSeconds: waitSec,
       });
     }
-    const studentQuery = await pool.query(
-      `SELECT s.full_name, sp.avatar_url 
-       FROM students s 
-       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id 
-       WHERE s.student_id = $1 LIMIT 1`,
-      [studentId]
-    );
-    const authorName = studentQuery.rows[0]?.full_name || 'John Doe';
-    const avatarUrl = studentQuery.rows[0]?.avatar_url || null;
 
     const insertResult = await pool.query(`
       INSERT INTO forum_threads (
@@ -358,9 +512,9 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
         replies_count,
         last_post_at,
         created_at
-      ) VALUES ($1, $2, $3, 'STUDENT', $4, $5, 0, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, 0, NOW(), NOW())
       RETURNING *;
-    `, [courseId, studentId, authorName, title.trim(), body.trim()]);
+    `, [courseId, authorId, authorName, authorRole, title.trim(), body.trim()]);
 
     const newThread = insertResult.rows[0];
 
@@ -384,7 +538,7 @@ router.post('/:courseId/forum/threads', async (req, res, next) => {
       createdAt: newThread.created_at,
     });
   } catch (err) {
-    logger.error({ err: err?.message || err, courseId, studentId }, '[Forum] Thread creation error');
+    logger.error({ err: err?.message || err, courseId, rawId }, '[Forum] Thread creation error');
     next(err);
   }
 });

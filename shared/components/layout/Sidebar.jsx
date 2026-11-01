@@ -136,6 +136,7 @@ export const Sidebar = ({
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
   const isHod = role === 'HOD';
   const isLecturer = role === 'LECTURER';
+  const isSenateOfficer = role === 'SENATE_OFFICER';
   const isAdvisor = ['ADVISOR', 'LEVEL_ADVISOR', 'DEAN', 'STAFF'].includes(role);
 
   let navItems = [];
@@ -237,6 +238,23 @@ export const Sidebar = ({
         icon: Sparkles,
         badge: 'AI',
         screenNumber: '5',
+      },
+      {
+        name: 'Profile & Security',
+        to: '/admin/profile',
+        icon: UserCog,
+        badge: null,
+        screenNumber: 'PRF',
+      },
+    ];
+    } else if (isSenateOfficer) {
+    navItems = [
+      {
+        name: 'Registration Clearance',
+        to: '/advisor/registrations',
+        icon: ShieldCheck,
+        badge: 'Senate',
+        screenNumber: '8A',
       },
       {
         name: 'Profile & Security',

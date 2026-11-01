@@ -15,8 +15,6 @@ import net from 'node:net';
 import dns from 'node:dns';
 
 dns.setDefaultResultOrder('ipv4first');
-import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
-import ws from 'ws';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 if (typeof net.setDefaultAutoSelectFamily === 'function') {
@@ -25,8 +23,18 @@ if (typeof net.setDefaultAutoSelectFamily === 'function') {
 import config from '../config.js';
 import { logger } from '../lib/logger.js';
 
-// Configure Neon WebSocket transport for Node.js environments (bypasses port 5432 ISP firewalls)
-neonConfig.webSocketConstructor = ws;
+// Dynamically and safely load Neon serverless driver when available
+let NeonPool = pg.Pool;
+try {
+  const wsModule = await import('ws');
+  const neonModule = await import('@neondatabase/serverless');
+  if (neonModule.neonConfig) {
+    neonModule.neonConfig.webSocketConstructor = wsModule.default || wsModule;
+  }
+  NeonPool = neonModule.Pool || neonModule.default?.Pool || pg.Pool;
+} catch (_) {
+  // Graceful fallback to native pg.Pool in non-Neon or offline environments
+}
 
 // Ephemeral Async Context Storage for Request Trace Propagation
 export const traceStorage = new AsyncLocalStorage();
@@ -172,6 +180,29 @@ export class DatabaseAdapter {
 }
 
 export const db = new DatabaseAdapter(pool);
+
+/**
+ * ─── Federated Multi-Database Microservice Pools ────────────────────────────
+ * Supports independent Neon databases for Lecturer and Admin domains.
+ * Gracefully falls back to primary `pool` if specific domain URL is omitted.
+ */
+function createDomainPool(connectionUrl, poolName) {
+  if (!connectionUrl) return pool;
+  const isDomainNeon = connectionUrl.includes('neon.tech');
+  const DomainPoolClass = isDomainNeon ? NeonPool : pg.Pool;
+  const domainConfig = {
+    ...poolConfig,
+    connectionString: connectionUrl,
+  };
+  const dPool = new DomainPoolClass(domainConfig);
+  dPool.on('error', (err) => {
+    logger.error({ pool: poolName, err: err.message }, `[PostgreSQL] Unexpected error on idle ${poolName} client`);
+  });
+  return dPool;
+}
+
+export const lecturerPool = createDomainPool(process.env.LECTURER_DATABASE_URL, 'LecturerPool');
+export const adminPool = createDomainPool(process.env.ADMIN_DATABASE_URL, 'AdminPool');
 
 /**
  * Transaction helper enforcing PgBouncer transaction-mode safety

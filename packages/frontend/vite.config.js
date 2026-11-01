@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       host: '0.0.0.0', // Bind to all interfaces so Docker port mapping works
-      port: 5180,
+      port: 5173,
       proxy: {
         '/api': {
           target: apiTarget,
