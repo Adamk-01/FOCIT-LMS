@@ -56,6 +56,9 @@ import libraryRouter from './routes/library.js';
 import { pool } from './db/index.js';
 import { redis } from './lib/redis.js';
 import { connectionTracker, setupGracefulShutdown } from './lib/gracefulShutdown.js';
+import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
+import { notificationBroadcaster } from './services/notificationBroadcaster.js';
+import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
 
 const app = express();
 
@@ -147,6 +150,7 @@ app.use('/api/student/courses', studentCoursesRouter);
 app.use('/api/student/notifications', notificationsRouter);
 app.use('/api/student', studentDashboardRouter);
 app.use('/api/student', profileRouter);
+app.use('/api/student/attendance', attendanceRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/library', libraryRouter);
