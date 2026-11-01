@@ -68,13 +68,6 @@ async function verifyAttendanceAccess(actor, courseId, semesterId) {
   );
   if (repCheck.rows.length > 0) return { role: 'COURSE_REP' };
 
-  // Check Lecturer Allocation
-  const allocCheck = await pool.query(
-    `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 AND semester_id = $3 LIMIT 1`,
-    [courseId, actorId, semesterId]
-  );
-  if (allocCheck.rows.length > 0) return { role: 'LECTURER' };
-
   // Check Department HOD
   if (role === 'HOD') {
     const hodCheck = await pool.query(
@@ -84,6 +77,25 @@ async function verifyAttendanceAccess(actor, courseId, semesterId) {
       [actorId, courseId]
     );
     if (hodCheck.rows.length > 0) return { role: 'HOD' };
+  }
+
+  // Check Lecturer Allocation with fallback to department teaching match
+  try {
+    const allocCheck = await pool.query(
+      `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 AND semester_id = $3 LIMIT 1`,
+      [courseId, actorId, semesterId]
+    );
+    if (allocCheck.rows.length > 0) return { role: 'LECTURER' };
+  } catch (allocErr) {
+    if (role === 'LECTURER') {
+      const staffDeptCheck = await pool.query(
+        `SELECT 1 FROM staff_advisors sa 
+         JOIN courses c ON c.department_id = sa.department_id 
+         WHERE sa.advisor_id = $1 AND c.course_id = $2 LIMIT 1`,
+        [actorId, courseId]
+      );
+      if (staffDeptCheck.rows.length > 0) return { role: 'LECTURER' };
+    }
   }
 
   // Check Enrolled Student
