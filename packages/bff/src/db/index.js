@@ -12,6 +12,9 @@
 
 import pg from 'pg';
 import net from 'node:net';
+import dns from 'node:dns';
+
+dns.setDefaultResultOrder('ipv4first');
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 if (typeof net.setDefaultAutoSelectFamily === 'function') {

@@ -18,6 +18,9 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../lib/api';
 import { ErrorStateView } from '../components/ErrorStateView';
+import { StudentActiveSessionBanner } from '../components/attendance/StudentActiveSessionBanner';
+import { StudentAttendanceOverviewCard } from '../components/attendance/StudentAttendanceOverviewCard';
+import { useStudentAttendanceSummary } from '../hooks/useStudentAttendance';
 
 export const DashboardPage = () => {
   const { user } = useAuth();
@@ -39,6 +42,18 @@ export const DashboardPage = () => {
     enabled: Boolean(studentId),
     staleTime: 5 * 60 * 1000,
   });
+
+  // Query cumulative student attendance summary (Rules of Hooks: called unconditionally)
+  const { data: attendanceData } = useStudentAttendanceSummary();
+  const courseAttendanceMap = React.useMemo(() => {
+    const map = new Map();
+    if (attendanceData?.courses) {
+      attendanceData.courses.forEach((c) => {
+        map.set(c.courseId, c);
+      });
+    }
+    return map;
+  }, [attendanceData]);
 
   if (!studentId) {
     return (
@@ -82,7 +97,7 @@ export const DashboardPage = () => {
         </div>
       )}
 
-      {/* 1. Header Hero Banner (Screen 1 in ui_template.jpeg) */}
+      {/* 1. Header Hero Banner */}
       <header className="bg-gradient-to-r from-[#0a1142] via-[#070c2e] to-[#0a1142] rounded-2xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden border border-white/10">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-[#ffb81c]/15 to-transparent pointer-events-none" />
         
@@ -112,7 +127,10 @@ export const DashboardPage = () => {
         </div>
       </header>
 
-      {/* 2. Key Telemetry Summary Cards (Exact match to Screen 1) */}
+      {/* 2. Live Active Attendance Passcode Banner */}
+      <StudentActiveSessionBanner />
+
+      {/* 3. Key Telemetry Summary Cards */}
       <section aria-label="Student Academic Metrics" className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {/* Metric 1: Registered Courses */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm flex items-center justify-between">
@@ -163,16 +181,16 @@ export const DashboardPage = () => {
         </div>
       </section>
 
-      {/* 3. Main Dashboard Grid: My Courses (Left) & Upcoming Activities (Right) */}
+      {/* 4. Main Dashboard Grid: My Courses (Left) & Attendance / Upcoming (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: My Courses Section (Screen 1 in template) */}
+        {/* Left Column: My Courses Section */}
         <section className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-[#0a1142] font-display">
               My Courses
             </h2>
             <Link 
-              to="/courses/1/materials" 
+              to="/courses" 
               className="text-xs font-bold text-[#0a1142] hover:text-[#16258f] flex items-center gap-1 transition-colors"
             >
               <span>View All</span>
@@ -193,53 +211,83 @@ export const DashboardPage = () => {
                 </Link>
               </div>
             ) : (
-              courses.map((course) => (
-                <div 
-                  key={course.course_id}
-                  className="bg-white rounded-2xl p-5 border border-gray-200 hover:border-[#0a1142]/30 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-[#0a1142]/10 text-[#0a1142] flex items-center justify-center font-bold text-xs shrink-0">
-                      {course.code.slice(0, 3)}
+              courses.map((course) => {
+                const att = courseAttendanceMap.get(course.course_id);
+
+                return (
+                  <div 
+                    key={course.course_id}
+                    className="bg-white rounded-2xl p-5 border border-gray-200 hover:border-[#0a1142]/30 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-[#0a1142]/10 text-[#0a1142] flex items-center justify-center font-bold text-xs shrink-0">
+                        {course.code.slice(0, 3)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-[#0a1142] text-sm">
+                            {course.code} — {course.title}
+                          </h3>
+                          {att && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                              att.totalLockedSessions === 0 
+                                ? 'bg-gray-100 text-gray-600 border-gray-200'
+                                : att.isExamEligible 
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                            }`}>
+                              {att.totalLockedSessions === 0 
+                                ? '100% Attendance' 
+                                : `${att.attendancePercentage}% Attendance`}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {course.units} Units • Level {course.level} • {course.category}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-bold text-[#0a1142] text-sm">
-                        {course.code} — {course.title}
-                      </h3>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {course.units} Units • Level {course.level} • {course.category}
-                      </p>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        course.status === 'In Progress' 
+                          ? 'bg-emerald-100 text-emerald-800' 
+                          : course.status === 'Completed'
+                            ? 'bg-blue-100 text-[#0a1142]'
+                            : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {course.status}
+                      </span>
+
+                      <Link
+                        to={`/courses/${encodeURIComponent(course.course_id)}?tab=attendance`}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#0a1142] hover:bg-gray-100 border border-gray-200 transition-colors"
+                        title="View Attendance Ledger"
+                      >
+                        Ledger
+                      </Link>
+
+                      <Link
+                        to={`/courses/${encodeURIComponent(course.course_id)}`}
+                        className="p-2 rounded-lg text-gray-400 hover:text-[#0a1142] hover:bg-gray-100 transition-colors"
+                        title="Open Course Room"
+                      >
+                        <ArrowRight size={18} />
+                      </Link>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-4 shrink-0">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      course.status === 'In Progress' 
-                        ? 'bg-emerald-100 text-emerald-800' 
-                        : course.status === 'Completed'
-                          ? 'bg-blue-100 text-[#0a1142]'
-                          : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {course.status}
-                    </span>
-
-                    <Link
-                      to={`/courses/1/materials`}
-                      className="p-2 rounded-lg text-gray-400 hover:text-[#0a1142] hover:bg-gray-100 transition-colors"
-                      title="Open Course Materials"
-                    >
-                      <ArrowRight size={18} />
-                    </Link>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
 
-        {/* Right Column: Upcoming Activities & Virtual Lecture */}
+        {/* Right Column: Attendance Standing + Upcoming Activities */}
         <aside className="space-y-6">
-          {/* Zoom Meeting Action Card (Screen 2 preview) */}
+          {/* NUC Attendance Standing Telemetry Card */}
+          <StudentAttendanceOverviewCard />
+
+          {/* Zoom Meeting Action Card */}
           <div className="bg-gradient-to-br from-[#0a1142] to-[#16258f] rounded-2xl p-6 text-white shadow-lg space-y-4">
             <div className="flex items-center gap-2 text-xs font-semibold text-[#ffb81c]">
               <Video size={16} />
@@ -260,7 +308,7 @@ export const DashboardPage = () => {
             </a>
           </div>
 
-          {/* Upcoming Activities List (Screen 2 in template) */}
+          {/* Upcoming Activities List */}
           <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h3 className="text-sm font-bold text-[#0a1142]">Upcoming Activities</h3>
@@ -279,7 +327,7 @@ export const DashboardPage = () => {
                   </div>
 
                   <Link
-                    to={act.link || '/courses/1/quizzes'}
+                    to={act.link || '/courses'}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-colors ${
                       act.type === 'quiz' 
                         ? 'bg-[#0a1142] text-[#ffb81c] hover:bg-[#16258f]' 
@@ -299,4 +347,3 @@ export const DashboardPage = () => {
 };
 
 export default DashboardPage;
-

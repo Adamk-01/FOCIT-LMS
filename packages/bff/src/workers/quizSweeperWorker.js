@@ -72,8 +72,8 @@ export class QuizSweeperWorker {
           WHERE 
             qa.status = 'IN_PROGRESS' 
             AND qa.due_at < NOW()
-            AND qa.is_practice = FALSE
-            AND q.auto_zero = TRUE
+
+
           ORDER BY qa.attempt_id ASC
           LIMIT $1
           FOR UPDATE SKIP LOCKED

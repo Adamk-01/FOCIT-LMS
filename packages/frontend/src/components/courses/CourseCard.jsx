@@ -9,10 +9,20 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
-  BookOpen
+  BookOpen,
+  ShieldCheck
 } from 'lucide-react';
 
 export const COURSE_OPTIONS = [
+  {
+    id: 'attendance',
+    label: 'Attendance',
+    tab: 'attendance',
+    icon: ShieldCheck,
+    iconColor: 'text-teal-600 dark:text-teal-400',
+    iconBg: 'bg-teal-50 dark:bg-teal-950/60',
+    title: 'NUC 75% Lecture Attendance & Exam Standing',
+  },
   {
     id: 'materials',
     label: 'Digital Library',

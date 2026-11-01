@@ -80,6 +80,18 @@ export const NAV_ITEMS = [
     lecturerOnly: true,
   },
   {
+    id: 'attendance',
+    name: 'Attendance & NUC',
+    to: '/courses?focus=attendance',
+    icon: ShieldCheck,
+    badge: '75%',
+    screenNumber: '6A',
+    resolveRoute: (courseId) => courseId 
+      ? `/courses/${encodeURIComponent(courseId)}?tab=attendance`
+      : '/courses?focus=attendance',
+    resolveBadge: () => '75%',
+  },
+  {
     id: 'gradebook',
     name: 'Gradebook',
     to: '/courses?focus=grades',

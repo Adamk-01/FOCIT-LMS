@@ -351,6 +351,20 @@ export function PDFViewerModal({ item, onClose, onDownload }) {
     };
   }, [initializeStreamSession, item?.id]);
 
+  const onDocumentLoadSuccess = useCallback(({ numPages: loadedNumPages }) => {
+    setNumPages(loadedNumPages);
+    setIsLoading(false);
+  }, []);
+
+  const onDocumentLoadError = useCallback((err) => {
+    if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+      return;
+    }
+    console.error('react-pdf document load error:', err);
+    setLoadError(err?.message || 'Failed to render PDF document pages');
+    setIsLoading(false);
+  }, []);
+
   if (!item) return null;
 
   const handleDownloadClick = async () => {
@@ -374,20 +388,6 @@ export function PDFViewerModal({ item, onClose, onDownload }) {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
-
-  const onDocumentLoadSuccess = useCallback(({ numPages: loadedNumPages }) => {
-    setNumPages(loadedNumPages);
-    setIsLoading(false);
-  }, []);
-
-  const onDocumentLoadError = useCallback((err) => {
-    if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
-      return;
-    }
-    console.error('react-pdf document load error:', err);
-    setLoadError(err?.message || 'Failed to render PDF document pages');
-    setIsLoading(false);
-  }, []);
 
   const handlePageInputChange = (e) => {
     setPageInput(e.target.value);

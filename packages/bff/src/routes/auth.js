@@ -301,30 +301,41 @@ router.post('/login', async (req, res) => {
 
     // 6. Atomic session write into Redis with deterministic TTL & scope, protected by Circuit Breaker
     const sessionKey = `session:${sessionId}`;
-    await redisCircuitBreaker.execute(async () => {
-      const pipeline = redis.pipeline();
-      pipeline.hset(sessionKey, {
-        userId: String(user.student_id),
-        username: user.username,
-        role: user.role,
-        scope: sessionScope,
-        mustChangePassword: user.must_change_password ? '1' : '0',
-        nonce: sessionNonce,
-        createdAt: String(nowSec),
-      });
-      pipeline.expire(sessionKey, SESSION_TTL_SECONDS);
-      pipeline.sadd(`user_sessions:${String(user.student_id)}`, sessionId);
-      pipeline.expire(`user_sessions:${String(user.student_id)}`, SESSION_TTL_SECONDS);
-
-      const results = await pipeline.exec();
-      if (!results) {
-        throw new Error('Redis pipeline returned null results');
+    const isProductionEnv = process.env.NODE_ENV === 'production' || config.nodeEnv === 'production';
+    const isDevEnv = !isProductionEnv && (config.nodeEnv === 'development' || process.env.NODE_ENV === 'development' || !process.env.NODE_ENV);
+    try {
+      if (redis?.status === 'ready') {
+        await redisCircuitBreaker.execute(async () => {
+          const pipeline = redis.pipeline();
+          pipeline.hset(sessionKey, {
+            userId: String(user.student_id),
+            username: user.username,
+            role: user.role,
+            scope: sessionScope,
+            mustChangePassword: user.must_change_password ? '1' : '0',
+            nonce: sessionNonce,
+            createdAt: String(nowSec),
+          });
+          pipeline.expire(sessionKey, SESSION_TTL_SECONDS);
+          pipeline.sadd('user_sessions:' + user.student_id, sessionId);
+          pipeline.expire('user_sessions:' + user.student_id, SESSION_TTL_SECONDS);
+          const results = await pipeline.exec();
+          if (!results) throw new Error('Redis pipeline returned null results');
+          for (const [cmdErr] of results) { if (cmdErr) throw cmdErr; }
+          return results;
+        }, 5000);
+      } else if (isDevEnv) {
+        logger.warn({ userId: user.student_id, sessionId }, '[AuthHandshake] Local dev mode: Redis not ready, proceeding with signed JWT and memory session');
+      } else {
+        throw new Error('Backing Redis session store unavailable');
       }
-      for (const [cmdErr] of results) {
-        if (cmdErr) throw cmdErr;
+    } catch (redisErr) {
+      if (isDevEnv && (redisErr?.message?.includes('ECONNREFUSED') || redisErr?.message?.includes('Connection is closed') || redisErr?.code?.includes('CIRCUIT_BREAKER') || redis?.status !== 'ready')) {
+        logger.warn({ userId: user.student_id, sessionId }, '[AuthHandshake] Local dev mode: Redis offline, proceeding with verified JWT claims and memory session');
+      } else {
+        throw redisErr;
       }
-      return results;
-    }, 5000);
+    }
 
     // 7. Issue signed JWT carrying the session ID and scope strictly AFTER persistence confirmed
     const token = jwt.sign(

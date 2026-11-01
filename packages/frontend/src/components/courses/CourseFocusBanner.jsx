@@ -1,18 +1,19 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, FileText, HelpCircle, MessagesSquare, Award, Library } from 'lucide-react';
+import { BookOpen, FileText, HelpCircle, MessagesSquare, Award, Library, ShieldCheck } from 'lucide-react';
 
 const FOCUS_CONFIG = {
   materials: { label: 'digital library & learning materials', icon: Library },
   quizzes: { label: 'quizzes', icon: HelpCircle },
   grades: { label: 'grades', icon: Award },
   forum: { label: 'discussion forum', icon: MessagesSquare },
+  attendance: { label: 'attendance ledger & NUC exam eligibility', icon: ShieldCheck },
 };
 
 /**
  * <CourseFocusBanner />
  *
- * Contextual intent banner displayed when redirected with ?focus=materials|quizzes|grades|forum
+ * Contextual intent banner displayed when redirected with ?focus=materials|quizzes|grades|forum|attendance
  */
 export function CourseFocusBanner({ focus }) {
   if (!focus) return null;

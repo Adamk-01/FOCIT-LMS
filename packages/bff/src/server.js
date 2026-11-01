@@ -150,6 +150,7 @@ app.use('/api/student/courses', studentCoursesRouter);
 app.use('/api/student/notifications', notificationsRouter);
 app.use('/api/student', studentDashboardRouter);
 app.use('/api/student', profileRouter);
+app.use('/api/student/attendance', attendanceRouter);
 app.use('/api/registration', registrationRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/library', libraryRouter);
@@ -178,6 +179,14 @@ if (redis.status === 'wait') {
 
 // ─── Network & Socket Resilience Handlers ───────────────────
 process.on('uncaughtException', (err) => {
+  const isIgnorableSocketError =
+    err?.message?.includes('Connection terminated unexpectedly') ||
+    err?.message?.includes('read ECONNRESET') ||
+    err?.code === 'ECONNRESET';
+  if (isIgnorableSocketError && config.nodeEnv !== 'production') {
+    logger.warn({ err: err?.message || err }, '[Process] Suppressed transient background socket error in development');
+    return;
+  }
   logger.fatal({ err: err?.stack || err, code: err?.code }, '[Process] Fatal uncaught exception encountered. Terminating process.');
   process.exit(1);
 });

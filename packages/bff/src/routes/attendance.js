@@ -24,6 +24,8 @@ import { logger } from '../lib/logger.js';
 import { redis } from '../lib/redis.js';
 import { notificationBroadcaster } from '../services/notificationBroadcaster.js';
 import { createStudentNotification } from './notifications.js';
+import config from '../config.js';
+import { studentAttendanceService } from '../services/studentAttendanceService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHEETS_DIR = path.join(__dirname, '../../.cache/sheets');
@@ -66,13 +68,6 @@ async function verifyAttendanceAccess(actor, courseId, semesterId) {
   );
   if (repCheck.rows.length > 0) return { role: 'COURSE_REP' };
 
-  // Check Lecturer Allocation
-  const allocCheck = await pool.query(
-    `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 AND semester_id = $3 LIMIT 1`,
-    [courseId, actorId, semesterId]
-  );
-  if (allocCheck.rows.length > 0) return { role: 'LECTURER' };
-
   // Check Department HOD
   if (role === 'HOD') {
     const hodCheck = await pool.query(
@@ -82,6 +77,25 @@ async function verifyAttendanceAccess(actor, courseId, semesterId) {
       [actorId, courseId]
     );
     if (hodCheck.rows.length > 0) return { role: 'HOD' };
+  }
+
+  // Check Lecturer Allocation with fallback to department teaching match
+  try {
+    const allocCheck = await pool.query(
+      `SELECT 1 FROM hod_course_allocations WHERE course_id = $1 AND lecturer_id = $2 AND semester_id = $3 LIMIT 1`,
+      [courseId, actorId, semesterId]
+    );
+    if (allocCheck.rows.length > 0) return { role: 'LECTURER' };
+  } catch (allocErr) {
+    if (role === 'LECTURER') {
+      const staffDeptCheck = await pool.query(
+        `SELECT 1 FROM staff_advisors sa 
+         JOIN courses c ON c.department_id = sa.department_id 
+         WHERE sa.advisor_id = $1 AND c.course_id = $2 LIMIT 1`,
+        [actorId, courseId]
+      );
+      if (staffDeptCheck.rows.length > 0) return { role: 'LECTURER' };
+    }
   }
 
   // Check Enrolled Student
@@ -283,7 +297,7 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
 
     // 2.1 Enforce Session Lock Guard: Reject sheet uploads if session is already finalized and locked
     const existingSession = await client.query(
-      `SELECT session_id, is_locked FROM attendance_sessions 
+      `SELECT session_id, is_locked, session_mode, created_by FROM attendance_sessions 
        WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 
        LIMIT 1 FOR UPDATE`,
       [courseId, semesterId, week_number]
@@ -294,6 +308,25 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
         error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
         code: 'SESSION_LOCKED',
       });
+    }
+
+    // Provenance Boundary: Course Rep cannot overwrite faculty lecture sessions
+    if (access.role === 'COURSE_REP' && existingSession.rows.length > 0) {
+      const existing = existingSession.rows[0];
+      if (['ROLL_CALL', 'CODE_OTP'].includes(existing.session_mode)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: `Course Representative cannot overwrite faculty lecture session (${existing.session_mode}) for week ${week_number}.`,
+          code: 'FACULTY_SESSION_OVERWRITE_FORBIDDEN',
+        });
+      }
+      if (existing.created_by !== actorId && existing.session_mode !== 'SHEET_SCAN') {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: `Course Representative cannot modify an attendance session initiated by faculty for week ${week_number}.`,
+          code: 'FACULTY_SESSION_OVERWRITE_FORBIDDEN',
+        });
+      }
     }
 
     // 3. Create or Update Attendance Session
@@ -457,7 +490,7 @@ router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
 
     // Lock Guard: Reject if session is already finalized and locked
     const existing = await client.query(
-      `SELECT is_locked FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 LIMIT 1 FOR UPDATE`,
+      `SELECT is_locked, session_mode, created_by FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 LIMIT 1 FOR UPDATE`,
       [courseId, semesterId, week_number]
     );
     if (existing.rows[0]?.is_locked) {
@@ -466,6 +499,25 @@ router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
         error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
         code: 'SESSION_LOCKED',
       });
+    }
+
+    // Provenance Boundary: Course Rep cannot overwrite faculty lecture sessions
+    if (access.role === 'COURSE_REP' && existing.rows.length > 0) {
+      const ex = existing.rows[0];
+      if (['ROLL_CALL', 'CODE_OTP'].includes(ex.session_mode)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: `Course Representative cannot overwrite faculty lecture session (${ex.session_mode}) for week ${week_number}.`,
+          code: 'FACULTY_SESSION_OVERWRITE_FORBIDDEN',
+        });
+      }
+      if (ex.created_by !== actorId && ex.session_mode !== 'REP_DIRECT') {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: `Course Representative cannot modify an attendance session initiated by faculty for week ${week_number}.`,
+          code: 'FACULTY_SESSION_OVERWRITE_FORBIDDEN',
+        });
+      }
     }
 
     // Role Enforcement: Only faculty (Lecturer/HOD/Admin) can lock sessions; course reps cannot
@@ -646,8 +698,25 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
     const ttlSeconds = 300;
     const expiresAt = Date.now() + (ttlSeconds * 1000);
 
+    // Cryptographic HMAC-SHA256 Derivation for L2 Persistence
+    const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
+    const activeOtpHash = crypto
+      .createHmac('sha256', hmacSecret)
+      .update(`${session.session_id}:${courseId}:${otp}`)
+      .digest('hex');
+
+    // Commit authoritative hash and expiry to PostgreSQL L2 ledger
+    await pool.query(`
+      UPDATE attendance_sessions
+      SET active_otp_hash = $1,
+          otp_expires_at = TO_TIMESTAMP($2 / 1000.0),
+          updated_at = NOW()
+      WHERE session_id = $3
+    `, [activeOtpHash, expiresAt, session.session_id]);
+
     const payload = JSON.stringify({
       otp,
+      activeOtpHash,
       courseId,
       sessionId: session.session_id,
       weekNumber: session.week_number,
@@ -657,9 +726,10 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
     try {
       if (redis && typeof redis.set === 'function') {
         await redis.set(`attendance:otp:${courseId}`, payload, 'EX', ttlSeconds);
+        await redis.zadd('attendance:active_sessions_zset', expiresAt, courseId);
+        await redis.zremrangebyscore('attendance:active_sessions_zset', '-inf', Date.now());
       }
     } catch (_) {}
-    memoryOtpStore.set(courseId, { otp, courseId, sessionId: session.session_id, weekNumber: session.week_number, expiresAt });
 
     res.json({
       status: 'SUCCESS',
@@ -678,7 +748,7 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
 // ─── 1D. Mode 2: Student Check-in via OTP ────────────────────────────────────
 router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) => {
   const { courseId } = req.params;
-  const { otp } = req.body || {};
+  const { otp, sessionId } = req.body || {};
   const studentId = req.user?.student_id || req.user?.id || req.user?.username;
 
   if (!otp || !String(otp).trim()) {
@@ -686,63 +756,144 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
   }
 
   try {
-    let otpData = null;
-    try {
-      if (redis && typeof redis.get === 'function') {
-        const raw = await redis.get(`attendance:otp:${courseId}`);
-        if (raw) otpData = JSON.parse(raw);
-      }
-    } catch (_) {}
+    let targetSessionId = sessionId;
 
-    if (!otpData) {
-      otpData = memoryOtpStore.get(courseId);
+    // 1. Resolve active session from Redis L1 fast path if sessionId omitted
+    if (!targetSessionId) {
+      try {
+        if (redis && typeof redis.get === 'function') {
+          const raw = await redis.get(`attendance:otp:${courseId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            targetSessionId = parsed.sessionId;
+          }
+        }
+      } catch (_) {}
     }
 
-    if (!otpData || String(otpData.otp).trim() !== String(otp).trim() || Date.now() > otpData.expiresAt) {
-      return res.status(400).json({
-        error: 'Invalid or expired attendance passcode. Please ask your lecturer for the current code.',
-        code: 'INVALID_OTP',
+    // 2. Fall back to PostgreSQL L2 authoritative index if Redis offline or missing
+    if (!targetSessionId) {
+      const sessLookup = await pool.query(`
+        SELECT session_id FROM attendance_sessions
+        WHERE course_id = $1 
+          AND is_locked = FALSE 
+          AND active_otp_hash IS NOT NULL 
+          AND otp_expires_at > NOW()
+        ORDER BY otp_expires_at DESC LIMIT 1;
+      `, [courseId]);
+      targetSessionId = sessLookup.rows[0]?.session_id;
+    }
+
+    if (!targetSessionId) {
+      return res.status(404).json({
+        error: 'No active attendance passcode session found for this course.',
+        code: 'SESSION_NOT_FOUND',
       });
     }
 
-    // Verify session lock status
-    const sessCheck = await pool.query(
-      `SELECT is_locked FROM attendance_sessions WHERE session_id = $1 LIMIT 1`,
-      [otpData.sessionId]
-    );
-    if (sessCheck.rows[0]?.is_locked) {
-      return res.status(409).json({
-        error: 'Cannot check in: Attendance session has already been approved and locked.',
-        code: 'SESSION_LOCKED',
-      });
+    // 3. Compute Cryptographic HMAC
+    const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
+    const expectedHash = crypto
+      .createHmac('sha256', hmacSecret)
+      .update(`${targetSessionId}:${courseId}:${String(otp).trim()}`)
+      .digest('hex');
+
+    // 4. Execute Hardened Single-Statement 4-Part Atomic CTE
+    const cteQuery = `
+      WITH target_session AS (
+          SELECT 
+              s.session_id, 
+              s.course_id, 
+              s.is_locked, 
+              (s.otp_expires_at IS NOT NULL AND s.otp_expires_at > NOW()) AS otp_valid,
+              (s.active_otp_hash IS NOT NULL AND s.active_otp_hash = $4) AS otp_matched
+          FROM attendance_sessions s
+          WHERE s.session_id = $1
+            AND s.course_id = $2
+      ),
+      verified_enrollment AS (
+          SELECT e.student_id
+          FROM enrollments e
+          JOIN target_session ts ON ts.course_id = e.course_id
+          WHERE e.student_id = $3
+            AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+      ),
+      existing_record AS (
+          SELECT r.id, r.status, r.marked_at
+          FROM attendance_records r
+          JOIN target_session ts ON ts.session_id = r.session_id
+          WHERE r.student_id = $3
+      ),
+      upsert_attendance AS (
+          INSERT INTO attendance_records (
+              session_id,
+              student_id,
+              status,
+              verification_method,
+              confidence_score,
+              marked_at
+          )
+          SELECT 
+              ts.session_id,
+              ve.student_id,
+              'PRESENT',
+              'CODE_OTP',
+              1.000,
+              NOW()
+          FROM target_session ts
+          JOIN verified_enrollment ve ON TRUE
+          WHERE ts.is_locked = FALSE 
+            AND ts.otp_valid = TRUE
+            AND ts.otp_matched = TRUE
+          ON CONFLICT (session_id, student_id)
+          DO UPDATE SET 
+              status = 'PRESENT',
+              verification_method = 'CODE_OTP',
+              confidence_score = 1.000,
+              marked_at = NOW()
+          WHERE attendance_records.status != 'PRESENT'
+          RETURNING id, status, marked_at
+      )
+      SELECT 
+          (SELECT session_id FROM target_session) AS session_id,
+          (SELECT is_locked FROM target_session) AS is_locked,
+          (SELECT otp_valid FROM target_session) AS otp_valid,
+          (SELECT otp_matched FROM target_session) AS otp_matched,
+          (SELECT student_id FROM verified_enrollment) AS student_id,
+          COALESCE((SELECT id FROM upsert_attendance), (SELECT id FROM existing_record)) AS record_id,
+          COALESCE((SELECT status FROM upsert_attendance), (SELECT status FROM existing_record)) AS record_status,
+          COALESCE((SELECT marked_at FROM upsert_attendance), (SELECT marked_at FROM existing_record)) AS marked_at,
+          ((SELECT id FROM upsert_attendance) IS NULL AND (SELECT status FROM existing_record) = 'PRESENT') AS was_idempotent_retry;
+    `;
+
+    const queryRes = await pool.query(cteQuery, [targetSessionId, courseId, studentId, expectedHash]);
+    const row = queryRes.rows[0];
+
+    if (!row || !row.session_id) {
+      return res.status(404).json({ error: 'Attendance session not found.', code: 'SESSION_NOT_FOUND' });
+    }
+    if (!row.student_id) {
+      return res.status(403).json({ error: 'You are not actively enrolled in this course.', code: 'NOT_ENROLLED' });
+    }
+    if (row.is_locked) {
+      return res.status(409).json({ error: 'This attendance session has already been locked by the lecturer.', code: 'SESSION_LOCKED' });
+    }
+    if (!row.otp_valid) {
+      return res.status(400).json({ error: 'This 5-minute passcode window has expired.', code: 'OTP_EXPIRED' });
+    }
+    if (!row.otp_matched) {
+      return res.status(400).json({ error: 'Invalid 6-digit passcode. Check the lecture screen and try again.', code: 'INVALID_OTP' });
     }
 
-    const enrollCheck = await pool.query(`
-      SELECT 1 FROM enrollments 
-      WHERE course_id = $1 AND student_id = $2 
-        AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
-      LIMIT 1
-    `, [courseId, studentId]);
-
-    if (enrollCheck.rows.length === 0) {
-      return res.status(403).json({
-        error: 'You are not enrolled in this course.',
-        code: 'ENROLLMENT_REQUIRED',
-      });
-    }
-
-    await pool.query(`
-      INSERT INTO attendance_records (session_id, student_id, status, verification_method, confidence_score)
-      VALUES ($1, $2, 'PRESENT', 'CODE_OTP', 1.000)
-      ON CONFLICT (session_id, student_id)
-      DO UPDATE SET status = 'PRESENT', verification_method = 'CODE_OTP', marked_at = NOW();
-    `, [otpData.sessionId, studentId]);
-
-    res.json({
+    return res.status(200).json({
       status: 'VERIFIED',
-      message: 'Attendance successfully confirmed via Passcode OTP!',
-      sessionId: otpData.sessionId,
-      weekNumber: otpData.weekNumber,
+      idempotent: Boolean(row.was_idempotent_retry),
+      message: row.was_idempotent_retry
+        ? 'Your attendance was already confirmed for this session.'
+        : 'Attendance successfully confirmed via Passcode OTP!',
+      sessionId: targetSessionId,
+      recordId: row.record_id,
+      markedAt: row.marked_at,
     });
   } catch (err) {
     next(err);
@@ -888,12 +1039,42 @@ router.post('/courses/:courseId/sessions/rep-direct', async (req, res, next) => 
 
     const session = sessionRes.rows[0];
 
+    // Invariant 3: Dijkstra Resource Ordering (Enrolled roster sorted by s.student_id ASC guarantees deadlock immunity)
     const enrolledRes = await client.query(`
       SELECT s.student_id FROM enrollments e
       JOIN students s ON s.student_id = e.student_id
       WHERE e.course_id = $1 AND (e.semester_id = $2 OR e.semester_id IS NULL)
         AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+      ORDER BY s.student_id ASC;
     `, [courseId, semesterId]);
+
+    const enrolledSet = new Set(enrolledRes.rows.map((r) => r.student_id));
+
+    // Invariant 4: Relational Set-Difference Validation (Poisoned Roster Payload Defense)
+    const poisonedStudents = records
+      .map((r) => r.student_id || r.studentId)
+      .filter((id) => id && !enrolledSet.has(id));
+
+    if (poisonedStudents.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Poisoned roster payload rejected: The following student identifiers are not actively enrolled in ${courseId}: ${poisonedStudents.join(', ')}`,
+        code: 'POISONED_ROSTER_PAYLOAD',
+        unenrolledStudentIds: poisonedStudents,
+      });
+    }
+
+    const VALID_STATUSES = ['PRESENT', 'ABSENT', 'EXCUSED'];
+    for (const r of records) {
+      const status = r.status;
+      if (status && !VALID_STATUSES.includes(status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Invalid attendance status "${status}". Allowed values: ${VALID_STATUSES.join(', ')}`,
+          code: 'INVALID_ATTENDANCE_STATUS',
+        });
+      }
+    }
 
     const statusMap = new Map();
     for (const r of records) {
@@ -1216,7 +1397,12 @@ router.post('/sessions/:sessionId/lock', async (req, res, next) => {
 
     const { rows } = await pool.query(`
       UPDATE attendance_sessions
-      SET is_locked = TRUE, locked_by = $1, locked_at = NOW(), updated_at = NOW()
+      SET is_locked = TRUE, 
+          locked_by = $1, 
+          locked_at = NOW(), 
+          active_otp_hash = NULL,
+          otp_expires_at = NULL,
+          updated_at = NOW()
       WHERE session_id = $2 AND is_locked = FALSE
       RETURNING *;
     `, [actorId, sessionId]);
@@ -1224,6 +1410,13 @@ router.post('/sessions/:sessionId/lock', async (req, res, next) => {
     if (rows.length === 0) {
       return res.status(409).json({ error: 'Session is already locked or does not exist', code: 'ALREADY_LOCKED' });
     }
+
+    try {
+        if (redis) {
+          await redis.del(`attendance:otp:${rows[0].course_id}`);
+          await redis.zrem('attendance:active_sessions_zset', rows[0].course_id);
+        }
+      } catch (_) {}
 
     res.json({
       status: 'LOCKED',
@@ -1321,6 +1514,60 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
       students,
       summary: access.role === 'STUDENT' ? rows.filter((r) => r.student_id === access.studentId) : rows,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+
+// ─── 7. Student Attendance Telemetry & Audit Endpoints ─────────────────────────
+
+/**
+ * GET /api/attendance/student/summary
+ * Retrieves overall attendance percentage, per-course 75% NUC eligibility,
+ * and session deficit counts for the calling student.
+ */
+router.get(['/student/summary', '/summary'], async (req, res, next) => {
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  const { semesterId } = req.query;
+
+  try {
+    const summary = await studentAttendanceService.getStudentAttendanceSummary(studentId, semesterId);
+    res.json(summary);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/attendance/student/active
+ * Probes for live Mode 2 OTP sessions in enrolled courses. Strips plaintext PIN.
+ */
+router.get(['/student/active', '/active'], async (req, res, next) => {
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  const { semesterId } = req.query;
+
+  try {
+    const active = await studentAttendanceService.getStudentActiveSessions(studentId, semesterId);
+    res.json(active);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/attendance/courses/:courseId/student-attendance
+ * Returns weekly timeline for a single enrolled course with all cohort data stripped.
+ */
+router.get('/courses/:courseId/student-attendance', async (req, res, next) => {
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+  const { courseId } = req.params;
+  const { semesterId } = req.query;
+
+  try {
+    const timeline = await studentAttendanceService.getCourseStudentAttendanceTimeline(studentId, courseId, semesterId);
+    res.json(timeline);
   } catch (err) {
     next(err);
   }

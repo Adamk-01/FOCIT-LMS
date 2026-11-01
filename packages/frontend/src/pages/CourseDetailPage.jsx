@@ -1,5 +1,5 @@
 /**
- * FOCIT LMS - Course Detail Module Shell (< 160 lines)
+ * FOCIT LMS - Course Detail Module Shell (< 180 lines)
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  *
  * Invariants Enforced:
@@ -7,7 +7,7 @@
  * 2. Heavy Container Containment: style={{ contain: 'layout paint' }} on tab viewport
  * 3. State Placement: Active tab driven by URL searchParams (?tab=...)
  * 4. Zero-Trust UI Primitives: Non-destructive <ErrorStateView /> with RFC 7807 telemetry
- * 5. Dumb Layout Shell: Under 180 lines (150 lines)
+ * 5. Dumb Layout Shell: Under 180 lines
  */
 
 import React, { useEffect } from 'react';
@@ -20,6 +20,7 @@ import { CourseQuizzesTab } from '../components/course/CourseQuizzesTab';
 import { GradebookPage } from './GradebookPage';
 import { ForumPage } from './ForumPage';
 import AssignmentsTab from '../components/course/AssignmentsTab';
+import { CourseAttendanceTab } from '../components/attendance/CourseAttendanceTab';
 import { CourseDetailHero } from '../components/courses/CourseDetailHero';
 import { CourseOverviewTab } from '../components/courses/CourseOverviewTab';
 import { CourseDetailTabs, COURSE_TABS } from '../components/courses/CourseDetailTabs';
@@ -44,6 +45,7 @@ export const CourseDetailPage = () => {
     if (location.pathname.endsWith('/grades')) return 'grades';
     if (location.pathname.endsWith('/forum')) return 'forum';
     if (location.pathname.endsWith('/assignments')) return 'assignments';
+    if (location.pathname.endsWith('/attendance')) return 'attendance';
     return 'overview';
   })();
 
@@ -51,7 +53,7 @@ export const CourseDetailPage = () => {
 
   // System Invariant 2: Normalize sub-path deep-links to canonical URL SearchParams (?tab=...)
   useEffect(() => {
-    const hasPathSuffix = location.pathname.match(/\/courses\/[^/]+\/(materials|quizzes|grades|forum|assignments)$/);
+    const hasPathSuffix = location.pathname.match(/\/courses\/[^/]+\/(materials|quizzes|grades|forum|assignments|attendance)$/);
     if (hasPathSuffix && !searchParams.get('tab')) {
       navigate(`/courses/${encodeURIComponent(courseId)}?tab=${activeTab}`, { replace: true });
     }
@@ -143,6 +145,10 @@ export const CourseDetailPage = () => {
             courseId={course?.course_id || courseId} 
             courseCode={course?.code || courseId} 
           />
+        )}
+
+        {activeTab === 'attendance' && (
+          <CourseAttendanceTab courseId={course?.course_id || courseId} />
         )}
 
         {activeTab === 'grades' && (
