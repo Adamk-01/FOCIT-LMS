@@ -56,7 +56,7 @@ const poolConfig = {
   connectionString: rawUrl,
   max: 20,
   idleTimeoutMillis: 120000,
-  connectionTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
   query_timeout: 15000,
   allowExitOnIdle: false,
   keepAlive: true,

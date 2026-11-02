@@ -32,6 +32,7 @@ import { logger } from './lib/logger.js';
 import { fetchMetadataGuard } from './middleware/fetchMetadataGuard.js';
 import { authMiddleware } from './middleware/auth.js';
 import { globalConcurrencyGate } from './middleware/rateLimiter.js';
+import { createBulkheadGate } from './middleware/bulkheadGate.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
 import materialsRouter from './routes/materials.js';
@@ -128,7 +129,8 @@ app.use('/health', healthRouter);
 app.use('/api', fetchMetadataGuard);
 
 // ─── 6. Global Concurrency Gate (Tier 1) ─────────────────────
-app.use('/api', globalConcurrencyGate);
+// Staff / Admin DB Bulkhead: Caps concurrent analytical/admin sockets to 5
+const staffBulkheadGate = createBulkheadGate(5, 'STAFF');
 
 // ─── 7. Authentication Routes (Handshake, Logout, Status) ────
 app.use('/api/auth', authRouter);
@@ -137,14 +139,14 @@ app.use('/api/auth', authRouter);
 app.use('/api', authMiddleware);
 
 // ─── 9. Protected Resource Routes ───────────────────────────
-app.use('/api/courses', materialsRouter);
+app.use('/api/courses', globalConcurrencyGate, materialsRouter);
 app.use('/api/courses', gradesRouter);
 app.use('/api/courses', forumsRouter);
 app.use('/api/courses', questionBankRouter);
 app.use('/api/courses', assignmentsRouter);
 app.use('/api/courses', quizzesRouter);
 app.use('/api/quizzes', quizzesRouter);
-app.use('/api/files', filesRouter);
+app.use('/api/files', globalConcurrencyGate, filesRouter);
 app.use('/api/student/timetable', timetableRouter);
 app.use('/api/student/courses', studentCoursesRouter);
 app.use('/api/student/notifications', notificationsRouter);
@@ -152,10 +154,10 @@ app.use('/api/student', studentDashboardRouter);
 app.use('/api/student', profileRouter);
 app.use('/api/student/attendance', attendanceRouter);
 app.use('/api/registration', registrationRouter);
-app.use('/api/admin', adminRouter);
+app.use('/api/admin', staffBulkheadGate, adminRouter);
 app.use('/api/library', libraryRouter);
-app.use('/api/hod', hodRouter);
-app.use('/api/lecturer', lecturerRouter);
+app.use('/api/hod', staffBulkheadGate, hodRouter);
+app.use('/api/lecturer', staffBulkheadGate, lecturerRouter);
 app.use('/api/attendance', attendanceRouter);
 
 // ─── 8. 404 Handler ──────────────────────────────────────────
