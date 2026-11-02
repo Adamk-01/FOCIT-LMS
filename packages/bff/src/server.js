@@ -63,6 +63,12 @@ import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
 
 const app = express();
 
+// ─── Reverse Proxy Trust (Required for Render / Vercel / Cloudflare) ───
+// Enables accurate req.ip, secure cookie propagation, and SSL offloading
+if (config.nodeEnv === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // ─── 0. Active Connection Tracking (Zero-Downtime Draining) ──
 app.use(connectionTracker);
 
