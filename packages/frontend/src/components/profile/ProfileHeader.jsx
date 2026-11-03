@@ -49,7 +49,6 @@ export function ProfileHeader({
                 alt={profile?.full_name || 'Student avatar'}
                 onError={() => setImageError(true)}
                 className="w-full h-full object-cover"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
             ) : (
               <div 

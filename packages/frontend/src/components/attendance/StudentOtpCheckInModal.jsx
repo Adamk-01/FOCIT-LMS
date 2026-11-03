@@ -7,9 +7,10 @@
  * 2. Dual-State Partitioning: Draft in-flight PIN persisted in student-scoped sessionStorage
  * 3. Mutation Lock: Button and inputs disabled during mutation transit
  * 4. Zero-Trust Feedback: Explicit error boundaries for invalid PIN, expired windows, and locked sessions
+ * 5. Flexible Ingress: Operates in both auto-detected session mode and manual course-selection mode
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, 
@@ -18,8 +19,10 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Loader2, 
-  Sparkles,
-  ShieldCheck 
+  Sparkles, 
+  ShieldCheck, 
+  BookOpen,
+  Calendar
 } from 'lucide-react';
 import { useSubmitOtpCheckIn } from '../../hooks/useStudentAttendance';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,17 +30,46 @@ import { useAuth } from '../../contexts/AuthContext';
 export function StudentOtpCheckInModal({
   isOpen,
   onClose,
-  sessionData, // { sessionId, courseId, courseCode, courseTitle, weekNumber, remainingSeconds }
+  sessionData = null, // { sessionId, courseId, courseCode, courseTitle, weekNumber, sessionDate, remainingSeconds }
+  enrolledCourses = [],
+  defaultCourseId = null,
+  defaultWeekNumber = null,
+  defaultSessionDate = null,
   onSuccess,
 }) {
   const { user } = useAuth();
   const studentId = user?.student_id || user?.username || 'student';
-  const { courseId, courseCode, courseTitle, weekNumber, remainingSeconds: initialSeconds } = sessionData || {};
 
-  const draftStorageKey = `focit_otp_draft:${studentId}:${courseId || 'any'}:${weekNumber || 1}`;
+  const [selectedCourseId, setSelectedCourseId] = useState(
+    sessionData?.courseId || defaultCourseId || enrolledCourses[0]?.course_id || enrolledCourses[0]?.id || ''
+  );
+
+  const activeCourseId = sessionData?.courseId || selectedCourseId;
+  const activeCourse = enrolledCourses.find((c) => (c.course_id || c.id || c.courseId) === activeCourseId);
+  const activeCourseCode = sessionData?.courseCode || activeCourse?.code || activeCourseId || 'Course';
+  const activeCourseTitle = sessionData?.courseTitle || activeCourse?.title || 'Live Lecture Session';
+  const weekNumber = sessionData?.weekNumber || defaultWeekNumber || 1;
+  const initialSeconds = sessionData?.remainingSeconds || 300;
+
+  const rawSessionDate = sessionData?.sessionDate || defaultSessionDate || null;
+  const formattedSessionDate = useMemo(() => {
+    if (!rawSessionDate) return null;
+    try {
+      return new Date(rawSessionDate).toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch (_) {
+      return null;
+    }
+  }, [rawSessionDate]);
+
+  const draftStorageKey = `focit_otp_draft:${studentId}:${activeCourseId || 'any'}`;
 
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
-  const [secondsLeft, setSecondsLeft] = useState(initialSeconds || 300);
+  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const [errorMsg, setErrorMsg] = useState(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [successInfo, setSuccessInfo] = useState(null);
@@ -45,7 +77,18 @@ export function StudentOtpCheckInModal({
   const inputRefs = useRef([]);
   const submitMutation = useSubmitOtpCheckIn();
 
-  // 1. Rehydrate draft digits from sessionStorage on open
+  // 1. Sync selected course when props change
+  useEffect(() => {
+    if (sessionData?.courseId) {
+      setSelectedCourseId(sessionData.courseId);
+    } else if (defaultCourseId) {
+      setSelectedCourseId(defaultCourseId);
+    } else if (enrolledCourses.length > 0 && !selectedCourseId) {
+      setSelectedCourseId(enrolledCourses[0]?.course_id || enrolledCourses[0]?.id || '');
+    }
+  }, [sessionData, defaultCourseId, enrolledCourses]);
+
+  // 2. Rehydrate draft digits from sessionStorage on open
   useEffect(() => {
     if (!isOpen) {
       setDigits(['', '', '', '', '', '']);
@@ -55,7 +98,7 @@ export function StudentOtpCheckInModal({
       return;
     }
 
-    setSecondsLeft(initialSeconds || 300);
+    setSecondsLeft(initialSeconds);
 
     try {
       const saved = sessionStorage.getItem(draftStorageKey);
@@ -75,16 +118,16 @@ export function StudentOtpCheckInModal({
     }, 50);
   }, [isOpen, draftStorageKey, initialSeconds]);
 
-  // 2. Countdown Timer
+  // 3. Countdown Timer (if running an active session)
   useEffect(() => {
-    if (!isOpen || isSuccess || secondsLeft <= 0) return;
+    if (!isOpen || isSuccess || secondsLeft <= 0 || !sessionData) return;
     const timer = setInterval(() => {
       setSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [isOpen, isSuccess, secondsLeft]);
+  }, [isOpen, isSuccess, secondsLeft, sessionData]);
 
-  // 3. Save draft to sessionStorage on digit change
+  // 4. Save draft to sessionStorage on digit change
   const updateDigits = (newDigits) => {
     setDigits(newDigits);
     setErrorMsg(null);
@@ -102,14 +145,12 @@ export function StudentOtpCheckInModal({
       return;
     }
 
-    // Single digit input
-    const char = rawVal.slice(-1);
     const next = [...digits];
-    next[index] = char;
+    next[index] = rawVal.slice(-1);
     updateDigits(next);
 
-    // Auto-advance to next box
-    if (index < 5) {
+    // Auto-advance focus to next empty input
+    if (index < 5 && rawVal) {
       inputRefs.current[index + 1]?.focus();
     }
   };
@@ -143,7 +184,12 @@ export function StudentOtpCheckInModal({
       return;
     }
 
-    if (secondsLeft <= 0) {
+    if (!activeCourseId) {
+      setErrorMsg('Please select an enrolled course module to check in for.');
+      return;
+    }
+
+    if (sessionData && secondsLeft <= 0) {
       setErrorMsg('This passcode window has expired. Please ask your lecturer for a new code.');
       return;
     }
@@ -152,7 +198,7 @@ export function StudentOtpCheckInModal({
 
     submitMutation.mutate(
       {
-        courseId,
+        courseId: activeCourseId,
         sessionId: sessionData?.sessionId,
         otp: fullPin,
       },
@@ -166,8 +212,7 @@ export function StudentOtpCheckInModal({
           if (onSuccess) onSuccess(data);
         },
         onError: (err) => {
-          const code = err?.response?.data?.code;
-          const msg = err?.response?.data?.error || err?.message || 'Failed to verify attendance passcode.';
+          const msg = err?.data?.error || err?.response?.data?.error || err?.message || 'Failed to verify attendance passcode.';
           setErrorMsg(msg);
         },
       }
@@ -190,14 +235,14 @@ export function StudentOtpCheckInModal({
 
   return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-fade-in min-h-[100dvh] max-h-[100dvh] overflow-y-auto"
       style={{ contain: 'layout paint' }}
     >
       <div 
         role="dialog"
         aria-modal="true"
         aria-labelledby="otp-modal-title"
-        className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+        className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] animate-slide-up sm:animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Banner */}
@@ -210,8 +255,18 @@ export function StudentOtpCheckInModal({
               <h2 id="otp-modal-title" className="text-base font-bold font-display">
                 Lecture Attendance Check-In
               </h2>
-              <p className="text-xs text-gray-300">
-                {courseCode || courseId} • Week {weekNumber || 1}
+              <p className="text-xs text-gray-300 flex items-center gap-1.5 flex-wrap">
+                <span>{activeCourseCode}</span>
+                <span>• Week {weekNumber}</span>
+                {formattedSessionDate && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1 text-[#ffb81c]">
+                      <Calendar size={11} />
+                      <span>{formattedSessionDate}</span>
+                    </span>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -219,7 +274,7 @@ export function StudentOtpCheckInModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
             aria-label="Close check-in modal"
           >
             <X size={20} />
@@ -233,48 +288,93 @@ export function StudentOtpCheckInModal({
               <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto border-2 border-emerald-200">
                 <CheckCircle2 size={36} />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <h3 className="text-lg font-bold text-[#0a1142] font-display">
                   Attendance Confirmed!
                 </h3>
                 <p className="text-xs text-gray-600 max-w-xs mx-auto">
-                  {successInfo?.message || 'Your presence has been recorded and verified in the authoritative course ledger.'}
+                  {successInfo?.message || `Your presence for ${activeCourseCode} has been recorded and verified in the authoritative course ledger.`}
                 </p>
-                {successInfo?.markedAt && (
-                  <p className="text-[11px] text-gray-400 pt-1">
-                    Recorded at: {new Date(successInfo.markedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </p>
-                )}
+                <div className="py-2.5 px-3.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 inline-flex flex-col gap-1 shadow-2xs">
+                  <div className="font-bold flex items-center justify-center gap-1.5 text-emerald-950">
+                    <Calendar size={13} className="text-emerald-700" />
+                    <span>Week {successInfo?.weekNumber || weekNumber} Lecture</span>
+                    {formattedSessionDate && <span>• {formattedSessionDate}</span>}
+                  </div>
+                  {successInfo?.markedAt && (
+                    <p className="text-[11px] text-emerald-700">
+                      Confirmed at: {new Date(successInfo.markedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </p>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full min-h-[44px] px-4 py-2.5 bg-[#0a1142] hover:bg-[#16258f] text-white rounded-xl text-xs font-bold transition shadow-md"
+                className="w-full min-h-[44px] px-4 py-2.5 bg-[#0a1142] hover:bg-[#16258f] text-white rounded-xl text-xs font-bold transition shadow-md cursor-pointer"
               >
                 Done
               </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Course Selection (when not strictly locked by an active session) */}
+              {!sessionData?.courseId && enrolledCourses.length > 0 && (
+                <div className="space-y-1.5 text-left">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    Select Enrolled Course Module
+                  </label>
+                  <select
+                    value={selectedCourseId}
+                    onChange={(e) => {
+                      setSelectedCourseId(e.target.value);
+                      setErrorMsg(null);
+                    }}
+                    disabled={submitMutation.isPending}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 bg-white text-xs font-bold text-[#0a1142] focus:ring-2 focus:ring-[#0a1142] focus:border-[#0a1142]"
+                  >
+                    {enrolledCourses.map((c) => {
+                      const cid = c.course_id || c.id || c.courseId;
+                      return (
+                        <option key={cid} value={cid}>
+                          {c.code} — {c.title}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
               {/* Context Pill & Live Timer */}
               <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="min-w-0">
+                <div className="min-w-0 text-left space-y-0.5">
                   <p className="text-xs font-bold text-[#0a1142] truncate">
-                    {courseTitle || 'Live Lecture Session'}
+                    {activeCourseTitle}
                   </p>
-                  <p className="text-[11px] text-gray-500">
-                    Enter the 6-digit code shown on the screen
+                  <p className="text-[11px] text-gray-500 flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-gray-700">Week {weekNumber}</span>
+                    {formattedSessionDate && (
+                      <>
+                        <span>•</span>
+                        <span className="flex items-center gap-1 text-gray-600">
+                          <Calendar size={11} />
+                          <span>{formattedSessionDate}</span>
+                        </span>
+                      </>
+                    )}
                   </p>
                 </div>
 
-                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold border ${
-                  secondsLeft <= 60 
-                    ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
-                    : 'bg-amber-50 text-amber-800 border-amber-200'
-                }`}>
-                  <Clock size={13} />
-                  <span>{formattedTime}</span>
-                </div>
+                {sessionData?.remainingSeconds > 0 && (
+                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold border shrink-0 ${
+                    secondsLeft <= 60 
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
+                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                  }`}>
+                    <Clock size={13} />
+                    <span>{formattedTime}</span>
+                  </div>
+                )}
               </div>
 
               {/* 6-Box Segmented Numeric PIN Input */}
@@ -310,7 +410,7 @@ export function StudentOtpCheckInModal({
 
               {/* Error Alert */}
               {errorMsg && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-800 text-xs animate-shake">
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-800 text-xs animate-shake text-left">
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <span>{errorMsg}</span>
                 </div>
@@ -319,8 +419,8 @@ export function StudentOtpCheckInModal({
               {/* Submit Mutation Lock Button */}
               <button
                 type="submit"
-                disabled={submitMutation.isPending || digits.join('').length !== 6 || secondsLeft <= 0}
-                className="w-full min-h-[44px] px-5 py-3 bg-[#0a1142] hover:bg-[#16258f] disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2"
+                disabled={submitMutation.isPending || digits.join('').length !== 6 || (sessionData && secondsLeft <= 0)}
+                className="w-full min-h-[44px] px-5 py-3 bg-[#0a1142] hover:bg-[#16258f] disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
                 {submitMutation.isPending ? (
                   <>
@@ -338,7 +438,9 @@ export function StudentOtpCheckInModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
+export default StudentOtpCheckInModal;

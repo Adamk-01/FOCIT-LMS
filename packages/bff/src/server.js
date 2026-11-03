@@ -73,7 +73,7 @@ if (config.nodeEnv === 'production') {
 app.use(connectionTracker);
 
 // ─── 0.1 Structured Request Logging ──────────────────────────
-app.use(pinoHttp({ 
+app.use(pinoHttp({
   logger,
   // Don't log health checks aggressively in production
   autoLogging: {
@@ -211,7 +211,7 @@ const server = app.listen(config.port, () => {
   console.log(`  │  Moodle: ${config.moodle.baseUrl}       │`);
   console.log(`  │  Mode: ${config.nodeEnv}                    │`);
   console.log(`  └──────────────────────────────────────────┘\n`);
-  
+
   logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
 
   const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production';

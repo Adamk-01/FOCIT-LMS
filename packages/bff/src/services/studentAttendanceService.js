@@ -251,6 +251,7 @@ export class StudentAttendanceService {
             c.code AS course_code,
             c.title AS course_title,
             s.week_number,
+            s.session_date,
             GREATEST(0, EXTRACT(EPOCH FROM (s.otp_expires_at - NOW())))::int AS remaining_seconds,
             COALESCE(r.status = 'PRESENT', FALSE) AS already_checked_in
         FROM attendance_sessions s
@@ -277,6 +278,7 @@ export class StudentAttendanceService {
           courseCode: r.course_code,
           courseTitle: r.course_title,
           weekNumber: r.week_number,
+          sessionDate: r.session_date,
           remainingSeconds: r.remaining_seconds,
           alreadyCheckedIn: Boolean(r.already_checked_in),
         })),

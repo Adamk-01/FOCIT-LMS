@@ -6,6 +6,7 @@
  * 1. NUC 75% Examination Threshold Visibility
  * 2. Unhappy Path Audit: Shimmer loading skeletons and empty states
  * 3. Courses at Risk Alerting
+ * 4. Direct Attendance Passcode Ingress Trigger
  */
 
 import React from 'react';
@@ -17,11 +18,12 @@ import {
   Clock, 
   ArrowRight, 
   Award,
-  BookOpen
+  BookOpen,
+  KeyRound
 } from 'lucide-react';
 import { useStudentAttendanceSummary } from '../../hooks/useStudentAttendance';
 
-export function StudentAttendanceOverviewCard() {
+export function StudentAttendanceOverviewCard({ onOpenCheckIn }) {
   const { data, isLoading, isError, refetch } = useStudentAttendanceSummary();
 
   const metrics = data?.metrics;
@@ -127,6 +129,18 @@ export function StudentAttendanceOverviewCard() {
         </div>
       </div>
 
+      {/* Quick Check-In Passcode Trigger */}
+      {onOpenCheckIn && (
+        <button
+          type="button"
+          onClick={onOpenCheckIn}
+          className="w-full min-h-[42px] px-3.5 py-2.5 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-98"
+        >
+          <KeyRound size={15} className="text-[#ffb81c]" />
+          <span>Enter Attendance Passcode</span>
+        </button>
+      )}
+
       {/* Courses At Risk Warning */}
       {atRiskCount > 0 ? (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 text-amber-900 text-xs">
@@ -156,3 +170,4 @@ export function StudentAttendanceOverviewCard() {
   );
 }
 
+export default StudentAttendanceOverviewCard;

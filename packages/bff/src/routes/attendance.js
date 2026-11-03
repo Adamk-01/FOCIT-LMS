@@ -26,6 +26,7 @@ import { notificationBroadcaster } from '../services/notificationBroadcaster.js'
 import { createStudentNotification } from './notifications.js';
 import config from '../config.js';
 import { studentAttendanceService } from '../services/studentAttendanceService.js';
+import { singleFlight } from '../lib/singleFlight.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHEETS_DIR = path.join(__dirname, '../../.cache/sheets');
@@ -698,11 +699,11 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
     const ttlSeconds = 300;
     const expiresAt = Date.now() + (ttlSeconds * 1000);
 
-    // Cryptographic HMAC-SHA256 Derivation for L2 Persistence
+    // Cryptographic HMAC-SHA256 Derivation for L2 Persistence (Canonical courseId:otp format)
     const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
     const activeOtpHash = crypto
       .createHmac('sha256', hmacSecret)
-      .update(`${session.session_id}:${courseId}:${otp}`)
+      .update(`${courseId}:${otp}`)
       .digest('hex');
 
     // Commit authoritative hash and expiry to PostgreSQL L2 ledger
@@ -731,6 +732,16 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       }
     } catch (_) {}
 
+    // In-memory fallback in case Redis is offline
+    memoryOtpStore.set(courseId, {
+      otp,
+      activeOtpHash,
+      courseId,
+      sessionId: session.session_id,
+      weekNumber: session.week_number,
+      expiresAt,
+    });
+
     res.json({
       status: 'SUCCESS',
       otp,
@@ -755,68 +766,53 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
     return res.status(400).json({ error: 'Passcode is required', code: 'OTP_REQUIRED' });
   }
 
+  const cleanOtp = String(otp).trim();
+  const targetSessionId = sessionId && String(sessionId).trim() ? String(sessionId).trim() : null;
+
   try {
-    let targetSessionId = sessionId;
-
-    // 1. Resolve active session from Redis L1 fast path if sessionId omitted
-    if (!targetSessionId) {
-      try {
-        if (redis && typeof redis.get === 'function') {
-          const raw = await redis.get(`attendance:otp:${courseId}`);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            targetSessionId = parsed.sessionId;
-          }
-        }
-      } catch (_) {}
-    }
-
-    // 2. Fall back to PostgreSQL L2 authoritative index if Redis offline or missing
-    if (!targetSessionId) {
-      const sessLookup = await pool.query(`
-        SELECT session_id FROM attendance_sessions
-        WHERE course_id = $1 
-          AND is_locked = FALSE 
-          AND active_otp_hash IS NOT NULL 
-          AND otp_expires_at > NOW()
-        ORDER BY otp_expires_at DESC LIMIT 1;
-      `, [courseId]);
-      targetSessionId = sessLookup.rows[0]?.session_id;
-    }
-
-    if (!targetSessionId) {
-      return res.status(404).json({
-        error: 'No active attendance passcode session found for this course.',
-        code: 'SESSION_NOT_FOUND',
-      });
-    }
-
-    // 3. Compute Cryptographic HMAC
     const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
-    const expectedHash = crypto
+    // Canonical hash based on courseId:otp (allows 1-RTT zero-waterfall CTE even when sessionId is NULL)
+    const canonicalHash = crypto
       .createHmac('sha256', hmacSecret)
-      .update(`${targetSessionId}:${courseId}:${String(otp).trim()}`)
+      .update(`${courseId}:${cleanOtp}`)
       .digest('hex');
 
-    // 4. Execute Hardened Single-Statement 4-Part Atomic CTE
+    // Legacy hash support (${sessionId}:${courseId}:${otp}) for backward compatibility
+    const legacyHash = targetSessionId
+      ? crypto.createHmac('sha256', hmacSecret).update(`${targetSessionId}:${courseId}:${cleanOtp}`).digest('hex')
+      : canonicalHash;
+
+    // Hardened Single-Statement 4-Part Atomic CTE (Zero-RTT waterfall, Relational Set-Difference & Idempotency)
     const cteQuery = `
       WITH target_session AS (
           SELECT 
               s.session_id, 
               s.course_id, 
+              s.semester_id,
+              s.week_number,
+              s.session_date,
               s.is_locked, 
               (s.otp_expires_at IS NOT NULL AND s.otp_expires_at > NOW()) AS otp_valid,
               (s.active_otp_hash IS NOT NULL AND s.active_otp_hash = $4) AS otp_matched
           FROM attendance_sessions s
-          WHERE s.session_id = $1
-            AND s.course_id = $2
+          WHERE s.course_id = $2
+            AND ($1::uuid IS NULL OR s.session_id = $1::uuid)
+          ORDER BY s.created_at DESC
+          LIMIT 1
       ),
       verified_enrollment AS (
           SELECT e.student_id
           FROM enrollments e
-          JOIN target_session ts ON ts.course_id = e.course_id
-          WHERE e.student_id = $3
+          LEFT JOIN target_session ts ON TRUE
+          WHERE e.course_id = $2
+            AND e.student_id = $3
+            AND (
+                ts.semester_id IS NULL 
+                OR e.semester_id IS NULL 
+                OR e.semester_id = ts.semester_id
+            )
             AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+          LIMIT 1
       ),
       existing_record AS (
           SELECT r.id, r.status, r.marked_at
@@ -856,6 +852,8 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
       )
       SELECT 
           (SELECT session_id FROM target_session) AS session_id,
+          (SELECT week_number FROM target_session) AS week_number,
+          (SELECT session_date FROM target_session) AS session_date,
           (SELECT is_locked FROM target_session) AS is_locked,
           (SELECT otp_valid FROM target_session) AS otp_valid,
           (SELECT otp_matched FROM target_session) AS otp_matched,
@@ -866,14 +864,22 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
           ((SELECT id FROM upsert_attendance) IS NULL AND (SELECT status FROM existing_record) = 'PRESENT') AS was_idempotent_retry;
     `;
 
-    const queryRes = await pool.query(cteQuery, [targetSessionId, courseId, studentId, expectedHash]);
+    const queryRes = await pool.query(cteQuery, [targetSessionId, courseId, studentId, canonicalHash]);
     const row = queryRes.rows[0];
 
-    if (!row || !row.session_id) {
-      return res.status(404).json({ error: 'Attendance session not found.', code: 'SESSION_NOT_FOUND' });
+    // Invariant #4: Zero-Trust Precedence. Non-enrolled students are rejected with 403
+    // before exposing any metadata about session existence, lock status, or expiration.
+    if (!row || !row.student_id) {
+      return res.status(403).json({
+        error: 'Forbidden: You are not actively enrolled in this course for the current semester.',
+        code: 'NOT_ENROLLED',
+      });
     }
-    if (!row.student_id) {
-      return res.status(403).json({ error: 'You are not actively enrolled in this course.', code: 'NOT_ENROLLED' });
+    if (!row.session_id) {
+      return res.status(404).json({
+        error: 'No active attendance session found for this course.',
+        code: 'SESSION_NOT_FOUND',
+      });
     }
     if (row.is_locked) {
       return res.status(409).json({ error: 'This attendance session has already been locked by the lecturer.', code: 'SESSION_LOCKED' });
@@ -891,7 +897,9 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
       message: row.was_idempotent_retry
         ? 'Your attendance was already confirmed for this session.'
         : 'Attendance successfully confirmed via Passcode OTP!',
-      sessionId: targetSessionId,
+      sessionId: row.session_id,
+      weekNumber: row.week_number,
+      sessionDate: row.session_date,
       recordId: row.record_id,
       markedAt: row.marked_at,
     });
@@ -903,6 +911,10 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
 // ─── 1E. Mode 2: OTP Session Status & Live Ticker ────────────────────────────
 router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
   const { courseId } = req.params;
+  const rawSince = req.query?.since ? String(req.query.since).trim() : null;
+  const sinceMs = rawSince ? new Date(rawSince).getTime() : NaN;
+  const validSince = Number.isFinite(sinceMs) ? new Date(sinceMs).toISOString() : null;
+
   try {
     const termRes = await pool.query(
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
@@ -917,45 +929,117 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
       });
     }
 
-    let otpData = null;
-    try {
-      if (redis && typeof redis.get === 'function') {
-        const raw = await redis.get(`attendance:otp:${courseId}`);
-        if (raw) otpData = JSON.parse(raw);
+    // Coalesce concurrent staff status polling via Single-Flight bucketed to 1-second floor intervals (Invariant #7)
+    const sinceBucket = validSince ? Math.floor(sinceMs / 1000) : 'initial';
+    const singleFlightKey = `otp:status:${courseId}:${sinceBucket}`;
+
+    const statusPayload = await singleFlight.do(singleFlightKey, async () => {
+      let otpData = null;
+      try {
+        if (redis && typeof redis.get === 'function') {
+          const raw = await redis.get(`attendance:otp:${courseId}`);
+          if (raw) otpData = JSON.parse(raw);
+        }
+      } catch (_) {}
+      if (!otpData) otpData = memoryOtpStore.get(courseId);
+
+      if (!otpData || otpData.courseId !== courseId || Date.now() > otpData.expiresAt) {
+        return { active: false };
       }
-    } catch (_) {}
-    if (!otpData) otpData = memoryOtpStore.get(courseId);
 
-    if (!otpData || otpData.courseId !== courseId || Date.now() > otpData.expiresAt) {
-      return res.json({ active: false });
-    }
+      const remainingSeconds = Math.max(0, Math.floor((otpData.expiresAt - Date.now()) / 1000));
+      const tallyRes = await pool.query(`
+        SELECT 
+          COUNT(id) FILTER (WHERE status = 'PRESENT')::int AS present_count,
+          COUNT(id)::int AS total_records
+        FROM attendance_records
+        WHERE session_id = $1
+      `, [otpData.sessionId]);
 
-    const remainingSeconds = Math.max(0, Math.floor((otpData.expiresAt - Date.now()) / 1000));
-    const tallyRes = await pool.query(`
-      SELECT 
-        COUNT(id) FILTER (WHERE status = 'PRESENT')::int AS present_count,
-        COUNT(id)::int AS total_records
-      FROM attendance_records
-      WHERE session_id = $1
-    `, [otpData.sessionId]);
+      const isStaffCaller = ['LECTURER', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'].includes(
+        String(req.attendanceActor?.role || '').toUpperCase()
+      );
 
-    const isStaffCaller = ['LECTURER', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'].includes(
-      String(req.attendanceActor?.role || '').toUpperCase()
-    );
+      const serverTime = new Date().toISOString();
+      const payload = {
+        active: true,
+        sessionId: otpData.sessionId,
+        weekNumber: otpData.weekNumber,
+        remainingSeconds,
+        presentCount: tallyRes.rows[0]?.present_count || 0,
+        totalEnrolled: tallyRes.rows[0]?.total_records || 0,
+        serverTime,
+      };
 
-    const statusPayload = {
-      active: true,
-      sessionId: otpData.sessionId,
-      weekNumber: otpData.weekNumber,
-      remainingSeconds,
-      presentCount: tallyRes.rows[0]?.present_count || 0,
-      totalEnrolled: tallyRes.rows[0]?.total_records || 0,
-    };
+      if (isStaffCaller) {
+        payload.otp = otpData.otp;
 
-    // Information Barrier: Only staff projection screens receive the plaintext OTP
-    if (isStaffCaller) {
-      statusPayload.otp = otpData.otp;
-    }
+        let recordsQuery = '';
+        let queryParams = [];
+
+        if (validSince) {
+          // Delta query with 2-second sliding lookback window to absorb PostgreSQL MVCC commit reordering
+          payload.isDelta = true;
+          recordsQuery = `
+            SELECT 
+              r.id AS record_id,
+              r.student_id,
+              r.status,
+              r.verification_method,
+              r.marked_at,
+              s.matric_number,
+              s.full_name,
+              p.code AS programme_code,
+              s.level
+            FROM attendance_records r
+            JOIN students s ON s.student_id = r.student_id
+            LEFT JOIN programmes p ON p.id = s.programme_id
+            WHERE r.session_id = $1
+              AND r.marked_at >= ($2::timestamptz - INTERVAL '2 seconds')
+            ORDER BY r.marked_at ASC, s.matric_number ASC;
+          `;
+          queryParams = [otpData.sessionId, validSince];
+        } else {
+          // Initial baseline roster mount
+          recordsQuery = `
+            SELECT 
+              r.id AS record_id,
+              r.student_id,
+              r.status,
+              r.verification_method,
+              r.marked_at,
+              s.matric_number,
+              s.full_name,
+              p.code AS programme_code,
+              s.level
+            FROM attendance_records r
+            JOIN students s ON s.student_id = r.student_id
+            LEFT JOIN programmes p ON p.id = s.programme_id
+            WHERE r.session_id = $1
+            ORDER BY 
+              CASE WHEN r.status = 'PRESENT' THEN 0 ELSE 1 END,
+              r.marked_at DESC NULLS LAST,
+              s.matric_number ASC;
+          `;
+          queryParams = [otpData.sessionId];
+        }
+
+        const recordsRes = await pool.query(recordsQuery, queryParams);
+        payload.records = recordsRes.rows.map((r) => ({
+          recordId: r.record_id,
+          studentId: r.student_id,
+          status: r.status,
+          verificationMethod: r.verification_method,
+          markedAt: r.marked_at,
+          matricNumber: r.matric_number,
+          fullName: r.full_name,
+          programmeCode: r.programme_code,
+          level: r.level,
+        }));
+      }
+
+      return payload;
+    });
 
     res.json(statusPayload);
   } catch (err) {

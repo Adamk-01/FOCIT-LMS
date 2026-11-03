@@ -275,3 +275,4 @@ Once deployed, the QA lead and developers must execute this 10-point end-to-end 
 * **Frontend Engineering Lead:** React / Client Applications Team
 * **Project Manager:** FOCIT LMS Project Office
 * **Institutional Liaison:** UNIOSUN Directorate of Information and Communication Technology (DICT)
+

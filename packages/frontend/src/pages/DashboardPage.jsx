@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   BookOpen, 
@@ -13,19 +13,27 @@ import {
   FileText,
   Calendar,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  KeyRound
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../lib/api';
 import { ErrorStateView } from '../components/ErrorStateView';
 import { StudentActiveSessionBanner } from '../components/attendance/StudentActiveSessionBanner';
 import { StudentAttendanceOverviewCard } from '../components/attendance/StudentAttendanceOverviewCard';
+import { StudentOtpCheckInModal } from '../components/attendance/StudentOtpCheckInModal';
 import { useStudentAttendanceSummary } from '../hooks/useStudentAttendance';
 
 export const DashboardPage = () => {
   const { user } = useAuth();
   const location = useLocation();
   const studentId = user?.student_id || user?.id || user?.username;
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlCheckInCourse = searchParams.get('checkin_course');
+
+  // Active check-in modal target: null, true (manual select), or specific course object
+  const [checkInModalCourse, setCheckInModalCourse] = useState(null);
 
   // Query authoritative student dashboard telemetry from BFF
   const { 
@@ -43,9 +51,55 @@ export const DashboardPage = () => {
     staleTime: 5 * 60 * 1000,
   });
 
+  const student = dashboardData?.student;
+  const metrics = dashboardData?.metrics;
+  const courses = dashboardData?.courses || [];
+  const upcomingActivities = dashboardData?.upcoming_activities || [];
+
+
+  // Invariant #2: URL SearchParams synchronization for persistent deep-link rehydration
+  useEffect(() => {
+    if (urlCheckInCourse && courses.length > 0) {
+      const match = courses.find(
+        (c) => (c.course_id || c.id || c.code)?.toLowerCase() === urlCheckInCourse.toLowerCase()
+      );
+      setCheckInModalCourse(match || { id: urlCheckInCourse, course_id: urlCheckInCourse });
+    }
+  }, [urlCheckInCourse, courses]);
+
+  const handleOpenCheckIn = (courseTarget) => {
+    const targetObj = courseTarget || courses[0] || true;
+    setCheckInModalCourse(targetObj);
+    const cid = typeof targetObj === 'object' ? (targetObj.course_id || targetObj.id || targetObj.code) : '';
+    if (cid) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('checkin_course', cid);
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  };
+
+  const handleCloseCheckIn = () => {
+    setCheckInModalCourse(null);
+    if (searchParams.has('checkin_course')) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('checkin_course');
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  };
+
   // Query cumulative student attendance summary (Rules of Hooks: called unconditionally)
-  const { data: attendanceData } = useStudentAttendanceSummary();
-  const courseAttendanceMap = React.useMemo(() => {
+  const { data: attendanceData, refetch: refetchAttendance } = useStudentAttendanceSummary();
+  const courseAttendanceMap = useMemo(() => {
     const map = new Map();
     if (attendanceData?.courses) {
       attendanceData.courses.forEach((c) => {
@@ -71,10 +125,6 @@ export const DashboardPage = () => {
     );
   }
 
-  const student = dashboardData?.student;
-  const metrics = dashboardData?.metrics;
-  const courses = dashboardData?.courses || [];
-  const upcomingActivities = dashboardData?.upcoming_activities || [];
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-8 pb-16">
@@ -90,14 +140,14 @@ export const DashboardPage = () => {
           <button 
             type="button" 
             onClick={() => window.history.replaceState({}, document.title)}
-            className="text-xs font-semibold text-emerald-700 hover:text-emerald-900"
+            className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* 1. Header Hero Banner */}
+      {/* 1. Header Hero Banner with Quick Attendance Check-In Action */}
       <header className="bg-gradient-to-r from-[#0a1142] via-[#070c2e] to-[#0a1142] rounded-2xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden border border-white/10">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-[#ffb81c]/15 to-transparent pointer-events-none" />
         
@@ -115,7 +165,19 @@ export const DashboardPage = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Direct Attendance Passcode Ingress */}
+            <button
+              type="button"
+              onClick={() => handleOpenCheckIn(courses[0] || true)}
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-[#ffb81c] hover:bg-[#e5a200] text-[#0a1142] font-bold text-xs flex items-center gap-2 shadow-md transition-all active:scale-95 cursor-pointer"
+              aria-label="Enter lecture passcode to check in"
+              title="Enter 6-digit attendance passcode projected by lecturer"
+            >
+              <KeyRound size={16} />
+              <span>Enter Passcode</span>
+            </button>
+
             <div className="px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-white/10 flex items-center gap-3 text-sm">
               <Clock size={18} className="text-[#ffb81c]" />
               <div>
@@ -139,7 +201,7 @@ export const DashboardPage = () => {
               Registered Courses
             </p>
             <p className="text-3xl font-extrabold text-[#0a1142]">
-              {isLoading ? '...' : metrics?.registered_courses || 5}
+              {isLoading ? '...' : metrics?.registered_courses || courses.length}
             </p>
             <span className="text-xs text-gray-500 font-medium">Active this term</span>
           </div>
@@ -248,7 +310,18 @@ export const DashboardPage = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap sm:flex-nowrap">
+                      {/* Course Card Direct Attendance Check-In Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCheckIn(course)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title={`Enter Attendance Passcode for ${course.code}`}
+                      >
+                        <KeyRound size={13} className="text-purple-700" />
+                        <span>Check In</span>
+                      </button>
+
                       <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                         course.status === 'In Progress' 
                           ? 'bg-emerald-100 text-emerald-800' 
@@ -284,8 +357,8 @@ export const DashboardPage = () => {
 
         {/* Right Column: Attendance Standing + Upcoming Activities */}
         <aside className="space-y-6">
-          {/* NUC Attendance Standing Telemetry Card */}
-          <StudentAttendanceOverviewCard />
+          {/* NUC Attendance Standing Telemetry Card with Direct Check-in Ingress */}
+          <StudentAttendanceOverviewCard onOpenCheckIn={() => handleOpenCheckIn(courses[0] || true)} />
 
           {/* Zoom Meeting Action Card */}
           <div className="bg-gradient-to-br from-[#0a1142] to-[#16258f] rounded-2xl p-6 text-white shadow-lg space-y-4">
@@ -342,6 +415,21 @@ export const DashboardPage = () => {
           </div>
         </aside>
       </div>
+
+      {/* Global Student OTP Check-In Modal Triggered From Any Dashboard Sector */}
+      {checkInModalCourse && (
+        <StudentOtpCheckInModal
+          isOpen={Boolean(checkInModalCourse)}
+          onClose={handleCloseCheckIn}
+          enrolledCourses={courses}
+          defaultCourseId={typeof checkInModalCourse === 'object' ? (checkInModalCourse?.course_id || checkInModalCourse?.id) : (courses[0]?.course_id || '')}
+          sessionData={typeof checkInModalCourse === 'object' && checkInModalCourse?.sessionId ? checkInModalCourse : null}
+          onSuccess={() => {
+            refetch();
+            refetchAttendance();
+          }}
+        />
+      )}
     </div>
   );
 };
