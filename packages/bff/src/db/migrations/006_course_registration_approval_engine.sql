@@ -159,13 +159,13 @@ INSERT INTO students (
 )
 VALUES
     -- student2: Freshman 100 Level
-    ('student2', 'FOCIT/2025/0104', 'student2', 'Jane Smith', 'jane.smith@focit.uniosun.edu.ng', 'BSC_CSC', 100, 4.10, 18),
+    ('student2', '2025/0104', 'student2', 'Jane Smith', 'jane.smith@focit.uniosun.edu.ng', 'BSC_CSC', 100, 4.10, 18),
     -- student3: Penultimate 300 Level
-    ('student3', 'FOCIT/2023/0088', 'student3', 'Babatunde Adeleke', 'b.adeleke@focit.uniosun.edu.ng', 'BSC_CSC', 300, 3.45, 78),
+    ('student3', '2023/0088', 'student3', 'Babatunde Adeleke', 'b.adeleke@focit.uniosun.edu.ng', 'BSC_CSC', 300, 3.45, 78),
     -- student4: Final Year 400 Level (Graduating Senior)
-    ('student4', 'FOCIT/2022/0019', 'student4', 'Chioma Okonkwo', 'c.okonkwo@focit.uniosun.edu.ng', 'BSC_CSC', 400, 4.72, 114),
+    ('student4', '2022/0019', 'student4', 'Chioma Okonkwo', 'c.okonkwo@focit.uniosun.edu.ng', 'BSC_CSC', 400, 4.72, 114),
     -- student5: 200 Level Cyber Security (Cross-Department testing)
-    ('student5', 'FOCIT/2024/0155', 'student5', 'Aminu Garba', 'a.garba@focit.uniosun.edu.ng', 'BSC_CYS', 200, 3.20, 39)
+    ('student5', '2024/0155', 'student5', 'Aminu Garba', 'a.garba@focit.uniosun.edu.ng', 'BSC_CYS', 200, 3.20, 39)
 ON CONFLICT (student_id) DO UPDATE SET 
     full_name = EXCLUDED.full_name,
     level = EXCLUDED.level,

@@ -226,7 +226,7 @@ INSERT INTO students (
 )
 VALUES (
     'student1',
-    'FOCIT/2024/0042',
+    '2024/0042',
     'student1',
     'John Doe',
     'john.doe@focit.uniosun.edu.ng',

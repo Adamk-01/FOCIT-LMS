@@ -247,7 +247,7 @@ VALUES (
     10.00,
     NOW(),
     NOW() + INTERVAL '45 minutes'
-) ON CONFLICT (student_id, quiz_id) DO NOTHING;
+) ON CONFLICT (attempt_id) DO NOTHING;
 
 -- Seed initial Answer for Question 1 so Question 1 shows as answered
 INSERT INTO quiz_attempt_answers (attempt_id, question_id, selected_option_id, updated_at)
