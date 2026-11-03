@@ -22,7 +22,8 @@ import { ErrorStateView } from '../components/ErrorStateView';
 import { StudentActiveSessionBanner } from '../components/attendance/StudentActiveSessionBanner';
 import { StudentAttendanceOverviewCard } from '../components/attendance/StudentAttendanceOverviewCard';
 import { StudentOtpCheckInModal } from '../components/attendance/StudentOtpCheckInModal';
-import { useStudentAttendanceSummary } from '../hooks/useStudentAttendance';
+import { useStudentAttendanceSummary, useStudentActiveSessions } from '../hooks/useStudentAttendance';
+import { DashboardCourseCard, DashboardCourseSkeleton } from '../components/dashboard/DashboardCourseCard';
 
 export const DashboardPage = () => {
   const { user } = useAuth();
@@ -67,8 +68,17 @@ export const DashboardPage = () => {
     }
   }, [urlCheckInCourse, courses]);
 
-  const handleOpenCheckIn = (courseTarget) => {
-    const targetObj = courseTarget || courses[0] || true;
+  const handleOpenCheckIn = (courseTarget, activeSession = null) => {
+    let targetObj = courseTarget || courses[0] || true;
+    if (activeSession && typeof targetObj === 'object') {
+      targetObj = {
+        ...targetObj,
+        sessionId: activeSession.sessionId,
+        weekNumber: activeSession.weekNumber,
+        sessionDate: activeSession.sessionDate,
+        remainingSeconds: activeSession.otpRemainingSeconds || activeSession.remainingSeconds,
+      };
+    }
     setCheckInModalCourse(targetObj);
     const cid = typeof targetObj === 'object' ? (targetObj.course_id || targetObj.id || targetObj.code) : '';
     if (cid) {
@@ -108,6 +118,18 @@ export const DashboardPage = () => {
     }
     return map;
   }, [attendanceData]);
+
+  // Query active OTP sessions (shares TanStack Query cache with StudentActiveSessionBanner)
+  const { data: activeSessions = [] } = useStudentActiveSessions();
+  const activeSessionsMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(activeSessions)) {
+      activeSessions.forEach((s) => {
+        map.set(s.courseId, s);
+      });
+    }
+    return map;
+  }, [activeSessions]);
 
   if (!studentId) {
     return (
@@ -260,99 +282,32 @@ export const DashboardPage = () => {
             </Link>
           </div>
 
-          <div className="space-y-3">
-            {courses.length === 0 && !isLoading ? (
-              <div className="bg-white rounded-2xl p-8 border border-gray-200 text-center space-y-3">
-                <BookOpen size={32} className="mx-auto text-gray-400" />
-                <p className="text-sm text-gray-600 font-medium">No active courses enrolled for this term.</p>
-                <Link
-                  to="/registration"
-                  className="inline-block px-4 py-2 bg-[#0a1142] text-white text-xs font-bold rounded-xl"
-                >
-                  Proceed to Course Registration
-                </Link>
-              </div>
-            ) : (
-              courses.map((course) => {
-                const att = courseAttendanceMap.get(course.course_id);
-
-                return (
-                  <div 
-                    key={course.course_id}
-                    className="bg-white rounded-2xl p-5 border border-gray-200 hover:border-[#0a1142]/30 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-[#0a1142]/10 text-[#0a1142] flex items-center justify-center font-bold text-xs shrink-0">
-                        {course.code.slice(0, 3)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-bold text-[#0a1142] text-sm">
-                            {course.code} — {course.title}
-                          </h3>
-                          {att && (
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                              att.totalLockedSessions === 0 
-                                ? 'bg-gray-100 text-gray-600 border-gray-200'
-                                : att.isExamEligible 
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
-                                  : 'bg-rose-50 text-rose-800 border-rose-200'
-                            }`}>
-                              {att.totalLockedSessions === 0 
-                                ? '100% Attendance' 
-                                : `${att.attendancePercentage}% Attendance`}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {course.units} Units • Level {course.level} • {course.category}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0 flex-wrap sm:flex-nowrap">
-                      {/* Course Card Direct Attendance Check-In Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenCheckIn(course)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                        title={`Enter Attendance Passcode for ${course.code}`}
-                      >
-                        <KeyRound size={13} className="text-purple-700" />
-                        <span>Check In</span>
-                      </button>
-
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                        course.status === 'In Progress' 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : course.status === 'Completed'
-                            ? 'bg-blue-100 text-[#0a1142]'
-                            : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {course.status}
-                      </span>
-
-                      <Link
-                        to={`/courses/${encodeURIComponent(course.course_id)}?tab=attendance`}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#0a1142] hover:bg-gray-100 border border-gray-200 transition-colors"
-                        title="View Attendance Ledger"
-                      >
-                        Ledger
-                      </Link>
-
-                      <Link
-                        to={`/courses/${encodeURIComponent(course.course_id)}`}
-                        className="p-2 rounded-lg text-gray-400 hover:text-[#0a1142] hover:bg-gray-100 transition-colors"
-                        title="Open Course Room"
-                      >
-                        <ArrowRight size={18} />
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          {isLoading ? (
+            <DashboardCourseSkeleton count={4} />
+          ) : courses.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-gray-200 dark:border-slate-800 text-center space-y-3 shadow-xs">
+              <BookOpen size={32} className="mx-auto text-gray-400 dark:text-slate-500" />
+              <p className="text-sm text-gray-600 dark:text-slate-300 font-medium">No active courses enrolled for this term.</p>
+              <Link
+                to="/registration"
+                className="inline-block px-4 py-2 bg-[#0a1142] dark:bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-[#16258f] transition-colors"
+              >
+                Proceed to Course Registration
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              {courses.map((course) => (
+                <DashboardCourseCard
+                  key={course.course_id}
+                  course={course}
+                  attendance={courseAttendanceMap.get(course.course_id)}
+                  activeSession={activeSessionsMap.get(course.course_id)}
+                  onOpenCheckIn={handleOpenCheckIn}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Right Column: Attendance Standing + Upcoming Activities */}
