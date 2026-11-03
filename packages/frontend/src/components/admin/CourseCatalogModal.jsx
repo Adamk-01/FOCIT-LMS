@@ -36,7 +36,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
     level: 100,
     units: 3,
     category: 'CORE',
-    semesterNumber: 2,
+    semesterNumber: 1,
     description: '',
   });
 
@@ -86,12 +86,14 @@ export function CourseCatalogModal({ isOpen, onClose }) {
   const handleCreateCourse = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setAddError(null);
     setError(null);
     setSuccessMessage(null);
 
     try {
       const res = await apiClient.post('/admin/courses', addForm);
-      setSuccessMessage(res?.message || `Course ${addForm.code} successfully created and synced to Moodle!`);
+      const msg = res?.data?.message || res?.data?.detail || res?.message || `Course ${addForm.code} successfully created and synced to Moodle!`;
+      setSuccessMessage(msg);
       setIsAddOpen(false);
       setAddForm({
         code: '',
@@ -100,12 +102,13 @@ export function CourseCatalogModal({ isOpen, onClose }) {
         level: 100,
         units: 3,
         category: 'CORE',
-        semesterNumber: 2,
+        semesterNumber: 1,
         description: '',
       });
       fetchCourses();
     } catch (err) {
-      setError(err?.detail || err?.message || 'Failed to create course');
+      const errMsg = err?.data?.message || err?.data?.error || err?.detail || err?.message || 'Failed to create course';
+      setAddError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -114,16 +117,19 @@ export function CourseCatalogModal({ isOpen, onClose }) {
   const handleDeleteCourse = async () => {
     if (!courseToDelete) return;
     setIsDeleting(true);
+    setDeleteError(null);
     setError(null);
     setSuccessMessage(null);
 
     try {
       const res = await apiClient.delete(`/admin/courses/${courseToDelete.course_id}`);
-      setSuccessMessage(res?.message || `Course ${courseToDelete.code} removed successfully`);
+      const msg = res?.data?.message || res?.data?.detail || res?.message || `Course ${courseToDelete.code} removed successfully`;
+      setSuccessMessage(msg);
       setCourseToDelete(null);
       fetchCourses();
     } catch (err) {
-      setError(err?.detail || err?.message || 'Failed to remove course');
+      const errMsg = err?.data?.message || err?.data?.error || err?.detail || err?.message || 'Failed to remove course';
+      setDeleteError(errMsg);
     } finally {
       setIsDeleting(false);
     }
@@ -179,6 +185,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
               type="button"
               onClick={() => {
                 setError(null);
+                setAddError(null);
                 setSuccessMessage(null);
                 setIsAddOpen(true);
               }}
@@ -441,7 +448,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Level *</label>
                   <select
@@ -453,6 +460,17 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                     <option value={200}>200 Level</option>
                     <option value={300}>300 Level</option>
                     <option value={400}>400 Level</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Semester *</label>
+                  <select
+                    value={addForm.semesterNumber}
+                    onChange={(e) => setAddForm({ ...addForm, semesterNumber: parseInt(e.target.value, 10) })}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#0a1142]"
+                  >
+                    <option value={1}>Semester 1 (Rain / Harmattan)</option>
+                    <option value={2}>Semester 2 (Omega / Spring)</option>
                   </select>
                 </div>
                 <div>

@@ -1739,11 +1739,27 @@ export async function createCourse(req, res, next) {
 
       if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
         const provisionedId = moodleRes[0].id;
+        let activeSemesterId = '2026_RAIN';
+        try {
+          const semRes = await pool.query(
+            `SELECT s.id 
+             FROM academic_semesters s
+             LEFT JOIN academic_sessions sess ON sess.id = s.session_id
+             ORDER BY (sess.is_current = TRUE) DESC, (s.is_registration_open = TRUE) DESC, s.created_at DESC 
+             LIMIT 1`
+          );
+          if (semRes.rows.length > 0 && semRes.rows[0].id) {
+            activeSemesterId = semRes.rows[0].id;
+          }
+        } catch (_) {
+          // Fallback to 2026_RAIN if academic_semesters cannot be resolved
+        }
+
         await pool.query(
           `INSERT INTO moodle_course_mappings (id, focit_course_id, semester_id, moodle_course_id, sync_status, last_synced_at)
-           VALUES (gen_random_uuid(), $1, '2026_RAIN', $2, 'SYNCED', NOW())
+           VALUES (gen_random_uuid(), $1, $2, $3, 'SYNCED', NOW())
            ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
-          [courseId, provisionedId]
+          [courseId, activeSemesterId, provisionedId]
         );
         try {
           await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [provisionedId, courseId]);
@@ -1805,15 +1821,36 @@ export async function deleteCourse(req, res, next) {
     const course = courseRes.rows[0];
     const canonicalId = course.course_id;
 
-    const enrollmentsCheck = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM enrollments WHERE course_id = $1 AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')`,
-      [canonicalId]
-    );
+    // Check all referencing entities before attempting a hard delete to prevent FK violations & data loss
+    const refChecks = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS count FROM enrollments WHERE course_id = $1`, [canonicalId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM course_registration_items WHERE course_id = $1`, [canonicalId]),
+      pool.query(`SELECT COUNT(*)::int AS count FROM grade_items WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS count FROM quizzes WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS count FROM assignments WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS count FROM attendance_sessions WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
+    ]);
 
-    const activeEnrollments = enrollmentsCheck.rows[0]?.count || 0;
-    if (activeEnrollments > 0) {
+    const enrollmentCount = refChecks[0].rows[0]?.count || 0;
+    const regItemCount = refChecks[1].rows[0]?.count || 0;
+    const gradeItemCount = refChecks[2].rows[0]?.count || 0;
+    const quizCount = refChecks[3].rows[0]?.count || 0;
+    const assignmentCount = refChecks[4].rows[0]?.count || 0;
+    const attendanceCount = refChecks[5].rows[0]?.count || 0;
+
+    const totalRefs = enrollmentCount + regItemCount + gradeItemCount + quizCount + assignmentCount + attendanceCount;
+
+    if (totalRefs > 0) {
       await pool.query('UPDATE courses SET is_active = FALSE WHERE course_id = $1', [canonicalId]);
-      
+
+      const reasons = [];
+      if (enrollmentCount > 0) reasons.push(`${enrollmentCount} enrollment(s)`);
+      if (regItemCount > 0) reasons.push(`${regItemCount} registration item(s)`);
+      if (gradeItemCount > 0) reasons.push(`${gradeItemCount} grade item(s)`);
+      if (quizCount > 0) reasons.push(`${quizCount} quiz(zes)`);
+      if (assignmentCount > 0) reasons.push(`${assignmentCount} assignment(s)`);
+      if (attendanceCount > 0) reasons.push(`${attendanceCount} attendance session(s)`);
+
       await recordIdentityAuditLog(pool, {
         eventType: 'ADMIN_COURSE_DEACTIVATED',
         actorId: req.user?.id || 'admin1',
@@ -1821,12 +1858,12 @@ export async function deleteCourse(req, res, next) {
         targetId: canonicalId,
         targetType: 'COURSE',
         ipAddress: req.ip,
-        metadata: { code: course.code, reason: 'Preserving active enrollment ledger' },
+        metadata: { code: course.code, reason: `Referenced in academic records: ${reasons.join(', ')}` },
       });
 
       return res.status(200).json({
         success: true,
-        message: `Course ${course.code} has ${activeEnrollments} active student enrollments. It has been deactivated and hidden from registration rather than purged.`,
+        message: `Course ${course.code} cannot be hard deleted because it is referenced in existing academic records (${reasons.join(', ')}). It has been safely deactivated and hidden from registration rather than purged.`,
         deactivated: true,
       });
     }

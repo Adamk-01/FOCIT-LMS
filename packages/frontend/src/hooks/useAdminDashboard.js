@@ -59,6 +59,7 @@ export function useAdminDashboard() {
       const res = await apiClient.get(`/admin/integrations/outbox${statusParam}`);
       return res.data?.data || res.data || {};
     },
+    placeholderData: keepPreviousData,
         retry: 3,
     retryDelay: (attempt) => Math.min((attempt + 1) * 1000, 3000),
     refetchInterval: 25000,
