@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useIsFetching, useQuery } from '@tanstack/react-query';
 import { 
@@ -45,7 +45,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
 
-  const studentId = user?.username || user?.id || 'student1';
+  const studentId = user?.student_id || user?.id || user?.username || 'student1';
   const { data: profile } = useQuery({
     queryKey: ['student-profile', studentId],
     queryFn: async () => {
@@ -68,6 +68,12 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const nextLecture = timetableEvents?.nextUpcomingLecture;
 
   const avatarUrl = profile?.avatar_url || user?.avatar_url || user?.avatarUrl;
+
+  // Defensive Reset: Clear avatarLoadError whenever the underlying avatarUrl updates
+  useEffect(() => {
+    setAvatarLoadError(false);
+  }, [avatarUrl]);
+
   const studentFullName = profile?.full_name || user?.full_name || user?.name || '';
   const studentFirstName = studentFullName ? studentFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
   const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';

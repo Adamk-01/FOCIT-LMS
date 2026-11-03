@@ -35,7 +35,7 @@ export function useProfileMutations({ studentId }) {
     onMutate: async (newProfile) => {
       await queryClient.cancelQueries({ queryKey: ['student-profile', studentId] });
       const previousProfile = queryClient.getQueryData(['student-profile', studentId]);
-      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+      queryClient.setQueriesData({ queryKey: ['student-profile'] }, (old) => ({
         ...old,
         ...newProfile,
       }));
@@ -43,7 +43,7 @@ export function useProfileMutations({ studentId }) {
     },
     onSuccess: (data) => {
       const patched = data.data || data;
-      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+      queryClient.setQueriesData({ queryKey: ['student-profile'] }, (old) => ({
         ...old,
         ...patched,
       }));
@@ -73,7 +73,7 @@ export function useProfileMutations({ studentId }) {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
+      queryClient.invalidateQueries({ queryKey: ['student-profile'] });
     },
   });
 
@@ -110,12 +110,12 @@ export function useProfileMutations({ studentId }) {
       const newAvatarUrl = response.data?.avatarUrl || response.data?.avatar_url;
       const newVersion = response.data?.version;
 
-      queryClient.setQueryData(['student-profile', studentId], (old) => ({
+      queryClient.setQueriesData({ queryKey: ['student-profile'] }, (old) => ({
         ...old,
         avatar_url: newAvatarUrl,
         version: newVersion || (old?.version ? old.version + 1 : old?.version),
       }));
-      queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
+      queryClient.invalidateQueries({ queryKey: ['student-profile'] });
 
       setFeedback({
         type: 'success',
