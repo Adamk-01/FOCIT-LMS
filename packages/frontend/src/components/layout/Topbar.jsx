@@ -45,7 +45,9 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
 
-  const studentId = user?.username || user?.id || 'student1';
+  const role = String(user?.role || '').toUpperCase();
+  const isStudent = ['STUDENT', 'CANDIDATE'].includes(role);
+  const studentId = user?.username || user?.id || '';
   const { data: profile } = useQuery({
     queryKey: ['student-profile', studentId],
     queryFn: async () => {
@@ -53,7 +55,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
       return res.data;
     },
     staleTime: 5 * 60 * 1000,
-    enabled: Boolean(studentId),
+    enabled: Boolean(studentId) && isStudent,
   });
 
   const { data: timetableEvents } = useQuery({
@@ -63,7 +65,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
       return res.data;
     },
     staleTime: 60 * 1000,
-    enabled: Boolean(user),
+    enabled: Boolean(user) && isStudent,
   });
   const nextLecture = timetableEvents?.nextUpcomingLecture;
 
@@ -159,7 +161,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
             className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-950/60 text-[#16258f] dark:text-blue-300 border border-blue-200 dark:border-blue-800 animate-pulse"
           >
             <RefreshCw size={12} className="animate-spin text-[#16258f] dark:text-blue-300" />
-            <span>Syncing Moodle...</span>
+            <span>Syncing...</span>
           </div>
         )}
 
