@@ -17,6 +17,8 @@ export function CourseCatalogModal({ isOpen, onClose }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const [addError, setAddError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -337,7 +339,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                     <td className="py-3 px-3 text-right">
                       <button
                         type="button"
-                        onClick={() => setCourseToDelete(c)}
+                        onClick={() => { setDeleteError(null); setCourseToDelete(c); }}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title={`Delete ${c.code}`}
                       >
@@ -390,6 +392,13 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                 <X size={18} />
               </button>
             </div>
+
+            {addError && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-red-700 text-xs">
+                <AlertCircle size={15} className="shrink-0" />
+                <span className="font-medium flex-1">{addError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateCourse} className="mt-4 space-y-3.5 text-xs">
               <div className="grid grid-cols-2 gap-3">
@@ -521,6 +530,13 @@ export function CourseCatalogModal({ isOpen, onClose }) {
             <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800">
               <strong>Notice:</strong> If students have existing active enrollments, the system will safely deactivate and hide the course to preserve academic ledger integrity.
             </div>
+
+            {deleteError && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-red-700 text-xs text-left">
+                <AlertCircle size={15} className="shrink-0" />
+                <span className="font-medium flex-1">{deleteError}</span>
+              </div>
+            )}
 
             <div className="mt-5 flex items-center justify-center gap-3">
               <button

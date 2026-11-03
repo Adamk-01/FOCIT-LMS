@@ -1738,21 +1738,25 @@ export async function createCourse(req, res, next) {
       }, 'POST');
 
       if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
-        moodleCourseId = moodleRes[0].id;
+        const provisionedId = moodleRes[0].id;
         await pool.query(
           `INSERT INTO moodle_course_mappings (id, focit_course_id, semester_id, moodle_course_id, sync_status, last_synced_at)
            VALUES (gen_random_uuid(), $1, '2026_RAIN', $2, 'SYNCED', NOW())
            ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
-          [courseId, moodleCourseId]
+          [courseId, provisionedId]
         );
         try {
-          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [moodleCourseId, courseId]);
+          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [provisionedId, courseId]);
         } catch (_) {
           // Non-fatal if courses.moodle_course_id column is absent
         }
-        newCourse.moodle_course_id = moodleCourseId;
+        // Only mark as successfully provisioned after mapping is safely persisted
+        moodleCourseId = provisionedId;
+        newCourse.moodle_course_id = provisionedId;
       }
     } catch (moodleErr) {
+      moodleCourseId = null;
+      newCourse.moodle_course_id = null;
       logger.warn({ err: moodleErr?.message, courseId }, '[AdminController] Moodle sync on course creation failed (deferred)');
     }
 
@@ -1827,6 +1831,21 @@ export async function deleteCourse(req, res, next) {
       });
     }
 
+    // Collect all associated Moodle course IDs before local records are purged
+    const mappingRes = await pool.query(
+      `SELECT moodle_course_id FROM moodle_course_mappings WHERE focit_course_id = $1 AND moodle_course_id IS NOT NULL`,
+      [canonicalId]
+    );
+    const moodleIdsToDelete = new Set();
+    if (course.moodle_course_id) {
+      moodleIdsToDelete.add(parseInt(course.moodle_course_id, 10));
+    }
+    for (const r of mappingRes.rows) {
+      if (r.moodle_course_id) {
+        moodleIdsToDelete.add(parseInt(r.moodle_course_id, 10));
+      }
+    }
+
     // Wrap local deletes in an atomic transaction
     const client = await pool.connect();
     try {
@@ -1842,11 +1861,13 @@ export async function deleteCourse(req, res, next) {
       client.release();
     }
 
-    if (course.moodle_course_id) {
+    // Delete from Moodle upstream using all collected mappings to prevent orphaned courses
+    if (moodleIdsToDelete.size > 0) {
+      const courseids = Array.from(moodleIdsToDelete);
       try {
-        await callMoodleAPI('core_course_delete_courses', { courseids: [course.moodle_course_id] }, 'POST');
+        await callMoodleAPI('core_course_delete_courses', { courseids }, 'POST');
       } catch (mErr) {
-        logger.warn({ err: mErr?.message, moodleCourseId: course.moodle_course_id }, '[AdminController] Moodle course deletion warning');
+        logger.warn({ err: mErr?.message, courseids }, '[AdminController] Moodle course deletion warning');
       }
     }
 

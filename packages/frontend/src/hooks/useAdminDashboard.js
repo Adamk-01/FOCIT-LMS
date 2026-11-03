@@ -40,7 +40,7 @@ export function useAdminDashboard() {
     },
     placeholderData: keepPreviousData,
     retry: 3,
-    retryDelay: (attempt) => Math.min(attempt * 1000, 3000),
+    retryDelay: (attempt) => Math.min((attempt + 1) * 1000, 3000),
     refetchInterval: 25000,
     staleTime: 15000,
   });
@@ -60,7 +60,7 @@ export function useAdminDashboard() {
       return res.data?.data || res.data || {};
     },
         retry: 3,
-    retryDelay: (attempt) => Math.min(attempt * 1000, 3000),
+    retryDelay: (attempt) => Math.min((attempt + 1) * 1000, 3000),
     refetchInterval: 25000,
     staleTime: 15000,
   });

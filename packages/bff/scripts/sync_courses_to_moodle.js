@@ -4,6 +4,8 @@ import { callMoodleAPI } from '../src/integrations/moodle/moodle.client.js';
 async function syncCourses() {
   const { rows: courses } = await pool.query('SELECT course_id, code, title, department_id, level FROM courses ORDER BY code;');
   console.log(`Starting sync for ${courses.length} courses...`);
+  let successCount = 0;
+  let failCount = 0;
 
   for (const c of courses) {
     const shortname = c.course_id.replace(/\s+/g, '');
@@ -18,6 +20,7 @@ async function syncCourses() {
            ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
           [c.course_id, mId]
         );
+        successCount++;
         continue;
       }
 
@@ -40,13 +43,21 @@ async function syncCourses() {
          ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
         [c.course_id, newId]
       );
+      successCount++;
     } catch (err) {
+      failCount++;
       console.error(`[ERROR] ${shortname}:`, err.message);
     }
   }
 
-  console.log('--- ALL COURSES SYNCED TO MOODLE ---');
   await pool.end();
+
+  if (failCount > 0) {
+    console.error(`--- SYNC COMPLETED WITH FAILURES: ${successCount} succeeded, ${failCount} failed out of ${courses.length} courses ---`);
+    process.exit(1);
+  } else {
+    console.log(`--- ALL ${successCount} COURSES SUCCESSFULLY SYNCED TO MOODLE ---`);
+  }
 }
 
 syncCourses().catch((err) => {

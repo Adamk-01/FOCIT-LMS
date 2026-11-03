@@ -38,8 +38,11 @@ export function useAdminDashboard() {
       const res = await apiClient.get('/admin/dashboard');
       return res.data?.data || res.data || {};
     },
-    refetchInterval: 10000,
-    staleTime: 5000,
+    placeholderData: keepPreviousData,
+    retry: 3,
+    retryDelay: (attempt) => Math.min((attempt + 1) * 1000, 3000),
+    refetchInterval: 25000,
+    staleTime: 15000,
   });
 
   // 3. Fetch Outbox & Synchronization Queue (5s polling interval)
@@ -56,8 +59,10 @@ export function useAdminDashboard() {
       const res = await apiClient.get(`/admin/integrations/outbox${statusParam}`);
       return res.data?.data || res.data || {};
     },
-    refetchInterval: 5000,
-    staleTime: 3000,
+        retry: 3,
+    retryDelay: (attempt) => Math.min((attempt + 1) * 1000, 3000),
+    refetchInterval: 25000,
+    staleTime: 15000,
   });
 
   // 4. Fetch User Directory (Paginated & Filterable)
@@ -105,7 +110,8 @@ export function useAdminDashboard() {
       const res = await apiClient.get(`/admin/audit-logs?${params.toString()}`);
       return res.data?.data || res.data || {};
     },
-        staleTime: 5000,
+    placeholderData: keepPreviousData,
+    staleTime: 5000,
   });
 
   // 6. Mutation: Toggle Registration Window
