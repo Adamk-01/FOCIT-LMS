@@ -105,8 +105,7 @@ export function useAdminDashboard() {
       const res = await apiClient.get(`/admin/audit-logs?${params.toString()}`);
       return res.data?.data || res.data || {};
     },
-    placeholderData: keepPreviousData,
-    staleTime: 5000,
+        staleTime: 5000,
   });
 
   // 6. Mutation: Toggle Registration Window

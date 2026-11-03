@@ -74,8 +74,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const studentFirstName = studentFullName ? studentFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
   const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';
   const studentLevel = profile?.level || user?.level || 200;
-
-  const role = String(user?.role || '').toUpperCase();
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
   const isLecturer = role === 'LECTURER';
   const isAdvisor = ['LEVEL_ADVISOR', 'ADVISOR'].includes(role);

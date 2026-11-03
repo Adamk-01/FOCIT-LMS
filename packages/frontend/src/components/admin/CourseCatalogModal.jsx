@@ -22,6 +22,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [deptFilter, setDeptFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   // Add Course Modal State
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -46,9 +47,8 @@ export function CourseCatalogModal({ isOpen, onClose }) {
     setError(null);
     try {
       const res = await apiClient.get('/admin/courses');
-      if (res?.data) {
-        setCourses(res.data);
-      }
+      const courseList = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : []);
+      setCourses(courseList);
     } catch (err) {
       setError(err?.detail || err?.message || 'Failed to load course catalog');
     } finally {
@@ -72,10 +72,14 @@ export function CourseCatalogModal({ isOpen, onClose }) {
 
       const matchesLevel = levelFilter === 'ALL' || String(c.level) === levelFilter;
       const matchesDept = deptFilter === 'ALL' || c.department_id === deptFilter;
+      const matchesStatus =
+        statusFilter === 'ALL' ||
+        (statusFilter === 'ACTIVE' && c.is_active !== false) ||
+        (statusFilter === 'DEACTIVATED' && c.is_active === false);
 
-      return matchesSearch && matchesLevel && matchesDept;
+      return matchesSearch && matchesLevel && matchesDept && matchesStatus;
     });
-  }, [courses, searchTerm, levelFilter, deptFilter]);
+  }, [courses, searchTerm, levelFilter, deptFilter, statusFilter]);
 
   const handleCreateCourse = async (e) => {
     e.preventDefault();
@@ -212,7 +216,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
             />
           </div>
 
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-2">
             <select
               value={levelFilter}
               onChange={(e) => setLevelFilter(e.target.value)}
@@ -238,6 +242,18 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                   {d.id} - {d.name}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="sm:col-span-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-xs text-gray-700 font-medium focus:ring-2 focus:ring-[#0a1142] outline-none"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="DEACTIVATED">Deactivated</option>
             </select>
           </div>
         </div>
@@ -270,7 +286,20 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                 {filteredCourses.map((c) => (
                   <tr key={c.course_id} className="hover:bg-gray-50/80 transition-colors">
                     <td className="py-3 px-4">
-                      <div className="font-bold text-gray-900">{c.code}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-bold ${c.is_active === false ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                          {c.code}
+                        </span>
+                        {c.is_active === false ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                            Deactivated
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Active
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-gray-500 truncate max-w-xs">{c.title}</div>
                     </td>
                     <td className="py-3 px-3">
@@ -327,6 +356,11 @@ export function CourseCatalogModal({ isOpen, onClose }) {
           <span>
             Total Accredited Courses: <strong className="text-gray-800">{filteredCourses.length}</strong> of{' '}
             {courses.length}
+            {courses.some((c) => c.is_active === false) && (
+              <span className="ml-2 text-rose-600 font-medium">
+                ({courses.filter((c) => c.is_active === false).length} deactivated)
+              </span>
+            )}
           </span>
           <span className="text-[11px] text-gray-400">
             Changes automatically propagate to FOCIT database & Moodle LMS

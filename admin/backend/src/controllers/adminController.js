@@ -16,6 +16,7 @@ import { logger } from '../lib/logger.js';
 import config from '../config.js';
 import { hashPassword } from '../lib/passwords.js';
 import { recordIdentityAuditLog } from '../lib/auditLogger.js';
+import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 
 /**
  * Safely and reliably purges all active Redis sessions belonging to a specific user.
@@ -1587,6 +1588,285 @@ export async function toggleRegistrationWindow(req, res, next) {
     });
   } catch (err) {
     logger.error({ err, id }, '[AdminController] Error toggling registration window');
+    return next(err);
+  }
+}
+
+
+/**
+ * 6. Academic Catalog & Course Governance Controllers
+ */
+export async function listCourses(req, res, next) {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        c.course_id,
+        c.code,
+        c.title,
+        c.level,
+        c.units,
+        c.category,
+        c.department_id,
+        d.name AS department_name,
+        c.semester_number,
+        c.max_capacity,
+        c.enrolled_count,
+        c.is_active,
+        c.description,
+        COALESCE(mqm.moodle_course_id, c.moodle_course_id) AS moodle_course_id,
+        COALESCE(mqm.sync_status, CASE WHEN c.moodle_course_id IS NOT NULL THEN 'SYNCED' ELSE 'PENDING' END) AS moodle_sync_status,
+        mqm.last_synced_at AS moodle_last_synced_at
+      FROM courses c
+      LEFT JOIN departments d ON d.id = c.department_id
+      LEFT JOIN LATERAL (
+        SELECT moodle_course_id, sync_status, last_synced_at
+        FROM moodle_course_mappings
+        WHERE focit_course_id = c.course_id
+        ORDER BY last_synced_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) mqm ON TRUE
+      ORDER BY c.level ASC, c.code ASC;
+    `);
+
+    return res.status(200).json({
+      success: true,
+      data: rows,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err }, '[AdminController] Error listing courses');
+    return next(err);
+  }
+}
+
+export async function createCourse(req, res, next) {
+  const { code, title, departmentId, level, units, category, semesterNumber, description, maxCapacity } = req.body || {};
+
+  if (!code || !title || !departmentId || !level || !units) {
+    return res.status(400).json({
+      error: 'Missing required course fields: code, title, departmentId, level, and units are required',
+      code: 'COURSE_INVALID_PAYLOAD',
+    });
+  }
+
+  const cleanCode = String(code).trim().toUpperCase();
+  const cleanTitle = String(title).trim();
+  const courseId = cleanCode.replace(/\s+/g, '');
+  const cleanDeptId = String(departmentId).trim().toUpperCase();
+  const parsedLevel = parseInt(level, 10);
+  const parsedUnits = parseInt(units, 10);
+
+  if (![100, 200, 300, 400].includes(parsedLevel)) {
+    return res.status(400).json({
+      error: 'Invalid academic level: level must be 100, 200, 300, or 400',
+      code: 'COURSE_INVALID_LEVEL',
+    });
+  }
+
+  if (Number.isNaN(parsedUnits) || parsedUnits < 1 || parsedUnits > 6) {
+    return res.status(400).json({
+      error: 'Invalid course units: units must be an integer between 1 and 6',
+      code: 'COURSE_INVALID_UNITS',
+    });
+  }
+
+  const numMatch = cleanCode.match(/\d+/);
+  const defaultSemester = numMatch ? (parseInt(numMatch[0], 10) % 2 === 0 ? 2 : 1) : 1;
+  const parsedSemester = semesterNumber !== undefined && semesterNumber !== null && semesterNumber !== ''
+    ? parseInt(semesterNumber, 10)
+    : defaultSemester;
+
+  if (![1, 2].includes(parsedSemester)) {
+    return res.status(400).json({
+      error: 'Invalid semester number: semester must be 1 or 2',
+      code: 'COURSE_INVALID_SEMESTER',
+    });
+  }
+
+  const parsedCapacity = maxCapacity !== undefined && maxCapacity !== null && maxCapacity !== ''
+    ? parseInt(maxCapacity, 10)
+    : 150;
+
+  if (Number.isNaN(parsedCapacity) || parsedCapacity <= 0) {
+    return res.status(400).json({
+      error: 'Invalid max capacity: capacity must be a positive integer',
+      code: 'COURSE_INVALID_CAPACITY',
+    });
+  }
+
+  const cleanCategory = String(category || 'CORE').toUpperCase() === 'ELECTIVE' ? 'ELECTIVE' : 'CORE';
+
+  try {
+    // Validate department exists in academic catalog
+    const deptCheck = await pool.query('SELECT id FROM departments WHERE UPPER(id) = $1 LIMIT 1', [cleanDeptId]);
+    if (deptCheck.rows.length === 0) {
+      return res.status(400).json({
+        error: `Invalid department: Department '${cleanDeptId}' does not exist in academic catalog`,
+        code: 'COURSE_INVALID_DEPARTMENT',
+      });
+    }
+    const authoritativeDeptId = deptCheck.rows[0].id;
+
+    const existing = await pool.query('SELECT course_id FROM courses WHERE course_id = $1 OR code = $2', [courseId, cleanCode]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        error: `Course code ${cleanCode} already exists in the academic catalog`,
+        code: 'COURSE_ALREADY_EXISTS',
+      });
+    }
+
+    const insertRes = await pool.query(
+      `INSERT INTO courses (
+        course_id, code, title, department_id, level, semester_number, units, category, max_capacity, enrolled_count, description, is_active, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, TRUE, NOW())
+      RETURNING *`,
+      [courseId, cleanCode, cleanTitle, authoritativeDeptId, parsedLevel, parsedSemester, parsedUnits, cleanCategory, parsedCapacity, description || null]
+    );
+
+    const newCourse = insertRes.rows[0];
+    let moodleCourseId = null;
+
+    try {
+      const moodleRes = await callMoodleAPI('core_course_create_courses', {
+        courses: [
+          {
+            fullname: `${cleanTitle} (${cleanCode})`,
+            shortname: courseId,
+            categoryid: 1,
+            idnumber: courseId,
+          }
+        ]
+      }, 'POST');
+
+      if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
+        moodleCourseId = moodleRes[0].id;
+        await pool.query(
+          `INSERT INTO moodle_course_mappings (id, focit_course_id, semester_id, moodle_course_id, sync_status, last_synced_at)
+           VALUES (gen_random_uuid(), $1, '2026_RAIN', $2, 'SYNCED', NOW())
+           ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
+          [courseId, moodleCourseId]
+        );
+        try {
+          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [moodleCourseId, courseId]);
+        } catch (_) {
+          // Non-fatal if courses.moodle_course_id column is absent
+        }
+        newCourse.moodle_course_id = moodleCourseId;
+      }
+    } catch (moodleErr) {
+      logger.warn({ err: moodleErr?.message, courseId }, '[AdminController] Moodle sync on course creation failed (deferred)');
+    }
+
+    await recordIdentityAuditLog(pool, {
+      eventType: 'ADMIN_COURSE_CREATED',
+      actorId: req.user?.id || 'admin1',
+      actorRole: req.user?.role || 'ADMIN',
+      targetId: courseId,
+      targetType: 'COURSE',
+      ipAddress: req.ip,
+      metadata: { code: cleanCode, title: cleanTitle, units: parsedUnits, moodleCourseId },
+    });
+
+    const responseMessage = moodleCourseId
+      ? `Course ${cleanCode} successfully added to the catalog and provisioned in Moodle (ID: ${moodleCourseId})`
+      : `Course ${cleanCode} successfully added to the catalog (Moodle provisioning pending/deferred)`;
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        ...newCourse,
+        moodle_course_id: moodleCourseId,
+        moodle_sync_status: moodleCourseId ? 'SYNCED' : 'PENDING',
+      },
+      message: responseMessage,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, courseId }, '[AdminController] Error creating course');
+    return next(err);
+  }
+}
+
+export async function deleteCourse(req, res, next) {
+  const { id } = req.params;
+  const courseId = String(id).trim().toUpperCase();
+
+  try {
+    const courseRes = await pool.query('SELECT * FROM courses WHERE course_id = $1 OR code = $1', [courseId]);
+    if (courseRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Course not found in the academic catalog',
+        code: 'COURSE_NOT_FOUND',
+      });
+    }
+
+    const course = courseRes.rows[0];
+    const canonicalId = course.course_id;
+
+    const enrollmentsCheck = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM enrollments WHERE course_id = $1 AND status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')`,
+      [canonicalId]
+    );
+
+    const activeEnrollments = enrollmentsCheck.rows[0]?.count || 0;
+    if (activeEnrollments > 0) {
+      await pool.query('UPDATE courses SET is_active = FALSE WHERE course_id = $1', [canonicalId]);
+      
+      await recordIdentityAuditLog(pool, {
+        eventType: 'ADMIN_COURSE_DEACTIVATED',
+        actorId: req.user?.id || 'admin1',
+        actorRole: req.user?.role || 'ADMIN',
+        targetId: canonicalId,
+        targetType: 'COURSE',
+        ipAddress: req.ip,
+        metadata: { code: course.code, reason: 'Preserving active enrollment ledger' },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Course ${course.code} has ${activeEnrollments} active student enrollments. It has been deactivated and hidden from registration rather than purged.`,
+        deactivated: true,
+      });
+    }
+
+    // Wrap local deletes in an atomic transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM moodle_course_mappings WHERE focit_course_id = $1', [canonicalId]);
+      await client.query('DELETE FROM hod_course_allocations WHERE course_id = $1', [canonicalId]);
+      await client.query('DELETE FROM courses WHERE course_id = $1', [canonicalId]);
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    if (course.moodle_course_id) {
+      try {
+        await callMoodleAPI('core_course_delete_courses', { courseids: [course.moodle_course_id] }, 'POST');
+      } catch (mErr) {
+        logger.warn({ err: mErr?.message, moodleCourseId: course.moodle_course_id }, '[AdminController] Moodle course deletion warning');
+      }
+    }
+
+    await recordIdentityAuditLog(pool, {
+      eventType: 'ADMIN_COURSE_DELETED',
+      actorId: req.user?.id || 'admin1',
+      actorRole: req.user?.role || 'ADMIN',
+      targetId: canonicalId,
+      targetType: 'COURSE',
+      ipAddress: req.ip,
+      metadata: { code: course.code, title: course.title },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Course ${course.code} (${course.title}) permanently removed from catalog`,
+      deleted: true,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err, courseId }, '[AdminController] Error deleting course');
     return next(err);
   }
 }
