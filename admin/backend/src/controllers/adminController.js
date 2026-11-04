@@ -1864,6 +1864,8 @@ export async function deleteCourse(req, res, next) {
       quizCount,
       assignmentCount,
       attendanceCount,
+      allocationCount,
+      materialCount,
     ] = await Promise.all([
       safeCountQuery('enrollments'),
       safeCountQuery('course_registration_items'),
@@ -1871,9 +1873,11 @@ export async function deleteCourse(req, res, next) {
       safeCountQuery('quizzes'),
       safeCountQuery('assignments'),
       safeCountQuery('attendance_sessions'),
+      safeCountQuery('hod_course_allocations'),
+      safeCountQuery('course_uploaded_materials'),
     ]);
 
-    const totalRefs = enrollmentCount + regItemCount + gradeItemCount + quizCount + assignmentCount + attendanceCount;
+    const totalRefs = enrollmentCount + regItemCount + gradeItemCount + quizCount + assignmentCount + attendanceCount + allocationCount + materialCount;
 
     if (totalRefs > 0) {
       await pool.query('UPDATE courses SET is_active = FALSE WHERE course_id = $1', [canonicalId]);
@@ -1885,6 +1889,8 @@ export async function deleteCourse(req, res, next) {
       if (quizCount > 0) reasons.push(`${quizCount} quiz(zes)`);
       if (assignmentCount > 0) reasons.push(`${assignmentCount} assignment(s)`);
       if (attendanceCount > 0) reasons.push(`${attendanceCount} attendance session(s)`);
+      if (allocationCount > 0) reasons.push(`${allocationCount} lecturer allocation(s)`);
+      if (materialCount > 0) reasons.push(`${materialCount} uploaded lecture material(s)`);
 
       await recordIdentityAuditLog(pool, {
         eventType: 'ADMIN_COURSE_DEACTIVATED',

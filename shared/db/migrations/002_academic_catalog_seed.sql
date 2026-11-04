@@ -229,8 +229,10 @@ INSERT INTO students (
 VALUES (
     'student1',
     CASE 
-        WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1') 
-        THEN '2024/0042-SEED' 
+        WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student1')
+        THEN (SELECT matric_number FROM students WHERE student_id = 'student1')
+        WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0042') 
+        THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
         ELSE '2024/0042' 
     END,
     'student1',
