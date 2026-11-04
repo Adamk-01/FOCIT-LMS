@@ -1822,21 +1822,36 @@ export async function deleteCourse(req, res, next) {
     const canonicalId = course.course_id;
 
     // Check all referencing entities before attempting a hard delete to prevent FK violations & data loss
-    const refChecks = await Promise.all([
-      pool.query(`SELECT COUNT(*)::int AS count FROM enrollments WHERE course_id = $1`, [canonicalId]),
-      pool.query(`SELECT COUNT(*)::int AS count FROM course_registration_items WHERE course_id = $1`, [canonicalId]),
-      pool.query(`SELECT COUNT(*)::int AS count FROM grade_items WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query(`SELECT COUNT(*)::int AS count FROM quizzes WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query(`SELECT COUNT(*)::int AS count FROM assignments WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query(`SELECT COUNT(*)::int AS count FROM attendance_sessions WHERE course_id = $1`, [canonicalId]).catch(() => ({ rows: [{ count: 0 }] })),
-    ]);
+    const safeCountQuery = async (tableName) => {
+      try {
+        const checkRes = await pool.query(`SELECT COUNT(*)::int AS count FROM ${tableName} WHERE course_id = $1`, [canonicalId]);
+        return checkRes.rows[0]?.count || 0;
+      } catch (err) {
+        // Table not defined in schema (PostgreSQL code 42P01: undefined_table)
+        if (err?.code === '42P01') {
+          return 0;
+        }
+        // Do not treat operational or connection errors as 0 references; abort deletion
+        logger.error({ err: err?.message, tableName, canonicalId }, '[AdminController] Reference check query failed');
+        throw err;
+      }
+    };
 
-    const enrollmentCount = refChecks[0].rows[0]?.count || 0;
-    const regItemCount = refChecks[1].rows[0]?.count || 0;
-    const gradeItemCount = refChecks[2].rows[0]?.count || 0;
-    const quizCount = refChecks[3].rows[0]?.count || 0;
-    const assignmentCount = refChecks[4].rows[0]?.count || 0;
-    const attendanceCount = refChecks[5].rows[0]?.count || 0;
+    const [
+      enrollmentCount,
+      regItemCount,
+      gradeItemCount,
+      quizCount,
+      assignmentCount,
+      attendanceCount,
+    ] = await Promise.all([
+      safeCountQuery('enrollments'),
+      safeCountQuery('course_registration_items'),
+      safeCountQuery('grade_items'),
+      safeCountQuery('quizzes'),
+      safeCountQuery('assignments'),
+      safeCountQuery('attendance_sessions'),
+    ]);
 
     const totalRefs = enrollmentCount + regItemCount + gradeItemCount + quizCount + assignmentCount + attendanceCount;
 

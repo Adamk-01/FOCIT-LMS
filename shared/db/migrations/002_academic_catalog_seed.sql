@@ -236,7 +236,7 @@ VALUES (
     42
 )
 ON CONFLICT (student_id) DO UPDATE SET 
-    matric_number = EXCLUDED.matric_number,
+    matric_number = COALESCE(students.matric_number, EXCLUDED.matric_number),
     full_name = EXCLUDED.full_name,
     current_gpa = EXCLUDED.current_gpa,
     completed_units = EXCLUDED.completed_units;
