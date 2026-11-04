@@ -98,43 +98,45 @@ export function DashboardCourseCard({
     <article
       className={`
         group relative flex flex-col justify-between rounded-2xl p-5 sm:p-6
-        bg-white dark:bg-[#0c132c] border border-gray-200 dark:border-slate-800/90
-        shadow-xs hover:shadow-lg transition-all duration-200
+        bg-white dark:bg-[#0c132c] border border-gray-200/90 dark:border-slate-800/90
+        shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700
+        transition-all duration-200
         ${palette.accentGlow}
         ${hasLiveSession ? 'ring-2 ring-[#ffb81c]/60 shadow-[#ffb81c]/10' : ''}
       `}
     >
       {/* 1. Header: Course Code, Units & Live Status */}
       <div className="space-y-4">
-        <header className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
+        <header className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
             <span
-              className={`px-3 py-1 rounded-xl text-xs font-black font-mono tracking-wide border shadow-2xs ${palette.badgeBg} ${palette.badgeText} ${palette.badgeBorder}`}
+              className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono tracking-wider border shadow-2xs shrink-0 ${palette.badgeBg} ${palette.badgeText} ${palette.badgeBorder}`}
             >
               {courseCode}
             </span>
-            <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80">
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80 shrink-0 whitespace-nowrap">
               {units} {units === 1 ? 'Unit' : 'Units'}
             </span>
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 shrink-0 whitespace-nowrap">
               {category}
             </span>
           </div>
 
-          <div>
+          <div className="shrink-0 flex items-center">
             {hasLiveSession ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-400/20 text-[#ffb81c] border border-[#ffb81c]/40 animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ffb81c]" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-400/20 text-[#ffb81c] border border-[#ffb81c]/40 animate-pulse whitespace-nowrap">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#ffb81c] shrink-0" />
                 <span>Live Lecture</span>
               </span>
             ) : isCompleted ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                <CheckCircle2 size={12} />
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 whitespace-nowrap">
+                <CheckCircle2 size={12} className="shrink-0" />
                 <span>Completed</span>
               </span>
             ) : (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                In Progress
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 whitespace-nowrap shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>In Progress</span>
               </span>
             )}
           </div>
@@ -156,37 +158,39 @@ export function DashboardCourseCard({
         </div>
 
         {/* 3. NUC 75% Examination Attendance Standing Meter */}
-        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold">
-            <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-              <ShieldCheck size={14} className="text-slate-400 dark:text-slate-500" />
-              <span>NUC Standing</span>
+        <div className="p-3.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/80 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 shrink-0">
+              <ShieldCheck size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
+              <span className="whitespace-nowrap">NUC Standing</span>
             </span>
 
-            {/* High-contrast attendance label with defensive dark mode tokens */}
-            {!hasRecordedSessions ? (
-              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                100% (No Sessions Yet)
-              </span>
-            ) : isBarred ? (
-              <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                <AlertTriangle size={12} />
-                <span>Barred ({percentage}%)</span>
-              </span>
-            ) : isEligible ? (
-              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-                {percentage}% (Exam Qualified)
-              </span>
-            ) : (
-              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1">
-                <AlertTriangle size={12} />
-                <span>{percentage}% (Warning)</span>
-              </span>
-            )}
+            {/* High-contrast attendance label with defensive whitespace isolation */}
+            <div className="text-right min-w-0">
+              {!hasRecordedSessions ? (
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  100% (No Sessions Yet)
+                </span>
+              ) : isBarred ? (
+                <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 justify-end whitespace-nowrap">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  <span>Barred ({percentage}%)</span>
+                </span>
+              ) : isEligible ? (
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                  {percentage}% (Exam Qualified)
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1 justify-end whitespace-nowrap">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  <span>{percentage}% (Warning)</span>
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Progress Bar with 75% NUC Threshold Line */}
-          <div className="relative h-2 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className="relative h-2 w-full bg-slate-200/90 dark:bg-slate-800 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-300 rounded-full ${
                 !hasRecordedSessions
@@ -221,7 +225,7 @@ export function DashboardCourseCard({
             <button
               type="button"
               onClick={() => onOpenCheckIn(course, activeSession)}
-              className="w-full min-h-[44px] px-4 py-2.5 bg-[#ffb81c] hover:bg-yellow-400 text-[#0a1142] rounded-xl text-xs font-black transition-all shadow-sm active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full min-h-[42px] px-4 py-2 bg-[#ffb81c] hover:bg-yellow-400 text-[#0a1142] rounded-xl text-xs font-black transition-all shadow-xs active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
               aria-label={`Enter attendance passcode for ${courseCode}`}
             >
               <KeyRound size={15} />
@@ -229,7 +233,7 @@ export function DashboardCourseCard({
             </button>
             <Link
               to={`/courses/${encodeURIComponent(courseId)}`}
-              className="w-full sm:w-auto min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-1 shrink-0"
+              className="w-full sm:w-auto min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-1 shrink-0"
               title="Open Course Room"
             >
               <span>Room</span>
@@ -240,20 +244,20 @@ export function DashboardCourseCard({
           <div className="grid grid-cols-2 gap-2.5">
             <Link
               to={`/courses/${encodeURIComponent(courseId)}?tab=attendance`}
-              className="min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-[#0a1142] dark:hover:text-white bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 transition-colors flex items-center justify-center gap-1.5"
+              className="min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-[#0a1142] dark:hover:text-white bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 transition-all flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-98"
               title={`View ${courseCode} Attendance Ledger`}
             >
-              <ShieldCheck size={14} className="text-teal-600 dark:text-teal-400" />
-              <span>Attendance</span>
+              <ShieldCheck size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
+              <span className="whitespace-nowrap">Attendance</span>
             </Link>
 
             <Link
               to={`/courses/${encodeURIComponent(courseId)}`}
-              className="min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-500 text-white transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+              className="min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-500 text-white transition-all flex items-center justify-center gap-1.5 shadow-xs hover:shadow-md active:scale-98"
               title={`Enter ${courseCode} Course Room`}
             >
-              <span>Enter Course</span>
-              <ArrowRight size={14} />
+              <span className="whitespace-nowrap">Enter Course</span>
+              <ArrowRight size={14} className="shrink-0" />
             </Link>
           </div>
         )}

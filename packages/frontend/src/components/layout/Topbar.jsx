@@ -7,14 +7,11 @@ import {
   RefreshCw, 
   ChevronRight, 
   User,
-  Sun,
-  Moon,
   Clock
 } from 'lucide-react';
 import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationDrawer } from '../NotificationDrawer';
 import { apiClient } from '../../lib/api';
-import { useTheme } from '../../contexts/ThemeContext';
 
 const ROUTE_NAME_MAP = {
   admin: 'Admin Portal',
@@ -108,8 +105,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
     }),
   ];
 
-  const { isDark, toggleTheme, theme } = useTheme();
-
   return (
     <header className="h-16 shrink-0 bg-white dark:bg-[#0f172a] border-b border-[#e2e8f0] dark:border-slate-800 px-4 sm:px-6 lg:px-8 flex items-center justify-between z-20 shadow-nav transition-colors">
       {/* 1. Mobile Menu Trigger + Breadcrumb Trail */}
@@ -180,21 +175,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
             <span>{nextLecture.courseCode} in {nextLecture.minutesUntilStart}m</span>
           </Link>
         )}
-
-        {/* Global Dark Mode Quick Toggle Button */}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          title={`Active: ${theme} (${isDark ? 'Dark' : 'Light'}). Click to toggle.`}
-          className="min-h-[44px] min-w-[44px] p-2 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-400 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-        >
-          {isDark ? (
-            <Sun size={20} className="text-[#ffb81c]" />
-          ) : (
-            <Moon size={20} />
-          )}
-        </button>
 
         {/* Accessible Notification Bell Trigger */}
         <button
