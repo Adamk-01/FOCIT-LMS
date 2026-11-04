@@ -47,8 +47,6 @@ CREATE TABLE IF NOT EXISTS academic_semesters (
 -- ------------------------------------------------------------------------------
 -- 3. COURSES (The Academic Catalog)
 -- ------------------------------------------------------------------------------
-ALTER TABLE courses ADD COLUMN IF NOT EXISTS moodle_course_id INT;
-
 CREATE TABLE IF NOT EXISTS courses (
     course_id VARCHAR(32) PRIMARY KEY,
     code VARCHAR(16) NOT NULL UNIQUE,
@@ -68,6 +66,8 @@ CREATE TABLE IF NOT EXISTS courses (
     -- Absolute Mathematical Safety Net: Physical rejection of over-enrollment
     CONSTRAINT chk_course_capacity CHECK (enrolled_count <= max_capacity)
 );
+
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS moodle_course_id INT;
 
 CREATE INDEX IF NOT EXISTS idx_courses_filter 
 ON courses (level, semester_number, is_active);
@@ -228,7 +228,11 @@ INSERT INTO students (
 )
 VALUES (
     'student1',
-    'FOCIT/2024/0042',
+    CASE 
+        WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1') 
+        THEN '2024/0042-SEED' 
+        ELSE '2024/0042' 
+    END,
     'student1',
     'John Doe',
     'john.doe@focit.uniosun.edu.ng',
@@ -247,7 +251,7 @@ ON CONFLICT (student_id) DO UPDATE SET
 UPDATE students 
 SET matric_number = '2024/0042' 
 WHERE student_id = 'student1' 
-  AND (matric_number IS NULL OR matric_number = 'FOCIT/2024/0042')
+  AND matric_number = 'FOCIT/2024/0042'
   AND NOT EXISTS (
       SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1'
   );
