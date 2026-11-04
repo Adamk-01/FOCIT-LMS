@@ -38,6 +38,7 @@ router.patch('/academic-semesters/:id/registration-window', adminController.togg
 
 
 // 6. Academic Catalog & Course Governance
+router.get('/departments', adminController.listDepartments);
 router.get('/courses', adminController.listCourses);
 router.post('/courses', adminController.createCourse);
 router.delete('/courses/:id', adminController.deleteCourse);

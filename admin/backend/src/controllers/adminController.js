@@ -1596,6 +1596,20 @@ export async function toggleRegistrationWindow(req, res, next) {
 /**
  * 6. Academic Catalog & Course Governance Controllers
  */
+/**
+ * GET /api/admin/departments
+ * List all accredited academic departments.
+ */
+export async function listDepartments(req, res, next) {
+  try {
+    const { rows } = await pool.query('SELECT id, name FROM departments ORDER BY id ASC');
+    return res.status(200).json({ success: true, data: rows });
+  } catch (err) {
+    logger.error({ err }, '[AdminController] Error listing departments');
+    return next(err);
+  }
+}
+
 export async function listCourses(req, res, next) {
   try {
     const { rows } = await pool.query(`
@@ -1613,8 +1627,8 @@ export async function listCourses(req, res, next) {
         c.enrolled_count,
         c.is_active,
         c.description,
-        COALESCE(mqm.moodle_course_id, c.moodle_course_id) AS moodle_course_id,
-        COALESCE(mqm.sync_status, CASE WHEN c.moodle_course_id IS NOT NULL THEN 'SYNCED' ELSE 'PENDING' END) AS moodle_sync_status,
+        mqm.moodle_course_id AS moodle_course_id,
+        COALESCE(mqm.sync_status, 'PENDING') AS moodle_sync_status,
         mqm.last_synced_at AS moodle_last_synced_at
       FROM courses c
       LEFT JOIN departments d ON d.id = c.department_id
@@ -1800,6 +1814,12 @@ export async function createCourse(req, res, next) {
       message: responseMessage,
     });
   } catch (err) {
+    if (err?.code === '23505') {
+      return res.status(409).json({
+        error: `Course code ${cleanCode} already exists in the academic catalog`,
+        code: 'COURSE_ALREADY_EXISTS',
+      });
+    }
     logger.error({ err: err?.message || err, courseId }, '[AdminController] Error creating course');
     return next(err);
   }
@@ -1908,6 +1928,25 @@ export async function deleteCourse(req, res, next) {
       await client.query('COMMIT');
     } catch (txErr) {
       await client.query('ROLLBACK');
+      // If hard delete triggers an un-enumerated foreign key restriction (PostgreSQL code 23503), fall back safely to deactivation
+      if (txErr?.code === '23503') {
+        logger.warn({ err: txErr.message, canonicalId }, '[AdminController] Foreign key restriction on hard delete; falling back to soft deactivation');
+        await pool.query('UPDATE courses SET is_active = FALSE WHERE course_id = $1', [canonicalId]);
+        await recordIdentityAuditLog(pool, {
+          eventType: 'ADMIN_COURSE_DEACTIVATED',
+          actorId: req.user?.id || 'admin1',
+          actorRole: req.user?.role || 'ADMIN',
+          targetId: canonicalId,
+          targetType: 'COURSE',
+          ipAddress: req.ip,
+          metadata: { code: course.code, reason: `Foreign key constraint restriction encountered: ${txErr.detail || txErr.message}` },
+        });
+        return res.status(200).json({
+          success: true,
+          message: `Course ${course.code} cannot be hard deleted due to referencing database records. It has been safely deactivated and hidden from registration.`,
+          deactivated: true,
+        });
+      }
       throw txErr;
     } finally {
       client.release();

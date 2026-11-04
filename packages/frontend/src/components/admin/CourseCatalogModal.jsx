@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, Plus, Trash2, BookOpen, CheckCircle2, AlertCircle, RefreshCw, Layers, ShieldAlert } from 'lucide-react';
 import { apiClient } from '../../lib/api';
 
-const DEPARTMENTS = [
+const DEFAULT_DEPARTMENTS = [
   { id: 'CSC', name: 'Computer Science' },
   { id: 'SEN', name: 'Software Engineering' },
   { id: 'CYS', name: 'Cyber Security' },
@@ -14,6 +14,7 @@ const DEPARTMENTS = [
 
 export function CourseCatalogModal({ isOpen, onClose }) {
   const [courses, setCourses] = useState([]);
+  const [departments, setDepartments] = useState(DEFAULT_DEPARTMENTS);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
@@ -44,6 +45,18 @@ export function CourseCatalogModal({ isOpen, onClose }) {
   const [courseToDelete, setCourseToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const fetchDepartments = async () => {
+    try {
+      const res = await apiClient.get('/admin/departments');
+      const deptList = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : []);
+      if (deptList.length > 0) {
+        setDepartments(deptList);
+      }
+    } catch {
+      // Fallback to DEFAULT_DEPARTMENTS
+    }
+  };
+
   const fetchCourses = async () => {
     setIsLoading(true);
     setError(null);
@@ -60,6 +73,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (isOpen) {
+      fetchDepartments();
       fetchCourses();
     }
   }, [isOpen]);
@@ -122,7 +136,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
     setSuccessMessage(null);
 
     try {
-      const res = await apiClient.delete(`/admin/courses/${courseToDelete.course_id}`);
+      const res = await apiClient.delete(`/admin/courses/${encodeURIComponent(courseToDelete.course_id)}`);
       const msg = res?.data?.message || res?.data?.detail || res?.message || `Course ${courseToDelete.code} removed successfully`;
       setSuccessMessage(msg);
       setCourseToDelete(null);
@@ -248,7 +262,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-xs text-gray-700 font-medium focus:ring-2 focus:ring-[#0a1142] outline-none"
             >
               <option value="ALL">All Departments</option>
-              {DEPARTMENTS.map((d) => (
+              {departments.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.id} - {d.name}
                 </option>
@@ -431,7 +445,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                     onChange={(e) => setAddForm({ ...addForm, departmentId: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#0a1142]"
                   >
-                    {DEPARTMENTS.map((d) => (
+                    {departments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.id} - {d.name}
                       </option>

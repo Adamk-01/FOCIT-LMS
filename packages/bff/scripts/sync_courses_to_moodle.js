@@ -19,7 +19,7 @@ async function syncCourses() {
   }
   console.log(`Authoritative semester for Moodle mapping: ${activeSemesterId}`);
 
-  const { rows: courses } = await pool.query('SELECT course_id, code, title, department_id, level FROM courses ORDER BY code;');
+  const { rows: courses } = await pool.query('SELECT course_id, code, title, department_id, level FROM courses WHERE is_active IS NOT FALSE ORDER BY code;');
   console.log(`Starting sync for ${courses.length} courses...`);
   let successCount = 0;
   let failCount = 0;

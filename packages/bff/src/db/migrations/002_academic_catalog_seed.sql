@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS academic_semesters (
 -- ------------------------------------------------------------------------------
 -- 3. COURSES (The Academic Catalog)
 -- ------------------------------------------------------------------------------
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS moodle_course_id INT;
+
 CREATE TABLE IF NOT EXISTS courses (
     course_id VARCHAR(32) PRIMARY KEY,
     code VARCHAR(16) NOT NULL UNIQUE,
@@ -226,7 +228,11 @@ INSERT INTO students (
 )
 VALUES (
     'student1',
-    '2024/0042',
+    CASE 
+        WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1') 
+        THEN NULL 
+        ELSE '2024/0042' 
+    END,
     'student1',
     'John Doe',
     'john.doe@focit.uniosun.edu.ng',
@@ -245,7 +251,7 @@ ON CONFLICT (student_id) DO UPDATE SET
 UPDATE students 
 SET matric_number = '2024/0042' 
 WHERE student_id = 'student1' 
-  AND (matric_number IS NULL OR matric_number LIKE 'FOCIT/%')
+  AND (matric_number IS NULL OR matric_number = 'FOCIT/2024/0042')
   AND NOT EXISTS (
       SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1'
   );
