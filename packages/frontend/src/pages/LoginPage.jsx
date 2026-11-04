@@ -72,13 +72,35 @@ export const LoginPage = () => {
         destination = '/admin';
       } else if (userRole === 'HOD') {
         destination = '/hod';
-      } else if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF', 'LECTURER'].includes(userRole)) {
+      } else if (userRole === 'LECTURER') {
         destination = '/lecturer';
+      } else if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole)) {
+        destination = '/advisor/registrations';
       }
 
+      // Safe deep-linking redirect only if permitted for user's authenticated role
       const redirectPath = location.state?.from?.pathname;
       if (redirectPath && redirectPath !== '/login' && !shadowUser?.mustChangePassword && shadowUser?.scope !== 'RESET_ONLY') {
-        if (!['ADMIN', 'SYSTEM_ADMIN'].includes(userRole) || redirectPath !== '/dashboard') {
+        const isStudentRoute = redirectPath === '/dashboard' || redirectPath.startsWith('/courses') || redirectPath === '/library' || redirectPath === '/calendar';
+        const isLecturerRoute = redirectPath.startsWith('/lecturer') || redirectPath.startsWith('/question-bank') || isStudentRoute;
+        const isAdvisorRoute = redirectPath.startsWith('/advisor') || isLecturerRoute;
+        const isAdminRoute = redirectPath.startsWith('/admin') || isAdvisorRoute;
+
+        let isPermitted = false;
+        if (['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
+          isPermitted = isAdminRoute && redirectPath !== '/dashboard';
+        } else if (userRole === 'HOD') {
+          isPermitted = redirectPath.startsWith('/hod') || isLecturerRoute;
+        } else if (userRole === 'LECTURER') {
+          // Lecturers must not be routed to advisor registrations from another session
+          isPermitted = isLecturerRoute && !redirectPath.startsWith('/advisor');
+        } else if (['LEVEL_ADVISOR', 'DEAN', 'SENATE_OFFICER', 'ADVISOR', 'STAFF'].includes(userRole)) {
+          isPermitted = isAdvisorRoute;
+        } else if (userRole === 'STUDENT') {
+          isPermitted = isStudentRoute;
+        }
+
+        if (isPermitted) {
           destination = redirectPath;
         }
       }
