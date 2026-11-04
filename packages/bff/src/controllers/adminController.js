@@ -1627,7 +1627,7 @@ export async function listCourses(req, res, next) {
         c.enrolled_count,
         c.is_active,
         c.description,
-        mqm.moodle_course_id AS moodle_course_id,
+        COALESCE(mqm.moodle_course_id, c.moodle_course_id) AS moodle_course_id,
         COALESCE(mqm.sync_status, 'PENDING') AS moodle_sync_status,
         mqm.last_synced_at AS moodle_last_synced_at
       FROM courses c
@@ -1996,10 +1996,12 @@ export async function deleteCourse(req, res, next) {
     try {
       await client.query('BEGIN');
       await client.query('DELETE FROM moodle_course_mappings WHERE focit_course_id = $1', [canonicalId]);
+      await client.query('SAVEPOINT sp_outbox_cleanup');
       try {
         await client.query("DELETE FROM integration_outbox_events WHERE aggregate_type = 'COURSE' AND aggregate_id = $1", [canonicalId]);
+        await client.query('RELEASE SAVEPOINT sp_outbox_cleanup');
       } catch (_) {
-        // Non-fatal if table absent
+        await client.query('ROLLBACK TO SAVEPOINT sp_outbox_cleanup');
       }
       await client.query('DELETE FROM hod_course_allocations WHERE course_id = $1', [canonicalId]);
       await client.query('DELETE FROM courses WHERE course_id = $1', [canonicalId]);
