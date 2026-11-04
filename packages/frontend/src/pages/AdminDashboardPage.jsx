@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useAdminDashboard } from '../hooks/useAdminDashboard';
@@ -8,6 +8,7 @@ import { AdminOutboxQueueCard } from '../components/admin/AdminOutboxQueueCard';
 import { AdminQuickActionsCard } from '../components/admin/AdminQuickActionsCard';
 import { UserProvisioningModal } from '../components/admin/UserProvisioningModal';
 import { CohortIngestionModal } from '../components/admin/CohortIngestionModal';
+import { CourseCatalogModal } from '../components/admin/CourseCatalogModal';
 import { ErrorStateView } from '../components/ErrorStateView';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
 
@@ -17,6 +18,8 @@ import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
  */
 export function AdminDashboardPage() {
   const navigate = useNavigate();
+  const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
+
   const {
     overview, outbox, isLoading, isError, error, refetchAll,
     outboxFilter, setOutboxFilter, retryOutbox, isRetryingOutbox, handleToggleRegistrationWindow,
@@ -79,12 +82,19 @@ export function AdminDashboardPage() {
         </div>
         <div className="lg:col-span-5 h-full">
           <AdminQuickActionsCard
+            onOpenCourseModal={() => setIsCourseModalOpen(true)}
             onOpenCohortModal={() => setIsCohortModalOpen(true)}
             onOpenAuditModal={() => navigate('/admin/audit')}
             onOpenUserDirectory={() => navigate('/admin/users')}
           />
         </div>
       </div>
+
+      {/* Modals */}
+      <CourseCatalogModal
+        isOpen={isCourseModalOpen}
+        onClose={() => setIsCourseModalOpen(false)}
+      />
 
       <UserProvisioningModal
         isOpen={isProvisionModalOpen}

@@ -562,7 +562,7 @@ router.post(
         `SELECT s.id 
          FROM academic_semesters s
          LEFT JOIN academic_sessions sess ON sess.id = s.session_id
-         ORDER BY (sess.is_current = TRUE) DESC, s.created_at DESC 
+         ORDER BY COALESCE(sess.is_current, FALSE) DESC, s.created_at DESC 
          LIMIT 1`
       );
       const activeSemesterId = req.body?.semester_id || req.query?.semester_id || termRes.rows[0]?.id || '2026_RAIN';

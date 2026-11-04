@@ -148,6 +148,12 @@ const phase10EnhancePath = path.resolve(__dirname, 'migrations', '010_phase10_st
     await client.query(phase16QuizSql);
     logger.info('[DB Seed] Migration 016 Quiz Ingress Doctrine committed successfully.');
 
+    const lecturerWorkspacePath = path.resolve(__dirname, 'migrations', '016_lecturer_workspace.sql');
+    logger.info({ path: lecturerWorkspacePath }, '[DB Seed] Reading Migration 016 Lecturer Workspace SQL file...');
+    const lecturerWorkspaceSql = await fs.readFile(lecturerWorkspacePath, 'utf8');
+    await client.query(lecturerWorkspaceSql);
+    logger.info('[DB Seed] Migration 016 Lecturer Workspace committed successfully.');
+
     // Seed Digital Library Items & Binary PDFs
     const { seedDigitalLibrary } = await import('./seedLibrary.js');
     await seedDigitalLibrary();

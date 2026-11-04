@@ -56,8 +56,8 @@ const poolConfig = {
   connectionString: rawUrl,
   max: parseInt(process.env.PG_POOL_MAX || (isNeon ? '50' : '20'), 10),
   idleTimeoutMillis: 120000,
-  connectionTimeoutMillis: parseInt(process.env.PG_CONNECTION_TIMEOUT_MS || '15000', 10),
-  query_timeout: 15000,
+  connectionTimeoutMillis: parseInt(process.env.PG_CONNECTION_TIMEOUT_MS || '45000', 10),
+  query_timeout: parseInt(process.env.PG_QUERY_TIMEOUT_MS || '45000', 10),
   allowExitOnIdle: false,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
@@ -183,11 +183,11 @@ export const db = new DatabaseAdapter(pool);
 
 /**
  * ─── Federated Multi-Database Microservice Pools ────────────────────────────
- * Supports independent Neon databases for Lecturer and Admin domains.
- * Gracefully falls back to primary `pool` if specific domain URL is omitted.
+ * Supports independent Neon/Postgres databases for Lecturer and Admin domains.
+ * Gracefully falls back to primary `pool` if specific domain URL is omitted or matches rawUrl.
  */
 function createDomainPool(connectionUrl, poolName) {
-  if (!connectionUrl) return pool;
+  if (!connectionUrl || connectionUrl === rawUrl) return pool;
   const isDomainNeon = connectionUrl.includes('neon.tech');
   const DomainPoolClass = isDomainNeon ? NeonPool : pg.Pool;
   const domainConfig = {

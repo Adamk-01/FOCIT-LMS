@@ -1,12 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardCheck, UploadCloud, ShieldAlert, Users, ChevronRight } from 'lucide-react';
+import { ClipboardCheck, UploadCloud, ShieldAlert, Users, BookOpen, ChevronRight } from 'lucide-react';
 
 /**
  * Admin Quick Actions Card
  *
  * Implements:
- * 1. 3 spacious, clickable action tiles matching the approved mockup
+ * 1. Spacious, clickable action tiles matching the approved mockup
  * 2. Visual icons, clear headings, explanatory subtext, and chevron navigation
  * 3. Deep-links to Level Advisor review and opens focused administrative modals
  *
@@ -16,6 +16,7 @@ export function AdminQuickActionsCard({
   onOpenCohortModal,
   onOpenAuditModal,
   onOpenUserDirectory,
+  onOpenCourseModal,
 }) {
   const navigate = useNavigate();
 
@@ -33,7 +34,29 @@ export function AdminQuickActionsCard({
 
       {/* Action Tiles */}
       <div className="mt-4 flex flex-col gap-3 flex-1 justify-center">
-        {/* Action 1: Registration Clearance */}
+        {/* Action 1: Academic Catalog & Courses */}
+        <button
+          type="button"
+          onClick={onOpenCourseModal}
+          className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-[#0a1142]/40 hover:bg-slate-50/80 transition-all flex items-center justify-between group touch-manipulation min-h-[56px]"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-700 shrink-0 group-hover:bg-[#0a1142] group-hover:text-white transition-colors">
+              <BookOpen size={20} aria-hidden="true" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-gray-900 group-hover:text-[#0a1142]">
+                Academic Course Catalog (Add / Remove)
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                View all accredited courses, add new courses & manage Moodle sync
+              </p>
+            </div>
+          </div>
+          <ChevronRight size={16} className="text-gray-400 group-hover:text-[#0a1142] transition-transform group-hover:translate-x-0.5" />
+        </button>
+
+        {/* Action 2: Registration Clearance */}
         <button
           type="button"
           onClick={() => navigate('/advisor/registrations')}
@@ -55,7 +78,7 @@ export function AdminQuickActionsCard({
           <ChevronRight size={16} className="text-gray-400 group-hover:text-[#0a1142] transition-transform group-hover:translate-x-0.5" />
         </button>
 
-        {/* Action 2: Bulk Cohort Ingestion */}
+        {/* Action 3: Bulk Cohort Ingestion */}
         <button
           type="button"
           onClick={onOpenCohortModal}
@@ -77,7 +100,7 @@ export function AdminQuickActionsCard({
           <ChevronRight size={16} className="text-gray-400 group-hover:text-[#0a1142] transition-transform group-hover:translate-x-0.5" />
         </button>
 
-        {/* Action 3: Security Audit Ledger */}
+        {/* Action 4: Security Audit Ledger */}
         <button
           type="button"
           onClick={onOpenAuditModal}
@@ -99,7 +122,7 @@ export function AdminQuickActionsCard({
           <ChevronRight size={16} className="text-gray-400 group-hover:text-[#0a1142] transition-transform group-hover:translate-x-0.5" />
         </button>
 
-        {/* Action 4: User Directory & Permissions */}
+        {/* Action 5: User Directory & Permissions */}
         <button
           type="button"
           onClick={onOpenUserDirectory}
@@ -124,3 +147,4 @@ export function AdminQuickActionsCard({
     </div>
   );
 }
+export default AdminQuickActionsCard;

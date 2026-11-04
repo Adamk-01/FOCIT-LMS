@@ -159,18 +159,84 @@ INSERT INTO students (
 )
 VALUES
     -- student2: Freshman 100 Level
-    ('student2', 'FOCIT/2025/0104', 'student2', 'Jane Smith', 'jane.smith@focit.uniosun.edu.ng', 'BSC_CSC', 100, 4.10, 18),
+    ('student2', 
+     CASE 
+         WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student2')
+         THEN (SELECT matric_number FROM students WHERE student_id = 'student2')
+         WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2025/0104') 
+         THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
+         ELSE '2025/0104' 
+     END, 
+     'student2', 'Jane Smith', 'jane.smith@focit.uniosun.edu.ng', 'BSC_CSC', 100, 4.10, 18),
     -- student3: Penultimate 300 Level
-    ('student3', 'FOCIT/2023/0088', 'student3', 'Babatunde Adeleke', 'b.adeleke@focit.uniosun.edu.ng', 'BSC_CSC', 300, 3.45, 78),
+    ('student3', 
+     CASE 
+         WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student3')
+         THEN (SELECT matric_number FROM students WHERE student_id = 'student3')
+         WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2023/0088') 
+         THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
+         ELSE '2023/0088' 
+     END, 
+     'student3', 'Babatunde Adeleke', 'b.adeleke@focit.uniosun.edu.ng', 'BSC_CSC', 300, 3.45, 78),
     -- student4: Final Year 400 Level (Graduating Senior)
-    ('student4', 'FOCIT/2022/0019', 'student4', 'Chioma Okonkwo', 'c.okonkwo@focit.uniosun.edu.ng', 'BSC_CSC', 400, 4.72, 114),
+    ('student4', 
+     CASE 
+         WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student4')
+         THEN (SELECT matric_number FROM students WHERE student_id = 'student4')
+         WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2022/0019') 
+         THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
+         ELSE '2022/0019' 
+     END, 
+     'student4', 'Chioma Okonkwo', 'c.okonkwo@focit.uniosun.edu.ng', 'BSC_CSC', 400, 4.72, 114),
     -- student5: 200 Level Cyber Security (Cross-Department testing)
-    ('student5', 'FOCIT/2024/0155', 'student5', 'Aminu Garba', 'a.garba@focit.uniosun.edu.ng', 'BSC_CYS', 200, 3.20, 39)
+    ('student5', 
+     CASE 
+         WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student5')
+         THEN (SELECT matric_number FROM students WHERE student_id = 'student5')
+         WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0155') 
+         THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
+         ELSE '2024/0155' 
+     END, 
+     'student5', 'Aminu Garba', 'a.garba@focit.uniosun.edu.ng', 'BSC_CYS', 200, 3.20, 39)
 ON CONFLICT (student_id) DO UPDATE SET 
+    matric_number = COALESCE(students.matric_number, EXCLUDED.matric_number),
     full_name = EXCLUDED.full_name,
     level = EXCLUDED.level,
     current_gpa = EXCLUDED.current_gpa,
     completed_units = EXCLUDED.completed_units;
+
+-- Ensure existing seeded students (student2–student5) migrate legacy 'FOCIT/' formats to standard matriculation numbers
+UPDATE students 
+SET matric_number = '2025/0104' 
+WHERE student_id = 'student2' 
+  AND matric_number = 'FOCIT/2025/0104'
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2025/0104' AND student_id <> 'student2'
+  );
+
+UPDATE students 
+SET matric_number = '2023/0088' 
+WHERE student_id = 'student3' 
+  AND matric_number = 'FOCIT/2023/0088'
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2023/0088' AND student_id <> 'student3'
+  );
+
+UPDATE students 
+SET matric_number = '2022/0019' 
+WHERE student_id = 'student4' 
+  AND matric_number = 'FOCIT/2022/0019'
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2022/0019' AND student_id <> 'student4'
+  );
+
+UPDATE students 
+SET matric_number = '2024/0155' 
+WHERE student_id = 'student5' 
+  AND matric_number = 'FOCIT/2024/0155'
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2024/0155' AND student_id <> 'student5'
+  );
 
 -- C. Seed Profiles for New Students
 INSERT INTO student_profiles (

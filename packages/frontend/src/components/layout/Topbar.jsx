@@ -42,27 +42,29 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
 
-  const studentId = user?.student_id || user?.id || user?.username || 'student1';
+  const role = String(user?.role || '').toUpperCase();
+  const isStudent = ['STUDENT', 'CANDIDATE'].includes(role);
+  const studentId = user?.student_id || user?.id || user?.username || (isStudent ? 'student1' : '');
   const { data: profile } = useQuery({
-    queryKey: ['student-profile', studentId],
+    queryKey: ['student-profile', studentId, role],
     queryFn: async () => {
       const res = await apiClient.get('/student/profile');
       return res.data;
     },
     staleTime: 5 * 60 * 1000,
-    enabled: Boolean(studentId),
+    enabled: Boolean(studentId) && isStudent,
   });
 
   const { data: timetableEvents } = useQuery({
-    queryKey: ['student-timetable-events'],
+    queryKey: ['student-timetable-events', studentId, role],
     queryFn: async () => {
       const res = await apiClient.get('/student/timetable/events');
       return res.data;
     },
     staleTime: 60 * 1000,
-    enabled: Boolean(user),
+    enabled: Boolean(studentId) && isStudent,
   });
-  const nextLecture = timetableEvents?.nextUpcomingLecture;
+  const nextLecture = isStudent ? timetableEvents?.nextUpcomingLecture : null;
 
   const avatarUrl = profile?.avatar_url || user?.avatar_url || user?.avatarUrl;
 
@@ -75,8 +77,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const studentFirstName = studentFullName ? studentFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
   const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';
   const studentLevel = profile?.level || user?.level || 200;
-
-  const role = String(user?.role || '').toUpperCase();
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
   const isLecturer = role === 'LECTURER';
   const isAdvisor = ['LEVEL_ADVISOR', 'ADVISOR'].includes(role);
@@ -160,7 +160,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
             className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-950/60 text-[#16258f] dark:text-blue-300 border border-blue-200 dark:border-blue-800 animate-pulse"
           >
             <RefreshCw size={12} className="animate-spin text-[#16258f] dark:text-blue-300" />
-            <span>Syncing Moodle...</span>
+            <span>Syncing...</span>
           </div>
         )}
 

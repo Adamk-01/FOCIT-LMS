@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS courses (
     CONSTRAINT chk_course_capacity CHECK (enrolled_count <= max_capacity)
 );
 
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS moodle_course_id INT;
+
 CREATE INDEX IF NOT EXISTS idx_courses_filter 
 ON courses (level, semester_number, is_active);
 
@@ -226,7 +228,13 @@ INSERT INTO students (
 )
 VALUES (
     'student1',
-    'FOCIT/2024/0042',
+    CASE 
+        WHEN EXISTS (SELECT 1 FROM students WHERE student_id = 'student1')
+        THEN (SELECT matric_number FROM students WHERE student_id = 'student1')
+        WHEN EXISTS (SELECT 1 FROM students WHERE matric_number = '2024/0042') 
+        THEN 'SEED/' || substr(gen_random_uuid()::text, 1, 8) 
+        ELSE '2024/0042' 
+    END,
     'student1',
     'John Doe',
     'john.doe@focit.uniosun.edu.ng',
@@ -236,9 +244,19 @@ VALUES (
     42
 )
 ON CONFLICT (student_id) DO UPDATE SET 
+    matric_number = COALESCE(students.matric_number, EXCLUDED.matric_number),
     full_name = EXCLUDED.full_name,
     current_gpa = EXCLUDED.current_gpa,
     completed_units = EXCLUDED.completed_units;
+
+-- Ensure existing seeded students receive the standard matriculation format
+UPDATE students 
+SET matric_number = '2024/0042' 
+WHERE student_id = 'student1' 
+  AND matric_number = 'FOCIT/2024/0042'
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1'
+  );
 
 -- 6. Initial Active Enrollments for John Doe (Mirroring Screen 1 in ui_template.jpeg)
 -- Screen 1 shows:

@@ -97,6 +97,9 @@ services:
       - moodle
     ports:
       - "3000:3000"
+    volumes:
+      - ./packages/bff/src:/app/packages/bff/src
+      - ./packages/bff/scripts:/app/packages/bff/scripts
     env_file:
       - ./packages/bff/.env
     environment:
@@ -120,6 +123,9 @@ services:
     depends_on:
       - bff
     command: npm run dev:worker
+    volumes:
+      - ./packages/bff/src:/app/packages/bff/src
+      - ./packages/bff/scripts:/app/packages/bff/scripts
     env_file:
       - ./packages/bff/.env
     networks:
@@ -138,6 +144,10 @@ services:
       - bff
     ports:
       - "5173:5173"
+    volumes:
+      - ./packages/frontend/src:/app/packages/frontend/src
+      - ./packages/frontend/public:/app/packages/frontend/public
+      - ./packages/frontend/index.html:/app/packages/frontend/index.html
     environment:
       - VITE_API_TARGET=http://bff:3000
     networks:

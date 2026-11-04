@@ -36,4 +36,11 @@ router.get('/audit-logs', adminController.getAuditLogs);
 router.get('/academic-semesters', adminController.getAcademicSemesters);
 router.patch('/academic-semesters/:id/registration-window', adminController.toggleRegistrationWindow);
 
+
+// 6. Academic Catalog & Course Governance
+router.get('/departments', adminController.listDepartments);
+router.get('/courses', adminController.listCourses);
+router.post('/courses', adminController.createCourse);
+router.delete('/courses/:id', adminController.deleteCourse);
+
 export default router;
