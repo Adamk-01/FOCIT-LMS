@@ -267,7 +267,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   // Option selection handler: Synchronous commit to sessionStorage + debounced sync
   const handleSelectOption = useCallback(
     (questionId, optionId) => {
-      if (attempt?.status === 'SUBMITTED' || inFlightSubmitMutexRef.current) return;
+      if (['SUBMITTED', 'GRADED', 'EXPIRED'].includes(attempt?.status) || inFlightSubmitMutexRef.current) return;
 
       const nextAnswers = {
         ...selectedAnswers,
@@ -422,7 +422,8 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     timerRef.current = timer;
   }, [timer]);
 
-  const isFinalized = attempt?.status === 'SUBMITTED' || Boolean(submissionReceipt);
+  const isFinalized =
+    ['SUBMITTED', 'GRADED', 'EXPIRED'].includes(attempt?.status) || Boolean(submissionReceipt);
 
   useEffect(() => {
     if (isFinalized) {
