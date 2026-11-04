@@ -273,7 +273,7 @@ export const router = createBrowserRouter([
       {
         path: 'courses/:courseId/question-bank',
         element: (
-          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN', 'SYSTEM_ADMIN', 'HOD', 'LEVEL_ADVISOR', 'ADVISOR', 'DEAN', 'STAFF']}>
             <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),
@@ -282,7 +282,7 @@ export const router = createBrowserRouter([
       {
         path: 'question-bank',
         element: (
-          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN', 'SYSTEM_ADMIN', 'HOD', 'LEVEL_ADVISOR', 'ADVISOR', 'DEAN', 'STAFF']}>
             <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),
@@ -291,7 +291,7 @@ export const router = createBrowserRouter([
       {
         path: 'lecturer/question-bank',
         element: (
-          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN']}>
+          <RoleGuard allowedRoles={['LECTURER', 'FACULTY', 'ADMIN', 'SYSTEM_ADMIN', 'HOD', 'LEVEL_ADVISOR', 'ADVISOR', 'DEAN', 'STAFF']}>
             <LazyWrapper><QuestionBankPage /></LazyWrapper>
           </RoleGuard>
         ),

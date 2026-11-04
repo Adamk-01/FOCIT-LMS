@@ -476,3 +476,5 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
     </div>
   );
 }
+
+export default LecturerDashboardPage;
