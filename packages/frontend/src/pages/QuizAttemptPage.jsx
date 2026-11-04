@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useExamLock } from '../contexts/ExamLockContext';
@@ -23,16 +23,32 @@ import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
  * 4. Two-Strike Fullscreen & Anti-Cheat Proctoring Engine
  * 5. URL SearchParams Question Navigation (?q=1..N via { replace: true })
  * 6. Scoped sessionStorage Draft Answers Sandbox (focit_quiz_draft:${studentId}:${attemptId})
- * 7. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
- * 8. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
+ * 7. Canonical Ingress Normalization (/quizzes/:quizId/attempts/:attemptId)
+ * 8. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
+ * 9. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
 export function QuizAttemptPage() {
   const { courseId, quizId, attemptId } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { setExamLocked } = useExamLock();
   const studentId = user?.student_id || user?.id || user?.username;
+
+  // Defensive Ingress Normalization: resolve attemptId whether arriving via path segment or query param
+  const effectiveAttemptId = attemptId || searchParams.get('attemptId');
+
+  // Synchronize to canonical path if accessed via query parameter
+  useEffect(() => {
+    if (!attemptId && effectiveAttemptId && courseId && quizId) {
+      navigate(
+        `/courses/${encodeURIComponent(courseId)}/quizzes/${encodeURIComponent(quizId)}/attempts/${encodeURIComponent(effectiveAttemptId)}`,
+        { replace: true }
+      );
+    }
+  }, [attemptId, effectiveAttemptId, courseId, quizId, navigate]);
 
   const {
     attempt,
@@ -57,11 +73,11 @@ export function QuizAttemptPage() {
     submissionReceipt,
     isFinalized,
     triggerSubmit,
-  } = useQuizAttempt({ quizId, attemptId, studentId });
+  } = useQuizAttempt({ quizId, attemptId: effectiveAttemptId, studentId });
 
-  // 1. Formative vs. Summative Policy Invariant
+  // 1. Formative vs. Summative Policy Invariant (Strict canonical camelCase DTO check)
   const isProctored = Boolean(
-    quiz && (quiz.quiz_type === 'OFFICIAL_TEST' || quiz.is_proctored || quiz.require_lockdown)
+    quiz && quiz.quizType === 'OFFICIAL_TEST'
   );
 
   // 2. Physical Viewport Chrome Lockdown Lifecycle
@@ -90,8 +106,9 @@ export function QuizAttemptPage() {
     enterFullscreenProctoring,
   } = useAntiCheat({
     quizId,
-    attemptId,
+    attemptId: effectiveAttemptId,
     enabled: Boolean(isProctored && attempt?.status === 'IN_PROGRESS' && !isFinalized),
+    initialFullscreenExits: attempt?.fullscreenExits || 0,
     isSubmitting,
     onViolationAutoSubmit: handleViolationAutoSubmit,
   });
@@ -104,7 +121,7 @@ export function QuizAttemptPage() {
     );
   }
 
-  if (!quizId || !attemptId) {
+  if (!quizId || !effectiveAttemptId) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4">
         <ErrorAlertCallout error={{ message: 'Invalid or missing quiz attempt identifier. Please select an active quiz from your course assessments.' }} />

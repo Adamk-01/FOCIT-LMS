@@ -66,7 +66,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
       queryClient.setQueryData(['quiz-attempt', quizId, freshAttemptId], data);
       queryClient.invalidateQueries({ queryKey: ['course-quizzes', courseId] });
       navigate(
-        `/courses/${encodeURIComponent(courseId)}/quizzes/${quizId}?attemptId=${encodeURIComponent(freshAttemptId)}`
+        `/courses/${encodeURIComponent(courseId)}/quizzes/${quizId}/attempts/${encodeURIComponent(freshAttemptId)}`
       );
     },
     onError: (err) => {
@@ -160,7 +160,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
   // 4. Populated State: Course-Specific Quizzes
   return (
     <div className="space-y-4">
-      {quizzes.map((quiz) => {
+      {quizzes.map((quiz, idx) => {
         const attempt = quiz.attempt;
         const isGraded = attempt?.status === 'GRADED';
         const isInProgress = attempt?.status === 'IN_PROGRESS';
@@ -176,7 +176,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
 
         return (
           <article
-            key={quiz.quizId}
+            key={`${quiz.quizId}-${idx}`}
             className="p-6 bg-surface rounded-xl border border-surface-border shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all space-y-4"
           >
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
@@ -230,7 +230,9 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
               {/* Action Navigation */}
               {isGraded ? (
                 <Link
-                  to={`/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}${attempt?.attemptId ? `?attemptId=${encodeURIComponent(attempt.attemptId)}` : ''}`}
+                  to={attempt?.attemptId 
+                    ? `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}/attempts/${encodeURIComponent(attempt.attemptId)}`
+                    : `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}`}
                   className="min-h-[44px] px-5 py-2 rounded-xl bg-surface-alt hover:bg-surface border border-surface-border text-focitText-primary text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5"
                 >
                   View Assessment Receipt
@@ -242,7 +244,9 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
                   onClick={() => {
                     requestAutoFullscreen();
                     navigate(
-                      `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}${attempt?.attemptId ? `?attemptId=${encodeURIComponent(attempt.attemptId)}` : ''}`
+                      attempt?.attemptId 
+                        ? `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}/attempts/${encodeURIComponent(attempt.attemptId)}`
+                        : `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}`
                     );
                   }}
                   className="min-h-[44px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5 shadow-xs"

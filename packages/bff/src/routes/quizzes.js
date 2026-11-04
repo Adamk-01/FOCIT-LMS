@@ -212,10 +212,12 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         a.submitted_at,
         a.allocation_seed,
         a.is_practice,
+        a.telemetry_log,
         q.quiz_type,
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
+        q.quiz_type,
         c.code AS course_code,
         c.title AS course_title,
         NOW() AS server_now
@@ -312,6 +314,10 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
       return q;
     });
 
+    // Calculate persisted fullscreen exits from telemetry log
+    const telemetryList = Array.isArray(attempt.telemetry_log) ? attempt.telemetry_log : [];
+    const persistedFullscreenExits = telemetryList.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length;
+
     // 4. Return Authoritative Skew-Neutralizing Payload
     return res.status(200).json({
       attempt: {
@@ -326,6 +332,9 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         submittedAt: attempt.submitted_at,
         submissionMode: attempt.submission_mode,
         serverNow: attempt.server_now,
+        isPractice: Boolean(attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE'),
+        quizType: attempt.quiz_type,
+        fullscreenExits: persistedFullscreenExits,
       },
       quiz: {
         id: attempt.quiz_id,
@@ -333,6 +342,7 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         courseCode: attempt.course_code,
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
+        quizType: attempt.quiz_type,
       },
       questions: shuffledQuestions.map((q) => ({
         id: q.id,
@@ -425,6 +435,7 @@ router.post('/:quizId/attempts', async (req, res, next) => {
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
+        q.quiz_type,
         c.code AS course_code,
         c.title AS course_title,
         NOW() AS server_now
@@ -547,6 +558,9 @@ router.post('/:quizId/attempts', async (req, res, next) => {
         submissionMode: attempt.submission_mode,
         serverNow: attempt.server_now,
         isNewRecord: attempt.is_new_record,
+        isPractice: Boolean(attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE'),
+        quizType: attempt.quiz_type,
+        fullscreenExits: 0,
       },
       quiz: {
         id: attempt.quiz_id,
@@ -554,6 +568,7 @@ router.post('/:quizId/attempts', async (req, res, next) => {
         courseCode: attempt.course_code,
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
+        quizType: attempt.quiz_type,
       },
       questions: shuffledQuestions,
       answers: answersMap,
