@@ -1738,6 +1738,7 @@ export async function createCourse(req, res, next) {
 
     const newCourse = insertRes.rows[0];
     let moodleCourseId = null;
+    let provisionedMoodleId = null;
 
     try {
       const moodleRes = await callMoodleAPI('core_course_create_courses', {
@@ -1752,7 +1753,14 @@ export async function createCourse(req, res, next) {
       }, 'POST');
 
       if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
-        const provisionedId = moodleRes[0].id;
+        provisionedMoodleId = moodleRes[0].id;
+      }
+    } catch (moodleApiErr) {
+      logger.warn({ err: moodleApiErr?.message, courseId }, '[AdminController] Moodle API course creation call failed (deferred)');
+    }
+
+    if (provisionedMoodleId) {
+      try {
         let activeSemesterId = '2026_RAIN';
         try {
           const semRes = await pool.query(
@@ -1773,21 +1781,47 @@ export async function createCourse(req, res, next) {
           `INSERT INTO moodle_course_mappings (id, focit_course_id, semester_id, moodle_course_id, sync_status, last_synced_at)
            VALUES (gen_random_uuid(), $1, $2, $3, 'SYNCED', NOW())
            ON CONFLICT (focit_course_id, semester_id) DO UPDATE SET moodle_course_id = EXCLUDED.moodle_course_id, sync_status = 'SYNCED', last_synced_at = NOW()`,
-          [courseId, activeSemesterId, provisionedId]
+          [courseId, activeSemesterId, provisionedMoodleId]
         );
+
         try {
-          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [provisionedId, courseId]);
+          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [provisionedMoodleId, courseId]);
         } catch (_) {
           // Non-fatal if courses.moodle_course_id column is absent
         }
-        // Only mark as successfully provisioned after mapping is safely persisted
-        moodleCourseId = provisionedId;
-        newCourse.moodle_course_id = provisionedId;
+
+        // Only mark as fully synced once mapping is safely persisted in the database
+        moodleCourseId = provisionedMoodleId;
+        newCourse.moodle_course_id = provisionedMoodleId;
+      } catch (mappingErr) {
+        logger.error(
+          { err: mappingErr?.message, courseId, provisionedMoodleId },
+          '[AdminController] Moodle course provisioned upstream but local mapping persistence failed'
+        );
+
+        // Record provisioned Moodle ID directly on courses table to ensure it is never orphaned
+        try {
+          await pool.query('UPDATE courses SET moodle_course_id = $1 WHERE course_id = $2', [provisionedMoodleId, courseId]);
+          newCourse.moodle_course_id = provisionedMoodleId;
+        } catch (_) {
+          // Non-fatal if column absent
+        }
+
+        // Record provisioned ID in integration outbox events for asynchronous reconciliation
+        try {
+          await pool.query(
+            `INSERT INTO integration_outbox_events (
+              event_id, aggregate_type, aggregate_id, event_type, payload, status, created_at, updated_at
+            ) VALUES (
+              gen_random_uuid(), 'COURSE', $1, 'COURSE_MOODLE_MAPPING_RECONCILE',
+              $2::jsonb, 'PENDING', NOW(), NOW()
+            )`,
+            [courseId, JSON.stringify({ focitCourseId: courseId, moodleCourseId: provisionedMoodleId, error: mappingErr?.message })]
+          );
+        } catch (_) {
+          // Non-fatal if table absent
+        }
       }
-    } catch (moodleErr) {
-      moodleCourseId = null;
-      newCourse.moodle_course_id = null;
-      logger.warn({ err: moodleErr?.message, courseId }, '[AdminController] Moodle sync on course creation failed (deferred)');
     }
 
     await recordIdentityAuditLog(pool, {
@@ -1797,19 +1831,35 @@ export async function createCourse(req, res, next) {
       targetId: courseId,
       targetType: 'COURSE',
       ipAddress: req.ip,
-      metadata: { code: cleanCode, title: cleanTitle, units: parsedUnits, moodleCourseId },
+      metadata: { 
+        code: cleanCode, 
+        title: cleanTitle, 
+        units: parsedUnits, 
+        moodleCourseId,
+        ...(provisionedMoodleId ? { provisionedMoodleId } : {}),
+        ...(provisionedMoodleId && !moodleCourseId ? { mappingPersistFailed: true } : {}),
+      },
     });
 
-    const responseMessage = moodleCourseId
-      ? `Course ${cleanCode} successfully added to the catalog and provisioned in Moodle (ID: ${moodleCourseId})`
-      : `Course ${cleanCode} successfully added to the catalog (Moodle provisioning pending/deferred)`;
+    let responseMessage;
+    let syncStatus;
+    if (moodleCourseId) {
+      responseMessage = `Course ${cleanCode} successfully added to the catalog and provisioned in Moodle (ID: ${moodleCourseId})`;
+      syncStatus = 'SYNCED';
+    } else if (provisionedMoodleId) {
+      responseMessage = `Course ${cleanCode} provisioned in Moodle (ID: ${provisionedMoodleId}), but local mapping persistence is pending reconciliation`;
+      syncStatus = 'PENDING';
+    } else {
+      responseMessage = `Course ${cleanCode} successfully added to the catalog (Moodle provisioning pending/deferred)`;
+      syncStatus = 'PENDING';
+    }
 
     return res.status(201).json({
       success: true,
       data: {
         ...newCourse,
-        moodle_course_id: moodleCourseId,
-        moodle_sync_status: moodleCourseId ? 'SYNCED' : 'PENDING',
+        moodle_course_id: moodleCourseId || provisionedMoodleId || null,
+        moodle_sync_status: syncStatus,
       },
       message: responseMessage,
     });
@@ -1924,11 +1974,33 @@ export async function deleteCourse(req, res, next) {
       }
     }
 
+    // Also collect any provisioned Moodle ID recorded in pending outbox reconciliation events
+    try {
+      const outboxRes = await pool.query(
+        `SELECT payload->>'moodleCourseId' AS moodle_course_id 
+         FROM integration_outbox_events 
+         WHERE aggregate_type = 'COURSE' AND aggregate_id = $1 AND payload->>'moodleCourseId' IS NOT NULL`,
+        [canonicalId]
+      );
+      for (const r of outboxRes.rows) {
+        if (r.moodle_course_id) {
+          moodleIdsToDelete.add(parseInt(r.moodle_course_id, 10));
+        }
+      }
+    } catch (_) {
+      // Non-fatal if table absent
+    }
+
     // Wrap local deletes in an atomic transaction
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query('DELETE FROM moodle_course_mappings WHERE focit_course_id = $1', [canonicalId]);
+      try {
+        await client.query("DELETE FROM integration_outbox_events WHERE aggregate_type = 'COURSE' AND aggregate_id = $1", [canonicalId]);
+      } catch (_) {
+        // Non-fatal if table absent
+      }
       await client.query('DELETE FROM hod_course_allocations WHERE course_id = $1', [canonicalId]);
       await client.query('DELETE FROM courses WHERE course_id = $1', [canonicalId]);
       await client.query('COMMIT');
