@@ -72,7 +72,7 @@ const ProtectedLayoutContent = () => {
 
   // Redirect to login if unauthenticated
   if (status === AuthState.UNAUTHENTICATED) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/login" replace />;
   }
 
   // Quarantined session enforcement (mandatory password reset before accessing any academic tools)
