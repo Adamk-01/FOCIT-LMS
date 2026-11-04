@@ -236,9 +236,15 @@ VALUES (
     42
 )
 ON CONFLICT (student_id) DO UPDATE SET 
+    matric_number = EXCLUDED.matric_number,
     full_name = EXCLUDED.full_name,
     current_gpa = EXCLUDED.current_gpa,
     completed_units = EXCLUDED.completed_units;
+
+-- Ensure existing seeded students receive the standard matriculation format
+UPDATE students 
+SET matric_number = '2024/0042' 
+WHERE student_id = 'student1' AND (matric_number IS NULL OR matric_number LIKE 'FOCIT/%');
 
 -- 6. Initial Active Enrollments for John Doe (Mirroring Screen 1 in ui_template.jpeg)
 -- Screen 1 shows:

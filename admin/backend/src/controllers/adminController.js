@@ -1745,7 +1745,7 @@ export async function createCourse(req, res, next) {
             `SELECT s.id 
              FROM academic_semesters s
              LEFT JOIN academic_sessions sess ON sess.id = s.session_id
-             ORDER BY (sess.is_current = TRUE) DESC, (s.is_registration_open = TRUE) DESC, s.created_at DESC 
+             ORDER BY COALESCE(sess.is_current, FALSE) DESC, COALESCE(s.is_registration_open, FALSE) DESC, s.created_at DESC 
              LIMIT 1`
           );
           if (semRes.rows.length > 0 && semRes.rows[0].id) {
@@ -1898,13 +1898,36 @@ export async function deleteCourse(req, res, next) {
       client.release();
     }
 
-    // Delete from Moodle upstream using all collected mappings to prevent orphaned courses
+    // Synchronize course deletion/archival with Moodle upstream without relying solely on local reference counts
     if (moodleIdsToDelete.size > 0) {
-      const courseids = Array.from(moodleIdsToDelete);
-      try {
-        await callMoodleAPI('core_course_delete_courses', { courseids }, 'POST');
-      } catch (mErr) {
-        logger.warn({ err: mErr?.message, courseids }, '[AdminController] Moodle course deletion warning');
+      for (const moodleId of moodleIdsToDelete) {
+        try {
+          let hasRemoteMoodleUsers = false;
+          try {
+            const moodleUsers = await callMoodleAPI('core_enrol_get_enrolled_users', { courseid: moodleId }, 'GET');
+            if (Array.isArray(moodleUsers) && moodleUsers.length > 0) {
+              hasRemoteMoodleUsers = true;
+            }
+          } catch (checkErr) {
+            // Fail safe: if upstream verification fails or is inaccessible, preserve Moodle course data
+            hasRemoteMoodleUsers = true;
+            logger.warn({ err: checkErr?.message, moodleId }, '[AdminController] Unable to verify remote Moodle enrollments; defaulting to safe archival');
+          }
+
+          if (hasRemoteMoodleUsers) {
+            // Moodle course has active users or cannot be confirmed empty: safely deactivate/hide (visible: 0)
+            await callMoodleAPI('core_course_update_courses', {
+              courses: [{ id: moodleId, visible: 0 }]
+            }, 'POST');
+            logger.info({ moodleId }, '[AdminController] Moodle course has remote activity or unverified state; safely hidden (visible=0)');
+          } else {
+            // Only hard-delete upstream when confirmed zero remote enrollments exist in Moodle
+            await callMoodleAPI('core_course_delete_courses', { courseids: [moodleId] }, 'POST');
+            logger.info({ moodleId }, '[AdminController] Moodle course with 0 remote enrollments purged upstream');
+          }
+        } catch (mErr) {
+          logger.warn({ err: mErr?.message, moodleId }, '[AdminController] Moodle course cleanup warning');
+        }
       }
     }
 

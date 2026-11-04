@@ -167,6 +167,7 @@ VALUES
     -- student5: 200 Level Cyber Security (Cross-Department testing)
     ('student5', 'FOCIT/2024/0155', 'student5', 'Aminu Garba', 'a.garba@focit.uniosun.edu.ng', 'BSC_CYS', 200, 3.20, 39)
 ON CONFLICT (student_id) DO UPDATE SET 
+    matric_number = EXCLUDED.matric_number,
     full_name = EXCLUDED.full_name,
     level = EXCLUDED.level,
     current_gpa = EXCLUDED.current_gpa,
