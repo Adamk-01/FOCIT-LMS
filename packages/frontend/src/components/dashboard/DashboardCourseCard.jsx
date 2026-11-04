@@ -7,6 +7,7 @@
  * 3. NUC 75% Benchmark Attendance Standing Meter with deterministic threshold notch
  * 4. Contextual Live Lecture Ingress: Gold pulsing action when a lecture session is OPEN
  * 5. Deterministic Routing: Direct course room entry and tab deep-links
+ * 6. Responsive Anti-Wrapping Hierarchy: Top row strictly isolated to [Code] and [Status]
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
@@ -17,11 +18,8 @@ import {
   ArrowRight, 
   KeyRound, 
   ShieldCheck, 
-  Clock, 
-  BookOpen, 
   AlertTriangle,
-  CheckCircle2,
-  Sparkles
+  CheckCircle2
 } from 'lucide-react';
 
 /**
@@ -35,7 +33,6 @@ function getCoursePalette(code = '') {
         badgeBg: 'bg-indigo-50 dark:bg-indigo-950/60',
         badgeText: 'text-indigo-700 dark:text-indigo-300',
         badgeBorder: 'border-indigo-200 dark:border-indigo-800/60',
-        accentGradient: 'from-indigo-500 to-blue-600',
         accentGlow: 'group-hover:border-indigo-400 dark:group-hover:border-indigo-500/60',
       };
     case 'GST':
@@ -43,7 +40,6 @@ function getCoursePalette(code = '') {
         badgeBg: 'bg-amber-50 dark:bg-amber-950/60',
         badgeText: 'text-amber-800 dark:text-amber-300',
         badgeBorder: 'border-amber-200 dark:border-amber-800/60',
-        accentGradient: 'from-[#ffb81c] to-amber-600',
         accentGlow: 'group-hover:border-amber-400 dark:group-hover:border-amber-500/60',
       };
     case 'MTH':
@@ -53,7 +49,6 @@ function getCoursePalette(code = '') {
         badgeBg: 'bg-emerald-50 dark:bg-emerald-950/60',
         badgeText: 'text-emerald-700 dark:text-emerald-300',
         badgeBorder: 'border-emerald-200 dark:border-emerald-800/60',
-        accentGradient: 'from-emerald-500 to-teal-600',
         accentGlow: 'group-hover:border-emerald-400 dark:group-hover:border-emerald-500/60',
       };
     default:
@@ -61,7 +56,6 @@ function getCoursePalette(code = '') {
         badgeBg: 'bg-blue-50 dark:bg-blue-950/60',
         badgeText: 'text-blue-700 dark:text-blue-300',
         badgeBorder: 'border-blue-200 dark:border-blue-800/60',
-        accentGradient: 'from-[#0a1142] to-[#16258f]',
         accentGlow: 'group-hover:border-blue-400 dark:group-hover:border-blue-500/60',
       };
   }
@@ -105,22 +99,14 @@ export function DashboardCourseCard({
         ${hasLiveSession ? 'ring-2 ring-[#ffb81c]/60 shadow-[#ffb81c]/10' : ''}
       `}
     >
-      {/* 1. Header: Course Code, Units & Live Status */}
       <div className="space-y-4">
+        {/* 1. Header: Course Code on Left, Status Badge on Right (Clean 2-element row, NEVER wraps) */}
         <header className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
-            <span
-              className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono tracking-wider border shadow-2xs shrink-0 ${palette.badgeBg} ${palette.badgeText} ${palette.badgeBorder}`}
-            >
-              {courseCode}
-            </span>
-            <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80 shrink-0 whitespace-nowrap">
-              {units} {units === 1 ? 'Unit' : 'Units'}
-            </span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 shrink-0 whitespace-nowrap">
-              {category}
-            </span>
-          </div>
+          <span
+            className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono tracking-wider border shadow-2xs shrink-0 whitespace-nowrap ${palette.badgeBg} ${palette.badgeText} ${palette.badgeBorder}`}
+          >
+            {courseCode}
+          </span>
 
           <div className="shrink-0 flex items-center">
             {hasLiveSession ? (
@@ -142,8 +128,8 @@ export function DashboardCourseCard({
           </div>
         </header>
 
-        {/* 2. Course Title & Level Meta */}
-        <div className="space-y-1">
+        {/* 2. Course Title & Structured Academic Metadata */}
+        <div className="space-y-2">
           <Link
             to={`/courses/${encodeURIComponent(courseId)}`}
             className="block text-[#0a1142] dark:text-slate-100 group-hover:text-[#16258f] dark:group-hover:text-indigo-400 transition-colors"
@@ -152,9 +138,16 @@ export function DashboardCourseCard({
               {courseTitle}
             </h3>
           </Link>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-            Level {level} Academic Syllabus
-          </p>
+
+          <div className="flex items-center gap-1.5 sm:gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium flex-wrap">
+            <span>Level {level} Syllabus</span>
+            <span className="text-slate-300 dark:text-slate-600">•</span>
+            <span>{units} {units === 1 ? 'Unit' : 'Units'}</span>
+            <span className="text-slate-300 dark:text-slate-600">•</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80 whitespace-nowrap">
+              {category}
+            </span>
+          </div>
         </div>
 
         {/* 3. NUC 75% Examination Attendance Standing Meter */}
@@ -165,11 +158,11 @@ export function DashboardCourseCard({
               <span className="whitespace-nowrap">NUC Standing</span>
             </span>
 
-            {/* High-contrast attendance label with defensive whitespace isolation */}
+            {/* Attendance Standing Label */}
             <div className="text-right min-w-0">
               {!hasRecordedSessions ? (
                 <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                  100% (No Sessions Yet)
+                  100% (No Sessions)
                 </span>
               ) : isBarred ? (
                 <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 justify-end whitespace-nowrap">
@@ -178,7 +171,7 @@ export function DashboardCourseCard({
                 </span>
               ) : isEligible ? (
                 <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                  {percentage}% (Exam Qualified)
+                  {percentage}% (Eligible)
                 </span>
               ) : (
                 <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1 justify-end whitespace-nowrap">
@@ -229,7 +222,7 @@ export function DashboardCourseCard({
               aria-label={`Enter attendance passcode for ${courseCode}`}
             >
               <KeyRound size={15} />
-              <span>Enter Passcode (Week {activeSession.weekNumber || 1})</span>
+              <span>Enter Passcode (Wk {activeSession.weekNumber || 1})</span>
             </button>
             <Link
               to={`/courses/${encodeURIComponent(courseId)}`}
@@ -274,7 +267,7 @@ export function DashboardCourseSkeleton({ count = 4 }) {
     <div
       aria-label="Loading enrolled courses"
       aria-busy="true"
-      className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 animate-pulse"
+      className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 animate-pulse"
     >
       {Array.from({ length: count }).map((_, idx) => (
         <div
@@ -301,4 +294,3 @@ export function DashboardCourseSkeleton({ count = 4 }) {
 }
 
 export default DashboardCourseCard;
-
