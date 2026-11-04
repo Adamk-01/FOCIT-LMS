@@ -1707,7 +1707,15 @@ export async function createCourse(req, res, next) {
     });
   }
 
-  const cleanCategory = String(category || 'CORE').toUpperCase() === 'ELECTIVE' ? 'ELECTIVE' : 'CORE';
+  const rawCategory = category ? String(category).trim().toUpperCase() : 'CORE';
+  const VALID_CATEGORIES = ['CORE', 'ELECTIVE', 'GENERAL'];
+  if (!VALID_CATEGORIES.includes(rawCategory)) {
+    return res.status(400).json({
+      error: `Invalid course category: '${category}'. Supported categories are: CORE, ELECTIVE, GENERAL`,
+      code: 'COURSE_INVALID_CATEGORY',
+    });
+  }
+  const cleanCategory = rawCategory;
 
   try {
     // Validate department exists in academic catalog
@@ -1741,22 +1749,30 @@ export async function createCourse(req, res, next) {
     let provisionedMoodleId = null;
 
     try {
-      const moodleRes = await callMoodleAPI('core_course_create_courses', {
-        courses: [
-          {
-            fullname: `${cleanTitle} (${cleanCode})`,
-            shortname: courseId,
-            categoryid: 1,
-            idnumber: courseId,
-          }
-        ]
-      }, 'POST');
+      // 1. Look up Moodle shortname before attempting creation to prevent duplicate shortname errors
+      const existingMoodle = await callMoodleAPI('core_course_get_courses_by_field', { field: 'shortname', value: courseId });
+      if (existingMoodle?.courses && Array.isArray(existingMoodle.courses) && existingMoodle.courses.length > 0 && existingMoodle.courses[0].id) {
+        provisionedMoodleId = existingMoodle.courses[0].id;
+        logger.info({ courseId, provisionedMoodleId }, '[AdminController] Reused existing Moodle course matching shortname');
+      } else {
+        // 2. Provision new course upstream in Moodle
+        const moodleRes = await callMoodleAPI('core_course_create_courses', {
+          courses: [
+            {
+              fullname: `${cleanTitle} (${cleanCode})`,
+              shortname: courseId,
+              categoryid: 1,
+              idnumber: courseId,
+            }
+          ]
+        }, 'POST');
 
-      if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
-        provisionedMoodleId = moodleRes[0].id;
+        if (Array.isArray(moodleRes) && moodleRes.length > 0 && moodleRes[0].id) {
+          provisionedMoodleId = moodleRes[0].id;
+        }
       }
     } catch (moodleApiErr) {
-      logger.warn({ err: moodleApiErr?.message, courseId }, '[AdminController] Moodle API course creation call failed (deferred)');
+      logger.warn({ err: moodleApiErr?.message, courseId }, '[AdminController] Moodle API course creation/lookup call failed (deferred)');
     }
 
     if (provisionedMoodleId) {
@@ -1821,6 +1837,23 @@ export async function createCourse(req, res, next) {
         } catch (_) {
           // Non-fatal if table absent
         }
+      }
+    }
+
+    if (!provisionedMoodleId) {
+      // Queue outbox reconciliation event when Moodle provisioning is deferred/failed
+      try {
+        await pool.query(
+          `INSERT INTO integration_outbox_events (
+            event_id, aggregate_type, aggregate_id, event_type, payload, status, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(), 'COURSE', $1, 'COURSE_MOODLE_PROVISION_REQUESTED',
+            $2::jsonb, 'PENDING', NOW(), NOW()
+          )`,
+          [courseId, JSON.stringify({ focitCourseId: courseId, code: cleanCode, title: cleanTitle })]
+        );
+      } catch (_) {
+        // Non-fatal if table absent
       }
     }
 

@@ -341,6 +341,8 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           c.category === 'CORE'
                             ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : c.category === 'GENERAL'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
                             : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}
                       >
@@ -512,6 +514,7 @@ export function CourseCatalogModal({ isOpen, onClose }) {
                   >
                     <option value="CORE">CORE</option>
                     <option value="ELECTIVE">ELECTIVE</option>
+                    <option value="GENERAL">GENERAL</option>
                   </select>
                 </div>
               </div>
