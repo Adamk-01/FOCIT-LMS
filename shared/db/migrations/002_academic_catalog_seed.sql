@@ -244,7 +244,11 @@ ON CONFLICT (student_id) DO UPDATE SET
 -- Ensure existing seeded students receive the standard matriculation format
 UPDATE students 
 SET matric_number = '2024/0042' 
-WHERE student_id = 'student1' AND (matric_number IS NULL OR matric_number LIKE 'FOCIT/%');
+WHERE student_id = 'student1' 
+  AND (matric_number IS NULL OR matric_number LIKE 'FOCIT/%')
+  AND NOT EXISTS (
+      SELECT 1 FROM students WHERE matric_number = '2024/0042' AND student_id <> 'student1'
+  );
 
 -- 6. Initial Active Enrollments for John Doe (Mirroring Screen 1 in ui_template.jpeg)
 -- Screen 1 shows:

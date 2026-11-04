@@ -148,6 +148,8 @@ export function CourseCatalogModal({ isOpen, onClose }) {
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close academic catalog modal"
+          title="Close dialog"
           className="absolute top-5 right-5 p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
         >
           <X size={20} />
@@ -394,6 +396,8 @@ export function CourseCatalogModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={() => setIsAddOpen(false)}
+                aria-label="Close add course dialog"
+                title="Close dialog"
                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700"
               >
                 <X size={18} />
