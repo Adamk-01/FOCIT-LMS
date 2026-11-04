@@ -130,6 +130,7 @@ app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // ─── 4. Health Check (before auth — LB probes don't have JWTs) ──
 app.use('/health', healthRouter);
+app.use('/healthz', healthRouter);
 
 // ─── 5. Fetch Metadata Perimeter Guard (Platform CSRF & Subresource Isolation) ──
 app.use('/api', fetchMetadataGuard);
