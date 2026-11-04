@@ -49,7 +49,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const isStudent = ['STUDENT', 'CANDIDATE'].includes(role);
   const studentId = user?.username || user?.id || '';
   const { data: profile } = useQuery({
-    queryKey: ['student-profile', studentId],
+    queryKey: ['student-profile', studentId, role],
     queryFn: async () => {
       const res = await apiClient.get('/student/profile');
       return res.data;
@@ -59,15 +59,15 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   });
 
   const { data: timetableEvents } = useQuery({
-    queryKey: ['student-timetable-events'],
+    queryKey: ['student-timetable-events', studentId, role],
     queryFn: async () => {
       const res = await apiClient.get('/student/timetable/events');
       return res.data;
     },
     staleTime: 60 * 1000,
-    enabled: Boolean(user) && isStudent,
+    enabled: Boolean(studentId) && isStudent,
   });
-  const nextLecture = timetableEvents?.nextUpcomingLecture;
+  const nextLecture = isStudent ? timetableEvents?.nextUpcomingLecture : null;
 
   const avatarUrl = profile?.avatar_url || user?.avatar_url || user?.avatarUrl;
   const studentFullName = profile?.full_name || user?.full_name || user?.name || '';

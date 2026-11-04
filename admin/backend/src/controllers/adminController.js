@@ -2036,20 +2036,26 @@ export async function deleteCourse(req, res, next) {
     if (moodleIdsToDelete.size > 0) {
       for (const moodleId of moodleIdsToDelete) {
         try {
-          let hasRemoteMoodleUsers = false;
+          let isConfirmedEmpty = false;
           try {
             const moodleUsers = await callMoodleAPI('core_enrol_get_enrolled_users', { courseid: moodleId }, 'GET');
-            if (Array.isArray(moodleUsers) && moodleUsers.length > 0) {
-              hasRemoteMoodleUsers = true;
+            if (Array.isArray(moodleUsers)) {
+              if (moodleUsers.length === 0) {
+                isConfirmedEmpty = true;
+              } else {
+                logger.info({ moodleId, userCount: moodleUsers.length }, '[AdminController] Moodle course has enrolled users; preserving course');
+              }
+            } else {
+              // Fail safe: treat non-array response (e.g. error payload) as unverified to prevent accidental purge
+              logger.warn({ moodleId, moodleUsers }, '[AdminController] Non-array enrollment response received from Moodle; treating as unverified');
             }
           } catch (checkErr) {
             // Fail safe: if upstream verification fails or is inaccessible, preserve Moodle course data
-            hasRemoteMoodleUsers = true;
             logger.warn({ err: checkErr?.message, moodleId }, '[AdminController] Unable to verify remote Moodle enrollments; defaulting to safe archival');
           }
 
-          if (hasRemoteMoodleUsers) {
-            // Moodle course has active users or cannot be confirmed empty: safely deactivate/hide (visible: 0)
+          if (!isConfirmedEmpty) {
+            // Moodle course has active users, non-array response, or cannot be confirmed empty: safely deactivate/hide (visible: 0)
             await callMoodleAPI('core_course_update_courses', {
               courses: [{ id: moodleId, visible: 0 }]
             }, 'POST');
