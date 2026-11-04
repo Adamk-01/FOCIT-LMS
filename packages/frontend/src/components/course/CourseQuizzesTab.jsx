@@ -160,7 +160,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
   // 4. Populated State: Course-Specific Quizzes
   return (
     <div className="space-y-4">
-      {quizzes.map((quiz, idx) => {
+      {quizzes.map((quiz) => {
         const attempt = quiz.attempt;
         const isGraded = attempt?.status === 'GRADED';
         const isInProgress = attempt?.status === 'IN_PROGRESS';
@@ -176,7 +176,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
 
         return (
           <article
-            key={`${quiz.quizId}-${idx}`}
+            key={quiz.quizId}
             className="p-6 bg-surface rounded-xl border border-surface-border shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all space-y-4"
           >
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
