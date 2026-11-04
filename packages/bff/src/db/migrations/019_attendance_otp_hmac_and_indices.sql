@@ -16,4 +16,9 @@ CREATE INDEX IF NOT EXISTS idx_attendance_sessions_otp_active
   ON attendance_sessions (course_id, session_id)
   WHERE is_locked = FALSE AND active_otp_hash IS NOT NULL;
 
+-- 3. Composite Index for Microsecond Delta Polling & MVCC Lookback Scans
+-- Eliminates sequential heap scans and in-memory sort buffers under concurrent monitor load
+CREATE INDEX IF NOT EXISTS idx_attendance_records_session_marked
+  ON attendance_records (session_id, marked_at ASC);
+
 COMMIT;

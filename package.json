@@ -1,6 +1,7 @@
 {
   "name": "focit-lms",
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/bff",
     "packages/mock-moodle",

@@ -193,10 +193,16 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   const [syncStatus, setSyncStatus] = useState('SYNCED'); // 'SYNCED' | 'SAVING' | 'OFFLINE'
   const autoSaveTimeoutRef = useRef(null);
   const autoSaveAbortRef = useRef(null);
+  const inFlightSubmitMutexRef = useRef(false);
+  const isFinalizedRef = useRef(false);
 
   const flushPendingAnswers = useCallback(async () => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setSyncStatus('OFFLINE');
+      return;
+    }
+
+    if (inFlightSubmitMutexRef.current || isFinalizedRef.current) {
       return;
     }
 
@@ -213,7 +219,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
       setSyncStatus('SAVING');
       const payload = unsyncedEntries.map(([qId, val]) => ({
         questionId: qId,
-        optionId: val.optionId,
+        optionId: typeof val === 'object' && val !== null ? val.optionId : val,
       }));
 
       autoSaveAbortRef.current = new AbortController();
@@ -237,9 +243,11 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
 
       setSyncStatus('SYNCED');
     } catch (err) {
-      if (err?.name !== 'CanceledError' && err?.name !== 'AbortError') {
-        setSyncStatus('OFFLINE');
-      }
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+      // If attempt is submitting or finalized, ignore 409 and do not surface misleading offline state
+      if (inFlightSubmitMutexRef.current || isFinalizedRef.current) return;
+      if (err?.response?.status === 409) return;
+      setSyncStatus('OFFLINE');
     }
   }, [storageKey, quizId, attemptId]);
 
@@ -291,29 +299,46 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
 
   // 4. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
   const hasAutoSubmitFiredRef = useRef(false);
-  const inFlightSubmitMutexRef = useRef(false);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [submissionReceipt, setSubmissionReceipt] = useState(null);
   const [submitError, setSubmitError] = useState(null);
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ submissionMode = 'STANDARD' } = {}) => {
       // Abort any pending background auto-save to eliminate race conditions
       if (autoSaveAbortRef.current) {
-        autoSaveAbortRef.current.abort();
+        try {
+          autoSaveAbortRef.current.abort();
+        } catch {}
       }
 
-      const answersArray = Object.entries(selectedAnswers).map(([qId, val]) => ({
+      // Authoritative read from scoped sessionStorage, fallback to React state
+      let sourceAnswers = selectedAnswers;
+      try {
+        const cached = sessionStorage.getItem(storageKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed.answers === 'object' && parsed.answers !== null) {
+            sourceAnswers = parsed.answers;
+          }
+        }
+      } catch {}
+
+      // Normalize dictionary map to JSON array of objects [{ questionId, optionId }]
+      const answersArray = Object.entries(sourceAnswers).map(([qId, val]) => ({
         questionId: qId,
-        optionId: val.optionId,
+        optionId: typeof val === 'object' && val !== null ? val.optionId : val,
       }));
 
       const idempotencyKey = getQuizIdempotencyKey(studentId, attemptId, answersArray);
 
       const res = await apiClient.post(
         `/quizzes/${quizId}/attempts/${attemptId}/submit`,
-        { answers: answersArray },
+        {
+          answers: answersArray,
+          submissionMode,
+        },
         {
           headers: {
             'Idempotency-Key': idempotencyKey,
@@ -323,6 +348,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
       return res.data;
     },
     onSuccess: (data) => {
+      isFinalizedRef.current = true;
       setSubmissionReceipt(data);
       setShowConfirmModal(false);
       setSubmitError(null);
@@ -335,14 +361,18 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     },
   });
 
-  const triggerSubmit = useCallback(async () => {
+  const triggerSubmit = useCallback(async (optionsOrMode) => {
     // Hardware execution mutex: blocks frantic double-clicks while request is in-flight
-    if (inFlightSubmitMutexRef.current || submitMutation.isPending) return;
+    if (inFlightSubmitMutexRef.current || submitMutation.isPending || isFinalizedRef.current) return;
     inFlightSubmitMutexRef.current = true;
     setSubmitError(null);
 
+    const submissionMode = typeof optionsOrMode === 'string'
+      ? optionsOrMode
+      : (optionsOrMode?.submissionMode || 'STANDARD');
+
     try {
-      await submitMutation.mutateAsync();
+      await submitMutation.mutateAsync({ submissionMode });
     } catch {
       // Mutation error handled in submitMutation.onError
     } finally {
@@ -358,7 +388,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     hasAutoSubmitFiredRef.current = true;
 
     // Immediately trigger submission
-    triggerSubmit();
+    triggerSubmit('EXPIRED_AUTO_SUBMIT');
   }, [triggerSubmit]);
 
   const timerRef = useRef(null);
@@ -393,6 +423,12 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   }, [timer]);
 
   const isFinalized = attempt?.status === 'SUBMITTED' || Boolean(submissionReceipt);
+
+  useEffect(() => {
+    if (isFinalized) {
+      isFinalizedRef.current = true;
+    }
+  }, [isFinalized]);
   const activeQuestion = questions[activeQuestionIndex] || questions[0];
   const activeAnswer = activeQuestion ? selectedAnswers[activeQuestion.id]?.optionId : null;
   const answeredCount = useMemo(() => Object.keys(selectedAnswers).length, [selectedAnswers]);

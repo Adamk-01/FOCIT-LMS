@@ -4,16 +4,31 @@ import { apiClient } from '../lib/api';
 const OS_INTERRUPT_GRACE_MS = 15_000; // 15s grace window for incoming call / battery modal
 
 /**
+ * Evaluates whether the current browser/device supports standard WHATWG Fullscreen API
+ * on arbitrary DOM elements. Returns false on iPhone Safari to avoid infinite modal locks.
+ */
+export function isFullscreenSupported() {
+  if (typeof document === 'undefined') return false;
+  return Boolean(
+    document.fullscreenEnabled ||
+    document.webkitFullscreenEnabled ||
+    document.mozFullScreenEnabled ||
+    document.msFullscreenEnabled
+  );
+}
+
+/**
  * Anti-Cheat Soft-Lockdown & Proctoring Hook
  *
  * Implements:
- * 1. Automatic initial fullscreen requirement (NEEDS_FULLSCREEN gate)
- * 2. Two-strike fullscreen enforcement policy:
+ * 1. Automatic initial fullscreen requirement (NEEDS_FULLSCREEN gate) for supported viewports
+ * 2. Progressive degradation for iOS Safari / unsupported mobile browsers (CSS 100dvh lock + passive monitoring)
+ * 3. Two-strike fullscreen enforcement policy (Summative exams only):
  *    - Strike 1: Warning modal (SUSPENDED_AWAY)
  *    - Strike 2: Automatic assessment submission (AUTO_SUBMITTING)
- * 3. Ephemeral OS interrupt grace window (15s for incoming cellular calls)
- * 4. Telemetry event queue with offline retry resilience
- * 5. Telemetry flush suspension during active submission to eliminate DB row-lock contention
+ * 4. Ephemeral OS interrupt grace window (15s for incoming cellular calls)
+ * 5. Telemetry event queue with offline retry resilience
+ * 6. Telemetry flush suspension during active submission to eliminate DB row-lock contention
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
@@ -25,6 +40,8 @@ export function useAntiCheat({
   onViolationAutoSubmit,
 }) {
   const [lockdownState, setLockdownState] = useState(() => {
+    if (!enabled) return 'ACTIVE';
+    if (!isFullscreenSupported()) return 'ACTIVE';
     if (typeof document !== 'undefined' && !document.fullscreenElement) {
       return 'NEEDS_FULLSCREEN';
     }
@@ -32,6 +49,7 @@ export function useAntiCheat({
   });
 
   const [isFullscreen, setIsFullscreen] = useState(() => {
+    if (!enabled || !isFullscreenSupported()) return true;
     return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : true;
   });
 
@@ -81,6 +99,17 @@ export function useAntiCheat({
 
   // Request Fullscreen (must be invoked from a direct user tap handler)
   const enterFullscreenProctoring = useCallback(async () => {
+    if (!enabled) {
+      setLockdownState('ACTIVE');
+      return;
+    }
+
+    if (!isFullscreenSupported()) {
+      setIsFullscreen(true);
+      setLockdownState('ACTIVE');
+      return;
+    }
+
     try {
       if (!document.fullscreenElement) {
         const el = document.documentElement;
@@ -98,19 +127,24 @@ export function useAntiCheat({
         setLockdownState('ACTIVE');
       }
     } catch {
-      // Fallback for iOS Safari where Fullscreen API on non-video elements is restricted
+      // Fallback for iOS Safari / restricted environments
       setIsFullscreen(true);
       if (lockdownState !== 'AUTO_SUBMITTING') {
         setLockdownState('ACTIVE');
       }
     }
-  }, [lockdownState]);
+  }, [enabled, lockdownState]);
 
   useEffect(() => {
-    if (!enabled || !quizId || !attemptId || isSubmitting) return undefined;
+    if (!enabled || !quizId || !attemptId || isSubmitting) {
+      if (!enabled) {
+        setLockdownState('ACTIVE');
+      }
+      return undefined;
+    }
 
-    // Check on mount if fullscreen is missing
-    if (!document.fullscreenElement && lockdownState === 'ACTIVE') {
+    // Check on mount if fullscreen is missing (only on browsers supporting native fullscreen)
+    if (isFullscreenSupported() && !document.fullscreenElement && lockdownState === 'ACTIVE') {
       setLockdownState('NEEDS_FULLSCREEN');
     }
 
@@ -176,6 +210,7 @@ export function useAntiCheat({
 
     // 3. Fullscreen Exit Detection (Two-Strike Escalation)
     const handleFullscreenChange = () => {
+      if (!isFullscreenSupported()) return;
       const active = Boolean(document.fullscreenElement);
       setIsFullscreen(active);
 

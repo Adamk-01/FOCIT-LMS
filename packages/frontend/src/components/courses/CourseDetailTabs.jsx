@@ -13,7 +13,7 @@ export const COURSE_TABS = [
   { id: 'overview', label: 'Overview', icon: BookOpen },
   { id: 'materials', label: 'Materials', icon: FileText },
   { id: 'assignments', label: 'Assignments', icon: Calendar },
-  { id: 'quizzes', label: 'Self-Practice', icon: HelpCircle },
+  { id: 'quizzes', label: 'Quiz Assessment', icon: HelpCircle },
   { id: 'attendance', label: 'Attendance', icon: ShieldCheck },
   { id: 'forum', label: 'Forum', icon: MessagesSquare },
   { id: 'grades', label: 'Grades', icon: Award },

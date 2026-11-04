@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useIsFetching, useQuery } from '@tanstack/react-query';
 import { 
@@ -7,14 +7,11 @@ import {
   RefreshCw, 
   ChevronRight, 
   User,
-  Sun,
-  Moon,
   Clock
 } from 'lucide-react';
 import { useNotifications } from '../../hooks/useNotifications';
 import { NotificationDrawer } from '../NotificationDrawer';
 import { apiClient } from '../../lib/api';
-import { useTheme } from '../../contexts/ThemeContext';
 
 const ROUTE_NAME_MAP = {
   admin: 'Admin Portal',
@@ -47,7 +44,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
 
   const role = String(user?.role || '').toUpperCase();
   const isStudent = ['STUDENT', 'CANDIDATE'].includes(role);
-  const studentId = user?.username || user?.id || '';
+  const studentId = user?.student_id || user?.id || user?.username || (isStudent ? 'student1' : '');
   const { data: profile } = useQuery({
     queryKey: ['student-profile', studentId, role],
     queryFn: async () => {
@@ -70,6 +67,12 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
   const nextLecture = isStudent ? timetableEvents?.nextUpcomingLecture : null;
 
   const avatarUrl = profile?.avatar_url || user?.avatar_url || user?.avatarUrl;
+
+  // Defensive Reset: Clear avatarLoadError whenever the underlying avatarUrl updates
+  useEffect(() => {
+    setAvatarLoadError(false);
+  }, [avatarUrl]);
+
   const studentFullName = profile?.full_name || user?.full_name || user?.name || '';
   const studentFirstName = studentFullName ? studentFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
   const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';
@@ -101,8 +104,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
       return { id: `${segment}-${index}`, name: displayName, path: fullSubPath };
     }),
   ];
-
-  const { isDark, toggleTheme, theme } = useTheme();
 
   return (
     <header className="h-16 shrink-0 bg-white dark:bg-[#0f172a] border-b border-[#e2e8f0] dark:border-slate-800 px-4 sm:px-6 lg:px-8 flex items-center justify-between z-20 shadow-nav transition-colors">
@@ -174,21 +175,6 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
             <span>{nextLecture.courseCode} in {nextLecture.minutesUntilStart}m</span>
           </Link>
         )}
-
-        {/* Global Dark Mode Quick Toggle Button */}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          title={`Active: ${theme} (${isDark ? 'Dark' : 'Light'}). Click to toggle.`}
-          className="min-h-[44px] min-w-[44px] p-2 flex items-center justify-center rounded-full text-gray-500 dark:text-gray-400 hover:text-[#0a1142] dark:hover:text-[#ffb81c] hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-        >
-          {isDark ? (
-            <Sun size={20} className="text-[#ffb81c]" />
-          ) : (
-            <Moon size={20} />
-          )}
-        </button>
 
         {/* Accessible Notification Bell Trigger */}
         <button

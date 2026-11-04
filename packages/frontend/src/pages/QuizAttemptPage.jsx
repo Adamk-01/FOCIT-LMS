@@ -1,13 +1,16 @@
-import React from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useEffect, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useExamLock } from '../contexts/ExamLockContext';
 import { useQuizAttempt } from '../hooks/useQuizAttempt';
+import { useAntiCheat } from '../hooks/useAntiCheat';
 import { QuizHeaderTimer } from '../components/quiz/QuizHeaderTimer';
 import { QuizQuestionCard } from '../components/quiz/QuizQuestionCard';
 import { QuestionNavigationPalette } from '../components/quiz/QuestionNavigationPalette';
 import { QuizSubmissionModal } from '../components/quiz/QuizSubmissionModal';
 import { QuizFinalizedView } from '../components/quiz/QuizFinalizedView';
+import { ProctoringCurtainModal } from '../components/quiz/ProctoringCurtainModal';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
 
 /**
@@ -15,17 +18,20 @@ import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
  *
  * Implements:
  * 1. Pure Dumb Presentation Shell (<180 lines strictly enforced)
- * 2. URL SearchParams Question Navigation (?q=1..N via { replace: true })
- * 3. Scoped sessionStorage Draft Answers Sandbox (focit_quiz_draft:${studentId}:${attemptId})
- * 4. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
- * 5. Native HTML Top Layer <dialog> Modal with In-Flight Mutation Lock
- * 6. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
+ * 2. Formative vs Summative Policy Decoupling (SELF_PRACTICE unproctored vs OFFICIAL_TEST lockdown)
+ * 3. Zero-Chrome Physical Viewport Lock (Topbar and Sidebar unmounted in summative)
+ * 4. Two-Strike Fullscreen & Anti-Cheat Proctoring Engine
+ * 5. URL SearchParams Question Navigation (?q=1..N via { replace: true })
+ * 6. Scoped sessionStorage Draft Answers Sandbox (focit_quiz_draft:${studentId}:${attemptId})
+ * 7. Two-Latch Mutex for Expiry Auto-Submit vs Manual Recovery Retries
+ * 8. W3C Monotonic Clock with OS Deep-Sleep Server Heartbeat Re-Anchoring
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
 export function QuizAttemptPage() {
   const { courseId, quizId, attemptId } = useParams();
   const { user } = useAuth();
+  const { setExamLocked } = useExamLock();
   const studentId = user?.student_id || user?.id || user?.username;
 
   const {
@@ -53,6 +59,43 @@ export function QuizAttemptPage() {
     triggerSubmit,
   } = useQuizAttempt({ quizId, attemptId, studentId });
 
+  // 1. Formative vs. Summative Policy Invariant
+  const isProctored = Boolean(
+    quiz && (quiz.quiz_type === 'OFFICIAL_TEST' || quiz.is_proctored || quiz.require_lockdown)
+  );
+
+  // 2. Physical Viewport Chrome Lockdown Lifecycle
+  useEffect(() => {
+    const shouldLock = Boolean(
+      attempt && attempt.status === 'IN_PROGRESS' && !isFinalized && isProctored
+    );
+    setExamLocked(shouldLock);
+    return () => {
+      setExamLocked(false);
+    };
+  }, [attempt, isFinalized, isProctored, setExamLocked]);
+
+  // 3. Anti-Cheat Soft-Lockdown & Proctoring Hook
+  const handleViolationAutoSubmit = useCallback(
+    (reason) => {
+      triggerSubmit({ submissionMode: reason || 'FULLSCREEN_VIOLATION_AUTO_SUBMIT' });
+    },
+    [triggerSubmit]
+  );
+
+  const {
+    lockdownState,
+    infractionCount,
+    fullscreenExits,
+    enterFullscreenProctoring,
+  } = useAntiCheat({
+    quizId,
+    attemptId,
+    enabled: Boolean(isProctored && attempt?.status === 'IN_PROGRESS' && !isFinalized),
+    isSubmitting,
+    onViolationAutoSubmit: handleViolationAutoSubmit,
+  });
+
   if (!studentId) {
     return (
       <div className="max-w-4xl mx-auto py-12 px-4">
@@ -69,28 +112,36 @@ export function QuizAttemptPage() {
     );
   }
 
-  // 1. Loading State
+  // 4. Loading State
   if (isLoading) {
     return (
       <div className="max-w-5xl mx-auto p-12 text-center space-y-4">
         <RefreshCw size={36} className="animate-spin text-[#0a1142] mx-auto" aria-hidden="true" />
-        <p className="text-gray-600 font-medium">Securing authoritative attempt context & clock anchor...</p>
+        <p className="text-gray-600 dark:text-gray-300 font-medium">Securing authoritative attempt context & clock anchor...</p>
       </div>
     );
   }
 
-  // 2. Error Boundary
+  // 5. Unhappy Path Error Boundary (Navigation Chrome Retained, Never Trapped)
   if (fetchError || !attempt) {
     return (
-      <div className="max-w-2xl mx-auto p-8 bg-red-50 border border-red-200 rounded-2xl text-center space-y-4">
-        <AlertCircle size={40} className="text-red-600 mx-auto" aria-hidden="true" />
-        <h2 className="text-lg font-bold text-red-900">Quiz Attempt Unavailable</h2>
+      <div className="max-w-2xl mx-auto p-8 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-2xl text-center space-y-4">
+        <AlertCircle size={40} className="text-red-600 dark:text-red-400 mx-auto" aria-hidden="true" />
+        <h2 className="text-lg font-bold text-red-900 dark:text-red-200">Quiz Attempt Unavailable</h2>
         <ErrorAlertCallout error={fetchError} onRetry={() => refetch()} />
+        <div className="pt-2">
+          <Link
+            to={courseId ? `/courses/${courseId}` : '/dashboard'}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
+          >
+            Return to Course Assessments
+          </Link>
+        </div>
       </div>
     );
   }
 
-  // 3. Finalized State View
+  // 6. Finalized State View
   if (isFinalized) {
     return (
       <QuizFinalizedView
@@ -101,7 +152,7 @@ export function QuizAttemptPage() {
     );
   }
 
-  // 4. Main Examination Workspace
+  // 7. Main Examination Workspace
   return (
     <div className="max-w-7xl mx-auto flex flex-col gap-6 pb-16">
       <QuizHeaderTimer
@@ -149,6 +200,15 @@ export function QuizAttemptPage() {
         answeredCount={answeredCount}
         totalQuestions={questions.length}
       />
+
+      {isProctored && (
+        <ProctoringCurtainModal
+          lockdownState={lockdownState}
+          infractionCount={infractionCount}
+          fullscreenExits={fullscreenExits}
+          onResumeExam={enterFullscreenProctoring}
+        />
+      )}
     </div>
   );
 }

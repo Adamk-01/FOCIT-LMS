@@ -239,7 +239,9 @@ export function CourseAttendanceTab({ courseId }) {
                 <KeyRound size={20} />
               </div>
               <div>
-                <p className="text-xs font-extrabold text-[#ffb81c]">LIVE ATTENDANCE OPEN (WEEK {activeSessionItem.weekNumber})</p>
+                <p className="text-xs font-extrabold text-[#ffb81c]">
+                  LIVE ATTENDANCE OPEN (WEEK {activeSessionItem.weekNumber}{activeSessionItem.sessionDate ? ` • ${new Date(activeSessionItem.sessionDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}` : ''})
+                </p>
                 <p className="text-xs text-gray-200">The lecturer has projected an ephemeral attendance passcode for this lecture.</p>
               </div>
             </div>
@@ -251,6 +253,7 @@ export function CourseAttendanceTab({ courseId }) {
                 courseCode: course?.code,
                 courseTitle: course?.title,
                 weekNumber: activeSessionItem.weekNumber,
+                sessionDate: activeSessionItem.sessionDate,
                 remainingSeconds: activeSessionItem.otpRemainingSeconds || 300,
               })}
               className="min-h-[44px] px-4 py-2 bg-[#ffb81c] hover:bg-[#e5a200] text-[#0a1142] rounded-xl text-xs font-bold transition shadow-sm shrink-0 flex items-center justify-center gap-1.5"
@@ -266,7 +269,9 @@ export function CourseAttendanceTab({ courseId }) {
                 <CheckCircle2 size={20} />
               </div>
               <div>
-                <p className="text-xs font-extrabold text-emerald-800">ATTENDANCE RECORDED (WEEK {alreadyCheckedInSession.weekNumber})</p>
+                <p className="text-xs font-extrabold text-emerald-800">
+                  ATTENDANCE RECORDED (WEEK {alreadyCheckedInSession.weekNumber}{alreadyCheckedInSession.sessionDate ? ` • ${new Date(alreadyCheckedInSession.sessionDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}` : ''})
+                </p>
                 <p className="text-xs text-emerald-700">Your presence for this live lecture has been verified and recorded.</p>
               </div>
             </div>
@@ -377,7 +382,25 @@ export function CourseAttendanceTab({ courseId }) {
                         </td>
 
                         <td className="py-3.5 px-4">
-                          {isPresent ? (
+                          {sess.isOtpActive && sess.status !== 'PRESENT' ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveOtpSession({
+                                sessionId: sess.sessionId,
+                                courseId,
+                                courseCode: course?.code,
+                                courseTitle: course?.title,
+                                weekNumber: sess.weekNumber,
+                                sessionDate: sess.sessionDate,
+                                remainingSeconds: sess.otpRemainingSeconds || 300,
+                              })}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black bg-[#ffb81c] hover:bg-yellow-400 text-[#0a1142] shadow-xs animate-pulse min-h-[36px] transition cursor-pointer"
+                              aria-label={`Enter passcode for Week ${sess.weekNumber}`}
+                            >
+                              <KeyRound size={13} />
+                              <span>Enter Passcode</span>
+                            </button>
+                          ) : isPresent ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               <CheckCircle2 size={12} />
                               <span>Present</span>
@@ -428,6 +451,40 @@ export function CourseAttendanceTab({ courseId }) {
           </div>
         )}
       </div>
+
+              {/* 4. Manual Lecture Passcode Quick Ingress */}
+        <div className="p-5 rounded-2xl bg-white border border-gray-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-[#0a1142]/5 text-[#0a1142] shrink-0">
+              <KeyRound size={20} />
+            </div>
+            <div className="space-y-0.5">
+              <h3 className="text-sm font-bold text-[#0a1142]">
+                Attending lecture right now?
+              </h3>
+              <p className="text-xs text-gray-500">
+                If your lecturer has projected a 6-digit passcode for today's lecture, enter it here to instantly record your attendance.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveOtpSession({
+              courseId,
+              courseCode: course?.code,
+              courseTitle: course?.title,
+              sessionId: activeSessionItem?.sessionId || null,
+              weekNumber: activeSessionItem?.weekNumber || (timeline.length > 0 ? timeline[timeline.length - 1].weekNumber : 1),
+              sessionDate: activeSessionItem?.sessionDate || new Date().toISOString(),
+              remainingSeconds: activeSessionItem?.otpRemainingSeconds || 300,
+            })}
+            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0a1142] hover:bg-[#16258f] text-white text-xs font-bold transition shadow-sm shrink-0 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <KeyRound size={15} className="text-[#ffb81c]" />
+            <span>Enter Lecture Passcode</span>
+          </button>
+        </div>
 
       {/* Modals */}
       {activeOtpSession && (

@@ -122,7 +122,7 @@ describe('Admin Controller Governance & Security Guards', () => {
 
   // 5. Issue 3: Unpredictable Temporary Password Generation
   test('Issue 3: Generates high-entropy crypto random temporary password and never uses ChangeMe123!', async () => {
-    const uniqueMatric = `TEST_${Date.now()}`;
+    const uniqueMatric = `2026/${Math.floor(10000 + Math.random() * 90000)}`;
     const req = {
       body: {
         identifier: uniqueMatric,
@@ -267,12 +267,13 @@ describe('Admin Controller Governance & Security Guards', () => {
   // 9. Round 2 & 3: Anti-enumeration defense (Wrong password returns 401; correct password returns 403 on suspended account)
   test('Round 2 & 3: Anti-enumeration: wrong password returns 401 on suspended account; valid password returns 403', async () => {
     const studentId = `test_susp_${Date.now()}`;
+    const testMatric = `2026/${Math.floor(10000 + Math.random() * 90000)}`;
     const testPassword = 'CorrectPassword123!';
     const passwordHash = await hashPassword(testPassword);
 
     await pool.query(
-      "INSERT INTO students (student_id, matric_number, username, full_name, email, programme_id, level, account_status) VALUES ($1, $1, $1, 'Suspended Student', $2, 'BSC_CSC', 100, 'SUSPENDED')",
-      [studentId, `${studentId}@focit.uniosun.edu.ng`]
+      "INSERT INTO students (student_id, matric_number, username, full_name, email, programme_id, level, account_status) VALUES ($1, $2, $1, 'Suspended Student', $3, 'BSC_CSC', 100, 'SUSPENDED')",
+      [studentId, testMatric, `${studentId}@focit.uniosun.edu.ng`]
     );
     await pool.query(
       "INSERT INTO student_profiles (student_id, password_hash) VALUES ($1, $2)",

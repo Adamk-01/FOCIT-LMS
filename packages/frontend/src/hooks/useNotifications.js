@@ -88,91 +88,116 @@ export function useNotifications({
   }, [notifications]);
 
   // --------------------------------------------------------------------------
-  // 3. Real-Time SSE Stream with Monotonic Read Reconciler
+  // 3. Real-Time SSE Stream with Monotonic Read Reconciler & Circuit Breaker
   // --------------------------------------------------------------------------
   useEffect(() => {
     let es = null;
     let reconnectTimeout = null;
     let isMounted = true;
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 5;
 
     const connectSSE = () => {
       if (!isMounted) return;
 
-      // EventSource to BFF SSE endpoint with ephemeral session nonce
-      const sessionNonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('session_nonce') : '';
-      const streamUrl = `/api/student/notifications/stream${sessionNonce ? `?nonce=${encodeURIComponent(sessionNonce)}` : ''}`;
-      es = new EventSource(streamUrl, { withCredentials: true });
+      // Ephemeral session nonce resolution: checks sessionStorage with localStorage fallback
+      const sessionNonce = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('session_nonce')) ||
+                           (typeof localStorage !== 'undefined' && localStorage.getItem('session_nonce')) || '';
 
-      es.onmessage = (event) => {
-        try {
-          const newNotif = JSON.parse(event.data);
-          if (!newNotif || !newNotif.id) return;
+      // Fail-fast: If no session nonce exists, do not hammer the server with unauthenticated requests
+      if (!sessionNonce) {
+        return;
+      }
 
-          const seqId = String(newNotif.sequence_id);
+      // Circuit Breaker: Halt reconnect loop if max consecutive failures exceeded (prevents 401 flooding)
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        return;
+      }
 
-          // 1. Check O(1) deduplication barrier
-          if (seenSequencesRef.current.has(seqId)) {
-            return;
-          }
-          seenSequencesRef.current.add(seqId);
+      const streamUrl = `/api/student/notifications/stream?nonce=${encodeURIComponent(sessionNonce)}`;
+      
+      try {
+        es = new EventSource(streamUrl, { withCredentials: true });
 
-          // 2. Monotonic State Reconciliation Rule:
-          // If the user already performed an in-flight optimistic read mutation on this ID,
-          // do NOT let an incoming SSE message revert is_read backward to false!
-          const isPendingRead = pendingMutationsRef.current.has(newNotif.id);
-          const effectiveRead = isPendingRead ? true : Boolean(newNotif.is_read);
+        es.onopen = () => {
+          consecutiveFailures = 0; // Handshake succeeded, reset circuit breaker
+        };
 
-          const reconciledNotif = {
-            ...newNotif,
-            is_read: effectiveRead,
-          };
+        es.onmessage = (event) => {
+          consecutiveFailures = 0;
+          try {
+            const newNotif = JSON.parse(event.data);
+            if (!newNotif || !newNotif.id) return;
 
-          // 3. Increment unread count in meta cache if truly unread
-          if (!effectiveRead) {
-            queryClient.setQueryData(metaQueryKey, (old) => ({
-              unread_count: (old?.unread_count || 0) + 1,
-            }));
-          }
+            const seqId = String(newNotif.sequence_id);
 
-          // 4. Prepend event to the infinite query cache
-          queryClient.setQueriesData({ queryKey: ['notifications', 'infinite', studentId] }, (old) => {
-            if (!old || !old.pages || old.pages.length === 0) return old;
+            // 1. Check O(1) deduplication barrier
+            if (seenSequencesRef.current.has(seqId)) {
+              return;
+            }
+            seenSequencesRef.current.add(seqId);
 
-            const matchesCategory = category === 'ALL' || reconciledNotif.category === category;
-            const matchesUnread = !unreadOnly || !reconciledNotif.is_read;
+            // 2. Monotonic State Reconciliation Rule:
+            // If the user already performed an in-flight optimistic read mutation on this ID,
+            // do NOT let an incoming SSE message revert is_read backward to false!
+            const isPendingRead = pendingMutationsRef.current.has(newNotif.id);
+            const effectiveRead = isPendingRead ? true : Boolean(newNotif.is_read);
 
-            if (!matchesCategory || !matchesUnread) return old;
-
-            // Check if already in the first page to guarantee zero React key duplication
-            const alreadyExists = old.pages[0].notifications.some((n) => n.id === reconciledNotif.id);
-            if (alreadyExists) return old;
-
-            const updatedFirstPage = {
-              ...old.pages[0],
-              notifications: [reconciledNotif, ...old.pages[0].notifications],
+            const reconciledNotif = {
+              ...newNotif,
+              is_read: effectiveRead,
             };
 
-            return {
-              ...old,
-              pages: [updatedFirstPage, ...old.pages.slice(1)],
-            };
-          });
-        } catch {
-          // Ignore parse errors from heartbeat or ping comments
-        }
-      };
+            // 3. Increment unread count in meta cache if truly unread
+            if (!effectiveRead) {
+              queryClient.setQueryData(metaQueryKey, (old) => ({
+                unread_count: (old?.unread_count || 0) + 1,
+              }));
+            }
 
-      es.onerror = () => {
-        if (es) {
-          es.close();
-          es = null;
-        }
-        // Exponential reconnect backoff with jitter
-        if (isMounted) {
-          const jitter = Math.random() * 2000 + 3000;
-          reconnectTimeout = setTimeout(connectSSE, jitter);
-        }
-      };
+            // 4. Prepend event to the infinite query cache
+            queryClient.setQueriesData({ queryKey: ['notifications', 'infinite', studentId] }, (old) => {
+              if (!old || !old.pages || old.pages.length === 0) return old;
+
+              const matchesCategory = category === 'ALL' || reconciledNotif.category === category;
+              const matchesUnread = !unreadOnly || !reconciledNotif.is_read;
+
+              if (!matchesCategory || !matchesUnread) return old;
+
+              // Check if already in the first page to guarantee zero React key duplication
+              const alreadyExists = old.pages[0].notifications.some((n) => n.id === reconciledNotif.id);
+              if (alreadyExists) return old;
+
+              const updatedFirstPage = {
+                ...old.pages[0],
+                notifications: [reconciledNotif, ...old.pages[0].notifications],
+              };
+
+              return {
+                ...old,
+                pages: [updatedFirstPage, ...old.pages.slice(1)],
+              };
+            });
+          } catch {
+            // Ignore parse errors from heartbeat or ping comments
+          }
+        };
+
+        es.onerror = () => {
+          consecutiveFailures += 1;
+          if (es) {
+            es.close();
+            es = null;
+          }
+          // Exponential reconnect backoff with jitter and circuit breaker boundary
+          if (isMounted && consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
+            const backoffDelay = Math.min(30000, Math.pow(2, consecutiveFailures) * 1500 + Math.random() * 1000);
+            reconnectTimeout = setTimeout(connectSSE, backoffDelay);
+          }
+        };
+      } catch {
+        consecutiveFailures += 1;
+      }
     };
 
     connectSSE();

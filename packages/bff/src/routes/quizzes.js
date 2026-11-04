@@ -669,6 +669,7 @@ router.post('/:quizId/attempts/:attemptId/save', async (req, res, next) => {
           AND a.quiz_id = $3
           AND a.status = 'IN_PROGRESS'
           AND NOW() <= (a.due_at + INTERVAL '3 seconds')
+        FOR UPDATE
       ),
       incoming_answers AS (
         SELECT 

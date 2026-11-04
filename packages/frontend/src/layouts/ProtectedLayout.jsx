@@ -86,59 +86,67 @@ const ProtectedLayoutContent = () => {
 
   return (
     <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-[#f8fafc] dark:bg-[#090d16] transition-colors duration-200">
-      {/* 1. Desktop Fixed-Position Rail Sidebar */}
-      <aside 
-        className={`hidden md:flex flex-col bg-[#0a1142] text-white shrink-0 transition-all duration-200 ease-in-out border-r border-[#16258f]/40 z-30 select-none ${
-          isSidebarExpanded ? 'w-64' : 'w-20'
-        } ${isExamLocked ? 'opacity-25 pointer-events-none select-none cursor-not-allowed filter grayscale transition-opacity duration-300' : ''}`}
-        aria-label="Desktop Navigation"
-      >
-        <Sidebar 
-          isExpanded={isSidebarExpanded}
-          onToggle={() => setIsSidebarExpanded((prev) => !prev)}
-          user={user}
-          onLogout={logout}
-          isExamLocked={isExamLocked}
-        />
-      </aside>
+      {/* 1. Desktop Fixed-Position Rail Sidebar (Completely unrendered when locked) */}
+      {!isExamLocked && (
+        <aside 
+          className={`hidden md:flex flex-col bg-[#0a1142] text-white shrink-0 transition-all duration-200 ease-in-out border-r border-[#16258f]/40 z-30 select-none ${
+            isSidebarExpanded ? 'w-64' : 'w-20'
+          }`}
+          aria-label="Desktop Navigation"
+        >
+          <Sidebar 
+            isExpanded={isSidebarExpanded}
+            onToggle={() => setIsSidebarExpanded((prev) => !prev)}
+            user={user}
+            onLogout={logout}
+            isExamLocked={false}
+          />
+        </aside>
+      )}
 
-      {/* 2. Mobile Drawer Navigation Overlay */}
-      {/* Accessible Backdrop */}
-      <div 
-        className={`fixed inset-0 bg-[#040617]/70 backdrop-blur-sm z-40 transition-opacity duration-200 md:hidden ${
-          isMobileDrawerOpen && !isExamLocked ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={() => setIsMobileDrawerOpen(false)}
-        aria-hidden="true"
-      />
+      {/* 2. Mobile Drawer Navigation Overlay (Completely unrendered when locked) */}
+      {!isExamLocked && (
+        <>
+          {/* Accessible Backdrop */}
+          <div 
+            className={`fixed inset-0 bg-[#040617]/70 backdrop-blur-sm z-40 transition-opacity duration-200 md:hidden ${
+              isMobileDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={() => setIsMobileDrawerOpen(false)}
+            aria-hidden="true"
+          />
 
-      {/* Mobile Drawer Panel (GPU composited transform) */}
-      <aside 
-        role="dialog"
-        aria-modal="true"
-        aria-label="Mobile Navigation Drawer"
-        className={`fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#0a1142] text-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out md:hidden ${
-          isMobileDrawerOpen && !isExamLocked ? 'translate-x-0' : '-translate-x-full'
-        } ${isExamLocked ? 'opacity-25 pointer-events-none' : ''}`}
-      >
-        <Sidebar 
-          isExpanded={true}
-          isMobile={true}
-          onCloseMobile={() => setIsMobileDrawerOpen(false)}
-          user={user}
-          onLogout={logout}
-          isExamLocked={isExamLocked}
-        />
-      </aside>
+          {/* Mobile Drawer Panel (GPU composited transform) */}
+          <aside 
+            role="dialog"
+            aria-modal="true"
+            aria-label="Mobile Navigation Drawer"
+            className={`fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-[#0a1142] text-white z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out md:hidden ${
+              isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'
+            }`}
+          >
+            <Sidebar 
+              isExpanded={true}
+              isMobile={true}
+              onCloseMobile={() => setIsMobileDrawerOpen(false)}
+              user={user}
+              onLogout={logout}
+              isExamLocked={false}
+            />
+          </aside>
+        </>
+      )}
 
       {/* 3. Mathematical Workspace Plane (flex-col, min-w-0 anti-blowout) */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Topbar: Fixed 64px height invariant (flex-shrink: 0) */}
-        <Topbar 
-          onOpenMobileDrawer={isExamLocked ? undefined : () => setIsMobileDrawerOpen(true)}
-          user={user}
-          isExamLocked={isExamLocked}
-        />
+        {/* Topbar: Completely unrendered when exam is locked */}
+        {!isExamLocked && (
+          <Topbar 
+            onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+            user={user}
+            isExamLocked={false}
+          />
+        )}
 
         {/* Main Content Area: Isolated Independent Scrollport */}
         <main 
@@ -147,7 +155,7 @@ const ProtectedLayoutContent = () => {
           className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-y-contain focus:outline-none bg-[#f8fafc] dark:bg-[#090d16] transition-colors duration-200"
           style={{ contain: 'paint' }}
         >
-          <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+          <div className={isExamLocked ? 'w-full h-full p-2 sm:p-4 max-w-none' : 'max-w-7xl mx-auto p-4 sm:p-6 lg:p-8'}>
             <Outlet />
           </div>
         </main>

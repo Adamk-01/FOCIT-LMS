@@ -54,10 +54,10 @@ const isNeon = rawUrl.includes('neon.tech');
 
 const poolConfig = {
   connectionString: rawUrl,
-  max: 20,
+  max: parseInt(process.env.PG_POOL_MAX || (isNeon ? '50' : '20'), 10),
   idleTimeoutMillis: 120000,
-  connectionTimeoutMillis: 45000,
-  query_timeout: 45000,
+  connectionTimeoutMillis: parseInt(process.env.PG_CONNECTION_TIMEOUT_MS || '45000', 10),
+  query_timeout: parseInt(process.env.PG_QUERY_TIMEOUT_MS || '45000', 10),
   allowExitOnIdle: false,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
