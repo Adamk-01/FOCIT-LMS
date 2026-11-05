@@ -83,7 +83,7 @@ export function LecturerDashboardPage() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-gray-200 gap-2 overflow-x-auto">
+      <div className="flex border-b border-gray-200 gap-2 overflow-x-auto no-scrollbar scroll-smooth -mx-2 px-2 sm:mx-0 sm:px-0">
         <button
           onClick={() => setActiveTab('courses')}
           className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -360,7 +360,10 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
             No registered students found matching your criteria.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Desktop Table View (>= md) */}
+            <div className="hidden md:block">
+              <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-gray-600">
               <thead className="bg-gray-100/70 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
                 <tr>
@@ -461,6 +464,88 @@ function ClassRosterPanel({ courses, selectedCourseId, onSelectCourseId }) {
               </tbody>
             </table>
           </div>
+            </div>
+
+            {/* Mobile Card View (< md) */}
+            <div className="md:hidden divide-y divide-gray-100 p-3 space-y-3">
+              {students.map((student, idx) => (
+                <div key={student.student_id} className="bg-gray-50/70 rounded-xl p-3.5 space-y-2.5 border border-gray-100">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-mono text-gray-400 block">#{idx + 1}</span>
+                      <h5 className="font-bold text-sm text-gray-900 leading-tight">{student.full_name}</h5>
+                      <span className="font-mono text-xs font-semibold text-[#0a1142]">{student.matric_number}</span>
+                    </div>
+                    {student.is_course_rep && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
+                        Course Rep
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="px-2 py-0.5 rounded bg-gray-200 text-gray-700 font-semibold">{student.level}L</span>
+                    <span className="text-gray-500 text-[11px]">{student.programme_code || student.programme_name}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-200/60">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-bold">CBT CA</span>
+                        {student.ca_test_score !== null && student.ca_test_score !== undefined && !isNaN(Number(student.ca_test_score)) ? (
+                          <span className="font-mono font-bold text-xs text-amber-800">{Math.min(40, Math.max(0, Number(student.ca_test_score))).toFixed(1)} / 40</span>
+                        ) : (
+                          <span className="text-[11px] text-gray-400 italic">No Test</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-bold">Grade</span>
+                        <span className="font-mono font-bold text-xs text-[#0a1142]">{student.grade !== null && student.grade !== undefined ? `${student.grade}%` : 'Pending'}</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const newStatus = !student.is_course_rep;
+                          const nonce = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('session_nonce') : null;
+                          const res = await fetch(`/api/lecturer/courses/${encodeURIComponent(selectedCourseId)}/students/${encodeURIComponent(student.student_id)}/assign-rep`, {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'X-Requested-With': 'XMLHttpRequest',
+                              ...(nonce ? { 'x-session-nonce': nonce } : {}),
+                            },
+                            body: JSON.stringify({ isRep: newStatus }),
+                          });
+
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) {
+                            throw new Error(data.error || `Failed to update representative (HTTP ${res.status})`);
+                          }
+
+                          if (typeof refetchRoster === 'function') {
+                            await refetchRoster();
+                          }
+                        } catch (err) {
+                          alert(err.message || 'Failed to update course rep');
+                        }
+                      }}
+                      className={`min-h-[36px] text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shadow-xs ${
+                        student.is_course_rep
+                          ? 'text-red-700 bg-red-100 hover:bg-red-200'
+                          : 'text-[#0a1142] bg-white border border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      {student.is_course_rep ? 'Revoke Rep' : 'Make Rep'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
       <ContinuousAssessmentIngestModal

@@ -178,7 +178,8 @@ function AllocationMatrix() {
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+                {/* Desktop View (>= md) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-100/70 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200 font-bold">
               <tr>
@@ -232,6 +233,9 @@ function AllocationMatrix() {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <select
+                        id={`desktop-assign-lecturer-${row.course_id}`}
+                        name={`assign_lecturer_${row.course_id}`}
+                        aria-label={`Assign lecturer for ${row.code}: ${row.title}`}
                         disabled={isSaving}
                         value={row.lecturer_id || ''}
                         onChange={(e) => handleAssignLecturer(row.course_id, e.target.value)}
@@ -256,6 +260,67 @@ function AllocationMatrix() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile View (< md) */}
+        <div className="md:hidden divide-y divide-gray-100 p-3 space-y-3">
+          {allocations.map((row) => {
+            const isSaving = savingCourseId === row.course_id;
+            const isAssigned = Boolean(row.lecturer_id);
+
+            return (
+              <div key={row.course_id} className="bg-gray-50/70 rounded-xl p-3.5 space-y-2.5 border border-gray-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-bold text-sm text-[#0a1142]">{row.code}</span>
+                    <h5 className="font-medium text-xs text-gray-800 mt-0.5">{row.title}</h5>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700">
+                      {row.level}L
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 font-mono">
+                      {row.units}U
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-200/60 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">Current Assignment</span>
+                    {isAssigned ? (
+                      <span className="font-semibold text-xs text-gray-900">{row.lecturer_name}</span>
+                    ) : (
+                      <span className="text-[11px] font-medium text-amber-700">Unassigned</span>
+                    )}
+                  </div>
+
+                  <select
+                    id={`mobile-assign-lecturer-${row.course_id}`}
+                    name={`assign_lecturer_${row.course_id}`}
+                    aria-label={`Assign lecturer for ${row.code}: ${row.title}`}
+                    disabled={isSaving}
+                    value={row.lecturer_id || ''}
+                    onChange={(e) => handleAssignLecturer(row.course_id, e.target.value)}
+                    className={`w-full text-xs px-3 py-2 rounded-xl border font-medium outline-none transition-all ${
+                      isSaving
+                        ? 'bg-gray-100 text-gray-400 border-gray-200'
+                        : 'bg-white border-gray-300 text-gray-800 focus:ring-2 focus:ring-[#0a1142]/20'
+                    }`}
+                  >
+                    <option value="" disabled>
+                      -- Assign / Reassign Lecturer --
+                    </option>
+                    {lecturers.map((lec) => (
+                      <option key={lec.lecturer_id} value={lec.lecturer_id}>
+                        {lec.full_name} ({lec.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

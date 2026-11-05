@@ -107,7 +107,8 @@ flowchart LR
 
 ### Protocol Requirements
 1. **TanStack React Query Cache Invalidation:** When an action completes on one page (e.g. HOD allocates a course), related cache keys (`['lecturer-courses']`, `['student-courses']`, `['hod-overview']`) must invalidate immediately without requiring a full browser refresh.
-2. **Bi-Directional Moodle Outbox Logging:** Ensure failed upstream network calls queue into `moodle_sync_outbox` with exponential retry backoff, maintaining ACID database consistency locally even if Moodle experiences brief downtime.
+2. **Cross-Session Synchronization:** In addition to local single-tab cache invalidation, actions mutating shared academic state dispatch events over WebSocket/SSE notifications and the Redis pub/sub audit stream (`academic_audit_stream`). Remote browser sessions belonging to affected lecturers, advisors, or students automatically invalidate their active React Query caches in real time.
+3. **Bi-Directional Moodle Outbox Logging:** Ensure failed upstream network calls queue into `moodle_sync_outbox` with exponential retry backoff, maintaining ACID database consistency locally even if Moodle experiences brief downtime.
 
 ---
 
@@ -119,7 +120,7 @@ In academic faculties, major courses (e.g. `CSC 202`, `MTH 102`) are co-taught:
 * **Secondary Lecturer(s) (Co-Lecturers / TAs):** Takes lecture/lab attendance, grades individual assignments, reviews roster submissions.
 
 ### Current Database Constraint Blocker
-In [`shared/db/migrations/014_hod_dashboard.sql`](file:///C:/Users/DELL/Downloads/FOCIT%20LMS/FOCIT-LMS/shared/db/migrations/014_hod_dashboard.sql#L12):
+In [`shared/db/migrations/014_hod_dashboard.sql`](shared/db/migrations/014_hod_dashboard.sql#L12):
 ```sql
 CONSTRAINT uq_hod_alloc_course_semester UNIQUE (course_id, semester_id)
 ```
@@ -127,9 +128,9 @@ CONSTRAINT uq_hod_alloc_course_semester UNIQUE (course_id, semester_id)
 
 ### Proposed Schema Migration (`021_multi_lecturer_allocations.sql`)
 ```sql
--- 1. Add lecturer role classification
+-- 1. Add lecturer role classification & preserve existing single-lecturer allocations as primary coordinators
 ALTER TABLE hod_course_allocations 
-ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE;
+ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- 2. Drop legacy single-lecturer unique constraint
 ALTER TABLE hod_course_allocations 
@@ -152,7 +153,7 @@ WHERE is_primary = TRUE;
 ### Calculation Formula
 Student progress displayed on dashboard course cards should not be static or mocked. It must dynamically reflect academic milestone achievements:
 
-$$\text{Course Progress (\%)} = \left( 0.40 \times \text{Attendance Ratio} \right) + \left( 0.60 \times \text{Assessment Ratio} \right)$$
+$$\text{Course Progress (\%)} = \left( 40 \times \text{Attendance Ratio} \right) + \left( 60 \times \text{Assessment Ratio} \right)$$
 
 Where:
 $$\text{Attendance Ratio} = \min\left(1.0, \frac{\text{Sessions Attended by Student}}{\max(1, \text{Total Locked Sessions Held by Lecturer})}\right)$$
@@ -168,7 +169,7 @@ $$\text{Assessment Ratio} = \min\left(1.0, \frac{\text{Quizzes Completed by Stud
 ## 7. Decision 6: How the System Detects the Active Semester
 
 ### Database Architecture
-The system maintains an authoritative registry in [`academic_semesters`](file:///C:/Users/DELL/Downloads/FOCIT%20LMS/FOCIT-LMS/packages/bff/src/db/migrations/002_academic_catalog_seed.sql#L38-L46):
+The system maintains an authoritative registry in [`academic_semesters`](packages/bff/src/db/migrations/002_academic_catalog_seed.sql#L38-L46):
 
 ```sql
 CREATE TABLE academic_semesters (

@@ -34,6 +34,8 @@ export function QuizAttemptPage() {
   const { setExamLocked } = useExamLock();
   const studentId = user?.student_id || user?.id || user?.username;
 
+  const [isMobilePaletteOpen, setIsMobilePaletteOpen] = React.useState(false);
+
   const {
     attempt,
     quiz,
@@ -166,6 +168,44 @@ export function QuizAttemptPage() {
         syncStatus={syncStatus}
       />
 
+      {/* Mobile / Tablet Quick-Jump Bar (< lg screens) */}
+      <div className="lg:hidden">
+        <button
+          type="button"
+          onClick={() => setIsMobilePaletteOpen((prev) => !prev)}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm text-xs font-bold text-[#0a1142] dark:text-[#ffb81c] active:scale-[0.99] transition-all"
+          aria-expanded={isMobilePaletteOpen}
+          aria-label="Toggle Question Navigation Palette"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Question Palette ({answeredCount}/{questions.length} Answered)</span>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
+            {isMobilePaletteOpen ? 'Hide Grid ▲' : 'Show Grid ▼'}
+          </span>
+        </button>
+
+        {isMobilePaletteOpen && (
+          <div className="mt-3 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-lg animate-fade-in">
+            <QuestionNavigationPalette
+              questions={questions}
+              currentQuestionIndex={currentQuestionIndex}
+              selectedAnswers={selectedAnswers}
+              onSelectQuestion={(idx) => {
+                navigateToQuestion(idx);
+                setIsMobilePaletteOpen(false);
+              }}
+              onOpenFinishModal={() => {
+                setIsMobilePaletteOpen(false);
+                setShowConfirmModal(true);
+              }}
+              isSubmitting={isSubmitting}
+            />
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <main className="lg:col-span-3 space-y-6">
           <QuizQuestionCard
@@ -181,14 +221,16 @@ export function QuizAttemptPage() {
           />
         </main>
 
-        <QuestionNavigationPalette
-          questions={questions}
-          currentQuestionIndex={currentQuestionIndex}
-          selectedAnswers={selectedAnswers}
-          onSelectQuestion={navigateToQuestion}
-          onOpenFinishModal={() => setShowConfirmModal(true)}
-          isSubmitting={isSubmitting}
-        />
+        <div className="hidden lg:block lg:col-span-1">
+          <QuestionNavigationPalette
+            questions={questions}
+            currentQuestionIndex={currentQuestionIndex}
+            selectedAnswers={selectedAnswers}
+            onSelectQuestion={navigateToQuestion}
+            onOpenFinishModal={() => setShowConfirmModal(true)}
+            isSubmitting={isSubmitting}
+          />
+        </div>
       </div>
 
       <QuizSubmissionModal
