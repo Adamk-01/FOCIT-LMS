@@ -438,7 +438,11 @@ router.post('/:quizId/attempts', async (req, res, next) => {
           0.00,
           vse.total_points,
           NOW(),
-          NOW() + (vse.duration_minutes || ' minutes')::interval,
+          CASE 
+            WHEN vse.quiz_type = 'SELF_PRACTICE' OR vse.duration_minutes <= 0 
+            THEN NOW() + INTERVAL '24 hours'
+            ELSE NOW() + (vse.duration_minutes || ' minutes')::interval
+          END,
           $4,
           (vse.quiz_type = 'SELF_PRACTICE')
         FROM verified_student_enrollment vse

@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
  * 3. W3C High Resolution Time Level 3 Deep-Sleep Wake Mitigation:
  *    Dual-clock local max comparison on visibilitychange/focus + immediate authoritative server re-anchor heartbeat
  * 4. Deterministic one-shot expiry callback: onExpire() invoked once at remaining === 0
+ * 5. Lifecycle Guard (enabled): Prevents timer initialization and onExpire cascades on finalized/non-active attempts.
  *
  * Standard: The 8-8-8 Architectural Doctrine (focit-architect)
  */
@@ -18,6 +19,7 @@ export function useQuizTimer({
   telemetry,
   onExpire,
   onWakeHeartbeat,
+  enabled = true,
 }) {
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(null);
 
@@ -48,27 +50,27 @@ export function useQuizTimer({
     );
     setTimeRemainingSeconds(diffSeconds);
 
-    if (diffSeconds <= 0 && !hasExpiredRef.current) {
+    if (enabled && diffSeconds <= 0 && !hasExpiredRef.current) {
       hasExpiredRef.current = true;
       onExpireRef.current?.();
     }
-  }, []);
+  }, [enabled]);
 
   // Initial anchor when attempt timing context loads or changes
   useEffect(() => {
-    if (!dueAt || !serverNow) return;
+    if (!enabled || !dueAt || !serverNow) return;
 
     dueAtMsRef.current = new Date(dueAt).getTime();
     const rtt = telemetry?.rtt ?? 0;
     reanchor(serverNow, rtt);
-  }, [dueAt, serverNow, telemetry?.rtt, reanchor]);
+  }, [enabled, dueAt, serverNow, telemetry?.rtt, reanchor]);
 
   // Main high-precision interval tick (500ms for smooth 1-second countdown transitions)
   useEffect(() => {
-    if (dueAtMsRef.current === null || estimatedServerNowRef.current === null) return;
+    if (!enabled || dueAtMsRef.current === null || estimatedServerNowRef.current === null) return;
 
     const intervalId = setInterval(() => {
-      if (perfAnchorRef.current === null || wallAnchorRef.current === null || estimatedServerNowRef.current === null) return;
+      if (!enabled || perfAnchorRef.current === null || wallAnchorRef.current === null || estimatedServerNowRef.current === null) return;
 
       const elapsedPerf = performance.now() - perfAnchorRef.current;
       const elapsedWall = Date.now() - wallAnchorRef.current;
@@ -84,7 +86,7 @@ export function useQuizTimer({
 
       if (diffSeconds <= 0) {
         clearInterval(intervalId);
-        if (!hasExpiredRef.current) {
+        if (enabled && !hasExpiredRef.current) {
           hasExpiredRef.current = true;
           onExpireRef.current?.();
         }
@@ -92,11 +94,12 @@ export function useQuizTimer({
     }, 500);
 
     return () => clearInterval(intervalId);
-  }, [timeRemainingSeconds]);
+  }, [enabled, timeRemainingSeconds]);
 
   // W3C High Resolution Time Level 3: OS Deep-Sleep Monotonic Pause Listener
   useEffect(() => {
     const handleWakeOrFocus = () => {
+      if (!enabled) return;
       if (document.visibilityState === 'hidden') return;
       if (
         perfAnchorRef.current === null ||
@@ -138,7 +141,7 @@ export function useQuizTimer({
       document.removeEventListener('visibilitychange', handleWakeOrFocus);
       window.removeEventListener('focus', handleWakeOrFocus);
     };
-  }, []);
+  }, [enabled]);
 
   // Formatted Timer String: HH:MM:SS (Screen 4: "00:42:17")
   const formattedTimer = useMemo(() => {

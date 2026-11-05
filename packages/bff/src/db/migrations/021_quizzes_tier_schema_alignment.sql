@@ -35,3 +35,4 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_type_course
 ON quizzes (course_id, quiz_type, status);
 
 COMMIT;
+
