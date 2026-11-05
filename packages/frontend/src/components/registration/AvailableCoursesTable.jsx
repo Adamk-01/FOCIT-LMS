@@ -120,7 +120,7 @@ export function AvailableCoursesTable({
             <div className="md:hidden p-3 space-y-2.5">
               {filteredCatalog.map((course) => {
                 const isSelected = selectedCourseIds.includes(course.course_id);
-                const maxCapacity = course.max_capacity ?? 0;
+                const maxCapacity = Number(course.max_capacity) || 0;
                 const isFull = maxCapacity > 0 && (course.enrolled_count || 0) >= maxCapacity;
                 const canToggle = isSelected || !isFull;
                 const isCarryover = course.is_carryover || (studentLevel && course.level < studentLevel);
@@ -174,7 +174,7 @@ export function AvailableCoursesTable({
                         {course.category}
                       </span>
                       <span className={isFull ? 'text-red-600 font-bold' : 'text-gray-500'}>
-                        Seats: {course.enrolled_count || 0}/{course.max_capacity || 200} {isFull && '(FULL)'}
+                        Seats: {maxCapacity > 0 ? `${course.enrolled_count || 0}/${maxCapacity}${isFull ? ' (FULL)' : ''}` : `${course.enrolled_count || 0} (Unlimited)`}
                       </span>
                     </div>
                   </div>

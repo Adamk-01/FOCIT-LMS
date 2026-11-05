@@ -6,7 +6,7 @@ import React from 'react';
  * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
 export function CourseMatrixRow({ course, isSelected, toggleCourse, studentLevel }) {
-  const maxCapacity = course.max_capacity ?? 0;
+  const maxCapacity = Number(course.max_capacity) || 0;
   const isFull = maxCapacity > 0 && (course.enrolled_count || 0) >= maxCapacity;
   const canToggle = isSelected || !isFull;
   const isCarryover = course.is_carryover || (studentLevel && course.level < studentLevel);
@@ -69,8 +69,14 @@ export function CourseMatrixRow({ course, isSelected, toggleCourse, studentLevel
       </td>
       <td className="py-3 px-4">
         <span className={`text-xs font-semibold ${isFull ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
-          {course.enrolled_count || 0} / {course.max_capacity || 200}
-          {isFull && ' (FULL)'}
+          {maxCapacity > 0 ? (
+            <>
+              {course.enrolled_count || 0} / {maxCapacity}
+              {isFull && ' (FULL)'}
+            </>
+          ) : (
+            `${course.enrolled_count || 0} / Unlimited`
+          )}
         </span>
       </td>
     </tr>
