@@ -212,10 +212,12 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         a.submitted_at,
         a.allocation_seed,
         a.is_practice,
+        a.telemetry_log,
         q.quiz_type,
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
+        q.quiz_type,
         c.code AS course_code,
         c.title AS course_title,
         NOW() AS server_now
@@ -312,6 +314,10 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
       return q;
     });
 
+    // Calculate persisted fullscreen exits from telemetry log
+    const telemetryList = Array.isArray(attempt.telemetry_log) ? attempt.telemetry_log : [];
+    const persistedFullscreenExits = telemetryList.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length;
+
     // 4. Return Authoritative Skew-Neutralizing Payload
     return res.status(200).json({
       attempt: {
@@ -326,6 +332,9 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         submittedAt: attempt.submitted_at,
         submissionMode: attempt.submission_mode,
         serverNow: attempt.server_now,
+        isPractice: Boolean(attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE'),
+        quizType: attempt.quiz_type,
+        fullscreenExits: persistedFullscreenExits,
       },
       quiz: {
         id: attempt.quiz_id,
@@ -333,6 +342,7 @@ router.get('/:quizId/attempts/:attemptId', async (req, res, next) => {
         courseCode: attempt.course_code,
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
+        quizType: attempt.quiz_type,
       },
       questions: shuffledQuestions.map((q) => ({
         id: q.id,
@@ -370,6 +380,7 @@ router.post('/:quizId/attempts', async (req, res, next) => {
           q.quiz_id,
           q.duration_minutes,
           q.total_points,
+          q.quiz_type,
           e.student_id
         FROM quizzes q
         JOIN enrollments e ON e.course_id = q.course_id
@@ -379,7 +390,34 @@ router.post('/:quizId/attempts', async (req, res, next) => {
           AND e.status IN ('ENROLLED', 'IN_PROGRESS')
         LIMIT 1
       ),
-      upsert_attempt AS (
+      existing_target AS (
+        SELECT 
+          a.attempt_id,
+          a.quiz_id,
+          a.student_id,
+          a.status,
+          a.score,
+          a.total_points,
+          a.started_at,
+          a.due_at,
+          a.submitted_at,
+          a.submission_mode,
+          a.allocation_seed,
+          a.is_practice,
+          false AS is_new_record
+        FROM quiz_attempts a
+        JOIN verified_student_enrollment vse ON vse.quiz_id = a.quiz_id AND vse.student_id = a.student_id
+        WHERE (
+          (vse.quiz_type = 'OFFICIAL_TEST' AND a.status != 'ABANDONED')
+          OR
+          (vse.quiz_type = 'SELF_PRACTICE' AND a.status = 'IN_PROGRESS')
+        )
+        ORDER BY 
+          CASE WHEN a.status = 'IN_PROGRESS' THEN 0 ELSE 1 END,
+          a.started_at DESC
+        LIMIT 1
+      ),
+      inserted_attempt AS (
         INSERT INTO quiz_attempts (
           attempt_id,
           quiz_id,
@@ -389,7 +427,8 @@ router.post('/:quizId/attempts', async (req, res, next) => {
           total_points,
           started_at,
           due_at,
-          allocation_seed
+          allocation_seed,
+          is_practice
         )
         SELECT
           $3,
@@ -399,37 +438,61 @@ router.post('/:quizId/attempts', async (req, res, next) => {
           0.00,
           vse.total_points,
           NOW(),
-          NOW() + (vse.duration_minutes || ' minutes')::interval,
-          $4
+          CASE 
+            WHEN vse.quiz_type = 'SELF_PRACTICE' OR vse.duration_minutes <= 0 
+            THEN NOW() + INTERVAL '24 hours'
+            ELSE NOW() + (vse.duration_minutes || ' minutes')::interval
+          END,
+          $4,
+          (vse.quiz_type = 'SELF_PRACTICE')
         FROM verified_student_enrollment vse
-        ON CONFLICT (student_id, quiz_id) WHERE status != 'ABANDONED' DO UPDATE
+        WHERE NOT EXISTS (SELECT 1 FROM existing_target)
+        ON CONFLICT (student_id, quiz_id) WHERE (status = 'IN_PROGRESS') DO UPDATE
         SET 
           allocation_seed = COALESCE(quiz_attempts.allocation_seed, EXCLUDED.allocation_seed)
         RETURNING 
-          quiz_attempts.*,
+          quiz_attempts.attempt_id,
+          quiz_attempts.quiz_id,
+          quiz_attempts.student_id,
+          quiz_attempts.status,
+          quiz_attempts.score,
+          quiz_attempts.total_points,
+          quiz_attempts.started_at,
+          quiz_attempts.due_at,
+          quiz_attempts.submitted_at,
+          quiz_attempts.submission_mode,
+          quiz_attempts.allocation_seed,
+          quiz_attempts.is_practice,
           (xmax = 0) AS is_new_record
+      ),
+      resolved_attempt AS (
+        SELECT * FROM existing_target
+        UNION ALL
+        SELECT * FROM inserted_attempt
       )
       SELECT 
-        ua.attempt_id,
-        ua.quiz_id,
-        ua.student_id,
-        ua.status,
-        ua.score,
-        ua.total_points,
-        ua.started_at,
-        ua.due_at,
-        ua.submitted_at,
-        ua.submission_mode,
-        ua.allocation_seed,
-        ua.is_new_record,
+        ra.attempt_id,
+        ra.quiz_id,
+        ra.student_id,
+        ra.status,
+        ra.score,
+        ra.total_points,
+        ra.started_at,
+        ra.due_at,
+        ra.submitted_at,
+        ra.submission_mode,
+        ra.allocation_seed,
+        ra.is_practice,
+        ra.is_new_record,
         q.title AS quiz_title,
         q.duration_minutes,
         q.course_id,
+        q.quiz_type,
         c.code AS course_code,
         c.title AS course_title,
         NOW() AS server_now
-      FROM upsert_attempt ua
-      JOIN quizzes q ON q.quiz_id = ua.quiz_id
+      FROM resolved_attempt ra
+      JOIN quizzes q ON q.quiz_id = ra.quiz_id
       JOIN courses c ON c.course_id = q.course_id;
     `;
 
@@ -547,6 +610,9 @@ router.post('/:quizId/attempts', async (req, res, next) => {
         submissionMode: attempt.submission_mode,
         serverNow: attempt.server_now,
         isNewRecord: attempt.is_new_record,
+        isPractice: Boolean(attempt.is_practice || attempt.quiz_type === 'SELF_PRACTICE'),
+        quizType: attempt.quiz_type,
+        fullscreenExits: 0,
       },
       quiz: {
         id: attempt.quiz_id,
@@ -554,6 +620,7 @@ router.post('/:quizId/attempts', async (req, res, next) => {
         courseCode: attempt.course_code,
         courseTitle: attempt.course_title,
         durationMinutes: attempt.duration_minutes,
+        quizType: attempt.quiz_type,
       },
       questions: shuffledQuestions,
       answers: answersMap,
@@ -906,14 +973,32 @@ async function getCourseQuizzesHandler(req, res, next) {
         q.total_points,
         q.status,
         q.due_date,
-        a.attempt_id,
-        a.status AS attempt_status,
-        a.score AS attempt_score,
-        a.started_at,
-        a.submitted_at
+        q.quiz_type,
+        att.attempt_id,
+        att.status AS attempt_status,
+        att.score AS attempt_score,
+        att.started_at,
+        att.submitted_at,
+        att.is_practice
       FROM quizzes q
       JOIN courses c ON c.course_id = q.course_id
-      LEFT JOIN quiz_attempts a ON a.quiz_id = q.quiz_id AND a.student_id = $2
+      LEFT JOIN LATERAL (
+        SELECT 
+          a.attempt_id,
+          a.status,
+          a.score,
+          a.started_at,
+          a.submitted_at,
+          a.is_practice
+        FROM quiz_attempts a
+        WHERE a.quiz_id = q.quiz_id 
+          AND a.student_id = $2 
+          AND a.status != 'ABANDONED'
+        ORDER BY 
+          CASE WHEN a.status = 'IN_PROGRESS' THEN 0 ELSE 1 END,
+          a.started_at DESC
+        LIMIT 1
+      ) att ON TRUE
       WHERE (
         q.course_id = $1 
         OR c.code = $1 
@@ -938,6 +1023,7 @@ async function getCourseQuizzesHandler(req, res, next) {
         totalPoints: Number(r.total_points),
         status: r.status,
         dueDate: r.due_date,
+        quizType: r.quiz_type || 'OFFICIAL_TEST',
         attempt: r.attempt_id
           ? {
               attemptId: r.attempt_id,
@@ -945,6 +1031,7 @@ async function getCourseQuizzesHandler(req, res, next) {
               score: r.attempt_score !== null ? Number(r.attempt_score) : null,
               startedAt: r.started_at,
               submittedAt: r.submitted_at,
+              isPractice: Boolean(r.is_practice || r.quiz_type === 'SELF_PRACTICE'),
             }
           : null,
       })),

@@ -267,7 +267,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
   // Option selection handler: Synchronous commit to sessionStorage + debounced sync
   const handleSelectOption = useCallback(
     (questionId, optionId) => {
-      if (attempt?.status === 'SUBMITTED' || inFlightSubmitMutexRef.current) return;
+      if (['SUBMITTED', 'GRADED', 'EXPIRED'].includes(attempt?.status) || inFlightSubmitMutexRef.current) return;
 
       const nextAnswers = {
         ...selectedAnswers,
@@ -381,20 +381,39 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     }
   }, [submitMutation]);
 
+  const isFinalized =
+    ['SUBMITTED', 'GRADED', 'EXPIRED'].includes(attempt?.status) || Boolean(submissionReceipt);
+
+  useEffect(() => {
+    if (isFinalized) {
+      isFinalizedRef.current = true;
+    }
+  }, [isFinalized]);
+
+  const isTimerActive = Boolean(
+    attempt &&
+    attempt.status === 'IN_PROGRESS' &&
+    !isFinalized
+  );
+
   // One-shot timer auto-submission trigger
   const handleTimerExpire = useCallback(() => {
+    // Boundary Guard: Only submit if attempt is genuinely active and in-progress
+    if (isFinalizedRef.current || attempt?.status !== 'IN_PROGRESS') return;
+
     // If one-shot latch has already fired, prevent infinite loop
     if (hasAutoSubmitFiredRef.current) return;
     hasAutoSubmitFiredRef.current = true;
 
     // Immediately trigger submission
     triggerSubmit('EXPIRED_AUTO_SUBMIT');
-  }, [triggerSubmit]);
+  }, [attempt?.status, triggerSubmit]);
 
   const timerRef = useRef(null);
 
   // Authoritative wake heartbeat to re-anchor server clock
   const handleWakeHeartbeat = useCallback(async () => {
+    if (isFinalizedRef.current || attempt?.status !== 'IN_PROGRESS') return;
     try {
       const clientSend = Date.now();
       const res = await apiClient.get(`/quizzes/${quizId}/attempts/${attemptId}`);
@@ -407,7 +426,7 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     } catch {
       // Silently ignore network hiccup during wake heartbeat
     }
-  }, [quizId, attemptId]);
+  }, [quizId, attemptId, attempt?.status]);
 
   // 5. Monotonic Countdown Timer Hook
   const timer = useQuizTimer({
@@ -416,19 +435,12 @@ export function useQuizAttempt({ quizId, attemptId, studentId }) {
     telemetry: attemptData?._telemetry,
     onExpire: handleTimerExpire,
     onWakeHeartbeat: handleWakeHeartbeat,
+    enabled: isTimerActive,
   });
 
   useEffect(() => {
     timerRef.current = timer;
   }, [timer]);
-
-  const isFinalized = attempt?.status === 'SUBMITTED' || Boolean(submissionReceipt);
-
-  useEffect(() => {
-    if (isFinalized) {
-      isFinalizedRef.current = true;
-    }
-  }, [isFinalized]);
   const activeQuestion = questions[activeQuestionIndex] || questions[0];
   const activeAnswer = activeQuestion ? selectedAnswers[activeQuestion.id]?.optionId : null;
   const answeredCount = useMemo(() => Object.keys(selectedAnswers).length, [selectedAnswers]);

@@ -450,12 +450,14 @@ export const Sidebar = ({
   return (
     <div className="flex flex-col h-full bg-[#0a1142] text-white select-none">
       {/* 1. Brand & Crest Header */}
-      <div className="h-16 px-4 flex items-center justify-between border-b border-[#16258f]/40 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className={`h-16 flex items-center border-b border-[#16258f]/40 shrink-0 ${
+        isExpanded || isMobile ? 'px-4 justify-between' : 'px-2 justify-between'
+      }`}>
+        <div className={`flex items-center min-w-0 shrink-0 ${isExpanded || isMobile ? 'gap-3' : 'gap-1.5'}`}>
           <img 
             src="/faculty-logo.jpg" 
             alt="FOCITSA UNIOSUN Logo" 
-            className="w-9 h-9 rounded-full object-cover ring-2 ring-[#ffb81c]/60 shadow-md shrink-0" 
+            className="w-9 h-9 min-w-[36px] min-h-[36px] aspect-square rounded-full object-cover ring-2 ring-[#ffb81c]/60 shadow-md shrink-0 select-none pointer-events-none" 
           />
           {(isExpanded || isMobile) && (
             <div className="min-w-0 flex flex-col">
@@ -484,7 +486,7 @@ export const Sidebar = ({
             type="button"
             onClick={onToggle}
             aria-label={isExpanded ? 'Collapse Navigation Sidebar' : 'Expand Navigation Sidebar'}
-            className="p-1.5 rounded-lg text-gray-300 hover:text-[#ffb81c] hover:bg-white/10 transition-colors hidden md:flex items-center justify-center cursor-pointer"
+            className="p-1.5 rounded-lg text-gray-300 hover:text-[#ffb81c] hover:bg-white/10 transition-colors hidden md:flex items-center justify-center cursor-pointer shrink-0"
           >
             {isExpanded ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
           </button>
