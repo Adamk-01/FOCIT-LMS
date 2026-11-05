@@ -1019,7 +1019,7 @@ async function getCourseQuizzesHandler(req, res, next) {
         totalPoints: Number(r.total_points),
         status: r.status,
         dueDate: r.due_date,
-        quizType: r.quiz_type,
+        quizType: r.quiz_type || 'OFFICIAL_TEST',
         attempt: r.attempt_id
           ? {
               attemptId: r.attempt_id,
