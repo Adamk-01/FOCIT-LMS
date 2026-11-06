@@ -78,8 +78,8 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
 
     await pool.query(`
       INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
-      VALUES ('CSC204', $1, 'lecturer1', 'hod_csc')
-      ON CONFLICT (course_id, semester_id) DO UPDATE SET lecturer_id = 'lecturer1';
+      VALUES ('CSC204', $1, 'lecturer1', true, 'hod_csc')
+      ON CONFLICT (course_id, semester_id, lecturer_id) DO UPDATE SET is_primary = true, allocated_by = 'hod_csc';
     `, [semId]);
 
     await pool.query(`

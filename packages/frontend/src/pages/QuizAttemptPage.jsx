@@ -118,8 +118,12 @@ export function QuizAttemptPage() {
   const restoredFullscreenExits = Number(
     attempt?.fullscreenExits ??
     attempt?.fullscreen_exits ??
+    attemptData?.attempt?.fullscreenExits ??
+    attemptData?.attempt?.fullscreen_exits ??
     (Array.isArray(attempt?.telemetry_log)
       ? attempt.telemetry_log.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
+      : Array.isArray(attempt?.telemetryLog)
+      ? attempt.telemetryLog.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
       : 0)
   ) || 0;
 
@@ -133,6 +137,7 @@ export function QuizAttemptPage() {
     attemptId: effectiveAttemptId,
     enabled: Boolean(isProctored && attempt?.status === 'IN_PROGRESS' && !isFinalized),
     initialFullscreenExits: restoredFullscreenExits,
+    restoredExits: restoredFullscreenExits,
     isSubmitting,
     onViolationAutoSubmit: handleViolationAutoSubmit,
   });

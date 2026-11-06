@@ -37,14 +37,17 @@ export function useAntiCheat({
   attemptId,
   enabled = true,
   initialFullscreenExits = 0,
+  restoredExits,
   isSubmitting = false,
   onViolationAutoSubmit,
 }) {
+  const effectiveInitialExits = Number(restoredExits ?? initialFullscreenExits) || 0;
+
   const [lockdownState, setLockdownState] = useState(() => {
     if (!enabled) return 'ACTIVE';
     if (!isFullscreenSupported()) return 'ACTIVE';
-    if (initialFullscreenExits >= 2) return 'AUTO_SUBMITTING';
-    if (initialFullscreenExits === 1) return 'SUSPENDED_AWAY';
+    if (effectiveInitialExits >= 2) return 'AUTO_SUBMITTING';
+    if (effectiveInitialExits === 1) return 'SUSPENDED_AWAY';
     if (typeof document !== 'undefined' && !document.fullscreenElement) {
       return 'NEEDS_FULLSCREEN';
     }
@@ -57,10 +60,10 @@ export function useAntiCheat({
   });
 
   const [infractionCount, setInfractionCount] = useState(0);
-  const [fullscreenExits, setFullscreenExits] = useState(initialFullscreenExits);
+  const [fullscreenExits, setFullscreenExits] = useState(effectiveInitialExits);
 
-  const fullscreenExitCountRef = useRef(initialFullscreenExits);
-  const hasAutoSubmittedViolationRef = useRef(initialFullscreenExits >= 2);
+  const fullscreenExitCountRef = useRef(effectiveInitialExits);
+  const hasAutoSubmittedViolationRef = useRef(effectiveInitialExits >= 2);
   const blurStartRef = useRef(null);
   const graceTimerRef = useRef(null);
   const telemetryQueueRef = useRef([]);
@@ -70,20 +73,20 @@ export function useAntiCheat({
 
   // Synchronize persisted strike counter on server rehydration
   useEffect(() => {
-    if (initialFullscreenExits > 0 && fullscreenExitCountRef.current < initialFullscreenExits) {
-      fullscreenExitCountRef.current = initialFullscreenExits;
-      setFullscreenExits(initialFullscreenExits);
-      if (initialFullscreenExits >= 2 && !hasAutoSubmittedViolationRef.current) {
+    if (effectiveInitialExits > 0 && fullscreenExitCountRef.current < effectiveInitialExits) {
+      fullscreenExitCountRef.current = effectiveInitialExits;
+      setFullscreenExits(effectiveInitialExits);
+      if (effectiveInitialExits >= 2 && !hasAutoSubmittedViolationRef.current) {
         hasAutoSubmittedViolationRef.current = true;
         setLockdownState('AUTO_SUBMITTING');
         if (typeof onViolationAutoSubmit === 'function') {
           onViolationAutoSubmit('FULLSCREEN_VIOLATION_AUTO_SUBMIT');
         }
-      } else if (initialFullscreenExits === 1 && lockdownState === 'ACTIVE') {
+      } else if (effectiveInitialExits === 1 && lockdownState === 'ACTIVE') {
         setLockdownState('SUSPENDED_AWAY');
       }
     }
-  }, [initialFullscreenExits, lockdownState, onViolationAutoSubmit]);
+  }, [effectiveInitialExits, lockdownState, onViolationAutoSubmit]);
 
   // Flush queued telemetry events to BFF with offline retry resilience
   const flushTelemetry = useCallback(async () => {
