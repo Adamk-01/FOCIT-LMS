@@ -583,12 +583,14 @@ router.post('/change-password', async (req, res) => {
     } else {
       await pool.query(
         `
-        INSERT INTO student_profiles (student_id, password_hash, must_change_password, version)
-        VALUES ($1, $2, FALSE, 1)
+        INSERT INTO student_profiles (student_id, password_hash, must_change_password, is_activated, activated_at, version)
+        VALUES ($1, $2, FALSE, TRUE, NOW(), 1)
         ON CONFLICT (student_id)
         DO UPDATE SET 
           password_hash = $2, 
           must_change_password = FALSE, 
+          is_activated = TRUE,
+          activated_at = COALESCE(student_profiles.activated_at, NOW()),
           version = student_profiles.version + 1, 
           updated_at = NOW();
         `,

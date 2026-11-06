@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout.jsx';
 import { resolveRemediation } from '../lib/userFriendlyMessages.js';
+import { ActivatePortalModal } from '../components/auth/ActivatePortalModal.jsx';
 
 export const LoginPage = () => {
   const { login } = useAuth();
@@ -14,6 +15,7 @@ export const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [isActivateModalOpen, setIsActivateModalOpen] = useState(false);
 
   const sessionTimeoutError = searchParams.get('reason') === 'session_timeout' ? {
     code: 'UPSTREAM_EXPIRED',
@@ -188,6 +190,36 @@ export const LoginPage = () => {
                 </div>
               </fieldset>
             </form>
+
+              <div className="mt-6 pt-5 border-t border-gray-100 dark:border-slate-800 text-center">
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-2 font-sans">
+                  New or returning student setting up your portal?
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsActivateModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-[#0a1142] dark:text-[#ffb81c] bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800/60 rounded-xl transition-all shadow-xs w-full sm:w-auto"
+                >
+                  <span>Activate Student Portal</span>
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              </div>
+
+              <ActivatePortalModal
+                isOpen={isActivateModalOpen}
+                onClose={() => setIsActivateModalOpen(false)}
+                onActivated={({ matricNumber, temporaryPassword }) => {
+                  setStudentId(matricNumber);
+                  setPassword(temporaryPassword);
+                  setAuthError({
+                    code: 'TEMPORARY_PASSWORD_COPIED',
+                    title: 'Temporary Password Copied',
+                    problem: 'Your temporary password has been copied to your clipboard and filled in above.',
+                    remediation: 'Click "Sign In to Academic Portal" to log in and set your permanent secret password.',
+                    severity: 'success',
+                  });
+                }}
+              />
           </div>
         </div>
         </div>
