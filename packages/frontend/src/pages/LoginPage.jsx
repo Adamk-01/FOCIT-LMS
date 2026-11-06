@@ -39,6 +39,28 @@ export const LoginPage = () => {
     setAuthError(null);
 
     const trimmedId = studentId.trim();
+
+    // UNIOSUN Matric Number Format Validation: YYYY/XXXXX (strict 5 digits)
+    if (/^\d{4}[/-]/.test(trimmedId) || /^[A-Za-z]+\/\d{4}[/-]/.test(trimmedId)) {
+      const parts = trimmedId.split(/[/-]/);
+      const suffix = parts[parts.length - 1];
+      if (/^\d+$/.test(suffix) && suffix.length !== 5) {
+        isSubmittingRef.current = false;
+        setAuthError({
+          code: 'INVALID_MATRIC_FORMAT',
+          title: 'Invalid Matriculation Format',
+          problem: `The matric number "${trimmedId}" is invalid. UNIOSUN student matric numbers require exactly 5 digits after the year (e.g. 2023/47162).`,
+          remediation: 'Please check your matriculation number and ensure you enter the full 5 digits assigned to you.',
+          severity: 'error',
+          recoveryAction: {
+            type: 'FOCUS_INPUT',
+            target: 'studentId',
+            label: 'Fix Matric Number',
+          },
+        });
+        return;
+      }
+    }
     if (!trimmedId || !password) {
       isSubmittingRef.current = false;
       setAuthError({
@@ -134,7 +156,7 @@ export const LoginPage = () => {
                       setStudentId(e.target.value);
                       if (authError) setAuthError(null);
                     }}
-                    placeholder="e.g. 2024/28682 or student1"
+                    placeholder="e.g. 2023/47162"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:border-[#0a1142] dark:focus:border-[#ffb81c] text-sm font-sans transition-all"
                   />
                 </div>

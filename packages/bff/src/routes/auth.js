@@ -45,6 +45,19 @@ router.post('/login', async (req, res) => {
   }
 
   const candidateId = studentId.trim();
+
+  // Validate student matriculation number syntax (UNIOSUN 5-digit standard YYYY/XXXXX)
+  if (/^\d{4}[/-]/.test(candidateId) || /^[A-Za-z]+\/\d{4}[/-]/.test(candidateId)) {
+    const parts = candidateId.split(/[/-]/);
+    const suffix = parts[parts.length - 1];
+    if (/^\d+$/.test(suffix) && suffix.length !== 5) {
+      return res.status(422).json({
+        error: 'Invalid matriculation number format. UNIOSUN matric numbers require 5 digits after the year (e.g., 2023/47162).',
+        code: 'INVALID_MATRIC_FORMAT',
+        expected_format: 'YYYY/XXXXX',
+      });
+    }
+  }
   // Normalize candidate identifier for flexible matching (strip dashes, whitespace, normalize slashes)
   const cleanedId = candidateId.replace(/\s+/g, '').toUpperCase();
   const normalizedSlashId = cleanedId.replace(/-/g, '/');
