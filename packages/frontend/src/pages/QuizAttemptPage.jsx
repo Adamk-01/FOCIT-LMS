@@ -118,8 +118,6 @@ export function QuizAttemptPage() {
   const rawRestoredExits = Number(
     attempt?.fullscreenExits ??
     attempt?.fullscreen_exits ??
-    attemptData?.attempt?.fullscreenExits ??
-    attemptData?.attempt?.fullscreen_exits ??
     (Array.isArray(attempt?.telemetry_log)
       ? attempt.telemetry_log.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
       : Array.isArray(attempt?.telemetryLog)
