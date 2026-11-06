@@ -1,9 +1,9 @@
 /**
- * Senate Standard Matriculation Syntax: YYYY/NNNNN (4-digit year, slash, 4 to 6 digit serial)
- * Example: 2024/28682
+ * Senate Standard Matriculation Syntax: YYYY/NNNNN (4-digit year, slash, exactly 5-digit serial)
+ * Example: 2023/47162
  */
-const SENATE_MATRIC_REGEX = /^(\d{4})\/(\d{4,6})$/;
-const LOOSE_EXTRACTION_REGEX = /(\d{4})\s*[-/\\]\s*(\d{4,6})$/;
+const SENATE_MATRIC_REGEX = /^(\d{4})\/(\d{5})$/;
+const LOOSE_EXTRACTION_REGEX = /(\d{4})\s*[-/\\]\s*(\d{5})$/;
 
 export function canonicalizeMatricNumber(rawInput) {
   if (typeof rawInput !== 'string') {
@@ -21,7 +21,7 @@ export function canonicalizeMatricNumber(rawInput) {
     }
   }
 
-  // Sanitization path: extract trailing YYYY and 4-6 digit serial from legacy formats (e.g., FOCIT/2024/28682 or 2024-28682)
+  // Sanitization path: extract trailing YYYY and 5-digit serial from legacy formats (e.g., FOCIT/2023/47162 or 2023-47162)
   const match = trimmed.match(LOOSE_EXTRACTION_REGEX);
   if (match) {
     const [, yearStr, serialStr] = match;
@@ -34,6 +34,6 @@ export function canonicalizeMatricNumber(rawInput) {
   return {
     valid: false,
     value: null,
-    error: 'Invalid Matriculation Number. Expected Senate Standard format YYYY/NNNNN (e.g., 2024/28682).',
+    error: 'Invalid Matriculation Number. UNIOSUN matric numbers require 5 digits after the year (e.g., 2023/47162).',
   };
 }

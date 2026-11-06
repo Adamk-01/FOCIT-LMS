@@ -423,6 +423,17 @@ export async function createUser(req, res, next) {
     await client.query('BEGIN');
     inTransaction = true;
 
+    // Enforce UNIOSUN 5-digit matriculation format on student provisioning
+    if (normalizedRole === 'STUDENT') {
+      const trimmedMatric = String(identifier).trim();
+      if (!/^[0-9]{4}\/[0-9]{5}$/.test(trimmedMatric)) {
+        return res.status(400).json({
+          error: 'Invalid student matriculation number. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162).',
+          code: 'INVALID_MATRIC_FORMAT',
+        });
+      }
+    }
+
     let createdId;
     if (normalizedRole === 'STUDENT') {
       const studentId = `student_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
