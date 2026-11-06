@@ -21,7 +21,7 @@ export const REMEDIATION_REGISTRY = {
   INVALID_CREDENTIALS: () => ({
     title: 'Authentication Failed',
     problem: 'The Matric Number or password entered does not match university records.',
-    remediation: 'Check your matric number format (e.g. 2024/28682) and re-enter your password.',
+    remediation: 'Double-check your Student ID / Matric Number and re-enter your password. If this is your first time logging in, use your assigned temporary password.',
     severity: 'error',
     recoveryAction: { type: 'FOCUS_INPUT', target: 'studentId' },
   }),
