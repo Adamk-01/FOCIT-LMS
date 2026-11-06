@@ -75,6 +75,7 @@ export function DashboardCourseCard({
   const category = course?.category || 'CORE';
   const status = course?.status || 'In Progress';
   const isCompleted = status === 'Completed' || status === 'COMPLETED';
+  const progressVal = Math.min(100, Math.max(0, Number(course?.progress ?? course?.progress_percent ?? 0)));
 
   const palette = useMemo(() => getCoursePalette(courseCode), [courseCode]);
 
@@ -150,63 +151,93 @@ export function DashboardCourseCard({
           </div>
         </div>
 
-        {/* 3. NUC 75% Examination Attendance Standing Meter */}
-        <div className="p-3.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/80 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 shrink-0">
-              <ShieldCheck size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
-              <span className="whitespace-nowrap">NUC Standing</span>
-            </span>
-
-            {/* Attendance Standing Label */}
-            <div className="text-right min-w-0">
-              {!hasRecordedSessions ? (
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                  100% (No Sessions)
-                </span>
-              ) : isBarred ? (
-                <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 justify-end whitespace-nowrap">
-                  <AlertTriangle size={12} className="shrink-0" />
-                  <span>Barred ({percentage}%)</span>
-                </span>
-              ) : isEligible ? (
-                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                  {percentage}% (Eligible)
-                </span>
-              ) : (
-                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1 justify-end whitespace-nowrap">
-                  <AlertTriangle size={12} className="shrink-0" />
-                  <span>{percentage}% (Warning)</span>
-                </span>
-              )}
+        {/* 3. Dynamic Course Progress & NUC Attendance Standing Gauges */}
+        <div className="space-y-3">
+          {/* A. Course Completion / Syllabus Progress */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                Course Progress
+              </span>
+              <span className="text-xs font-black text-[#0a1142] dark:text-slate-100 font-mono">
+                {progressVal}%
+              </span>
+            </div>
+            <div className="relative h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5">
+              <div
+                className={`h-full transition-all duration-500 rounded-full ${
+                  isCompleted || progressVal === 100
+                    ? 'bg-emerald-500'
+                    : 'bg-gradient-to-r from-[#0a1142] to-[#16258f] dark:from-indigo-600 dark:to-indigo-500'
+                }`}
+                style={{ width: `${progressVal}%` }}
+                role="progressbar"
+                aria-valuenow={progressVal}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Course completion: ${progressVal}%`}
+              />
             </div>
           </div>
 
-          {/* Progress Bar with 75% NUC Threshold Line */}
-          <div className="relative h-2 w-full bg-slate-200/90 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-300 rounded-full ${
-                !hasRecordedSessions
-                  ? 'bg-slate-400 dark:bg-slate-600'
-                  : isBarred
-                    ? 'bg-rose-500'
-                    : isEligible
-                      ? 'bg-emerald-500 dark:bg-emerald-400'
-                      : 'bg-amber-500'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
-              role="progressbar"
-              aria-valuenow={percentage}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Attendance standing: ${percentage}%`}
-            />
-            {/* 75% NUC Examination Benchmark Line */}
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-slate-900/40 dark:bg-white/40 z-10"
-              style={{ left: '75%' }}
-              title="75% NUC Minimum Exam Benchmark"
-            />
+          {/* B. NUC 75% Examination Attendance Standing Meter */}
+          <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800/80 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 shrink-0">
+                <ShieldCheck size={14} className="text-teal-600 dark:text-teal-400 shrink-0" />
+                <span className="whitespace-nowrap">NUC Standing</span>
+              </span>
+
+              {/* Attendance Standing Label */}
+              <div className="text-right min-w-0">
+                {!hasRecordedSessions ? (
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    100% (No Sessions)
+                  </span>
+                ) : isBarred ? (
+                  <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1 justify-end whitespace-nowrap">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>Barred ({percentage}%)</span>
+                  </span>
+                ) : isEligible ? (
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                    {percentage}% (Eligible)
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1 justify-end whitespace-nowrap">
+                    <AlertTriangle size={12} className="shrink-0" />
+                    <span>{percentage}% (Warning)</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Progress Bar with 75% NUC Threshold Line */}
+            <div className="relative h-1.5 w-full bg-slate-200/90 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 rounded-full ${
+                  !hasRecordedSessions
+                    ? 'bg-slate-400 dark:bg-slate-600'
+                    : isBarred
+                      ? 'bg-rose-500'
+                      : isEligible
+                        ? 'bg-emerald-500 dark:bg-emerald-400'
+                        : 'bg-amber-500'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
+                role="progressbar"
+                aria-valuenow={percentage}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Attendance standing: ${percentage}%`}
+              />
+              {/* 75% NUC Examination Benchmark Line */}
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-slate-900/40 dark:bg-white/40 z-10"
+                style={{ left: '75%' }}
+                title="75% NUC Minimum Exam Benchmark"
+              />
+            </div>
           </div>
         </div>
       </div>

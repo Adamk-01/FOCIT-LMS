@@ -92,7 +92,7 @@ export const COURSE_OPTIONS = [
  */
 export function CourseCard({ course, focus = null }) {
   const canonicalId = course.course_id || course.id || '1';
-  const progressVal = Number(course.progress) || 45;
+  const progressVal = Math.min(100, Math.max(0, Number(course.progress ?? course.progress_percent ?? 0)));
   const isCompleted = course.status === 'Completed' || course.status === 'COMPLETED';
 
   const sliderRef = useRef(null);

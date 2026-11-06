@@ -11,6 +11,7 @@
 import express from 'express';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
+import { calculateCourseProgress } from '../lib/courseProgress.js';
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ router.get('/', async (req, res, next) => {
     SELECT 
       e.enrollment_id,
       e.status,
-      e.progress_percent,
+      COALESCE(e.progress_percent, 0) AS legacy_progress_percent,
       e.grade,
       c.course_id,
       COALESCE(e.course_code, c.code) AS code,
@@ -62,9 +63,39 @@ router.get('/', async (req, res, next) => {
       c.level,
       c.category,
       c.moodle_course_id,
-      c.description
+      c.description,
+      COALESCE(att.held_sessions, 0)::int AS held_sessions,
+      COALESCE(att.attended_sessions, 0)::int AS attended_sessions,
+      COALESCE(q.total_quizzes, 0)::int AS total_quizzes,
+      COALESCE(q.completed_quizzes, 0)::int AS completed_quizzes,
+      COALESCE(a.total_assignments, 0)::int AS total_assignments,
+      COALESCE(a.submitted_assignments, 0)::int AS submitted_assignments
     FROM enrollments e
     JOIN courses c ON c.course_id = e.course_id
+    LEFT JOIN LATERAL (
+      SELECT 
+        COUNT(s.session_id)::int AS held_sessions,
+        COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::int AS attended_sessions
+      FROM attendance_sessions s
+      LEFT JOIN attendance_records r ON r.session_id = s.session_id AND r.student_id = e.student_id
+      WHERE s.course_id = e.course_id
+    ) att ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT 
+        COUNT(DISTINCT qz.quiz_id)::int AS total_quizzes,
+        COUNT(DISTINCT qa.quiz_id) FILTER (WHERE qa.status IN ('SUBMITTED', 'COMPLETED', 'GRADED'))::int AS completed_quizzes
+      FROM quizzes qz
+      LEFT JOIN quiz_attempts qa ON qa.quiz_id = qz.quiz_id AND qa.student_id = e.student_id
+      WHERE qz.course_id = e.course_id AND qz.status = 'ACTIVE'
+    ) q ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT 
+        COUNT(DISTINCT ca.assignment_id)::int AS total_assignments,
+        COUNT(DISTINCT sub.assignment_id) FILTER (WHERE sub.status IN ('SUBMITTED', 'GRADED'))::int AS submitted_assignments
+      FROM course_assignments ca
+      LEFT JOIN student_assignment_submissions sub ON sub.assignment_id = ca.assignment_id AND sub.student_id = e.student_id
+      WHERE ca.course_id = e.course_id AND ca.status = 'PUBLISHED'
+    ) a ON TRUE
     WHERE ${conditions.join(' AND ')}
     ORDER BY 
       COALESCE(e.course_code, c.code) ASC, 
@@ -83,8 +114,30 @@ router.get('/', async (req, res, next) => {
       cursor_id: courses[courses.length - 1].course_id,
     } : null;
 
+    const coursesWithProgress = courses.map((c) => ({
+      ...c,
+      progress: calculateCourseProgress({
+        status: c.status,
+        held_sessions: c.held_sessions,
+        attended_sessions: c.attended_sessions,
+        total_quizzes: c.total_quizzes,
+        completed_quizzes: c.completed_quizzes,
+        total_assignments: c.total_assignments,
+        submitted_assignments: c.submitted_assignments,
+      }),
+      progress_percent: calculateCourseProgress({
+        status: c.status,
+        held_sessions: c.held_sessions,
+        attended_sessions: c.attended_sessions,
+        total_quizzes: c.total_quizzes,
+        completed_quizzes: c.completed_quizzes,
+        total_assignments: c.total_assignments,
+        submitted_assignments: c.submitted_assignments,
+      }),
+    }));
+
     return res.status(200).json({
-      courses,
+      courses: coursesWithProgress,
       has_more: hasMore,
       next_cursor: nextCursor,
       limit: parsedLimit,
