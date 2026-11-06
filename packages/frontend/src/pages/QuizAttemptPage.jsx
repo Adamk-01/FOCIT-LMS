@@ -37,18 +37,23 @@ export function QuizAttemptPage() {
   const { setExamLocked } = useExamLock();
   const studentId = user?.student_id || user?.id || user?.username;
 
+  const [isMobilePaletteOpen, setIsMobilePaletteOpen] = React.useState(false);
+
   // Defensive Ingress Normalization: resolve attemptId whether arriving via path segment or query param
   const effectiveAttemptId = attemptId || searchParams.get('attemptId');
 
-  // Synchronize to canonical path if accessed via query parameter
+  // Synchronize to canonical path if accessed via query parameter while preserving question navigation (e.g. ?q=N)
   useEffect(() => {
     if (!attemptId && effectiveAttemptId && courseId && quizId) {
+      const remainingParams = new URLSearchParams(searchParams);
+      remainingParams.delete('attemptId');
+      const searchStr = remainingParams.toString();
       navigate(
-        `/courses/${encodeURIComponent(courseId)}/quizzes/${encodeURIComponent(quizId)}/attempts/${encodeURIComponent(effectiveAttemptId)}`,
+        `/courses/${encodeURIComponent(courseId)}/quizzes/${encodeURIComponent(quizId)}/attempts/${encodeURIComponent(effectiveAttemptId)}${searchStr ? `?${searchStr}` : ''}`,
         { replace: true }
       );
     }
-  }, [attemptId, effectiveAttemptId, courseId, quizId, navigate]);
+  }, [attemptId, effectiveAttemptId, courseId, quizId, navigate, searchParams]);
 
   const {
     attempt,
@@ -75,9 +80,19 @@ export function QuizAttemptPage() {
     triggerSubmit,
   } = useQuizAttempt({ quizId, attemptId: effectiveAttemptId, studentId });
 
-  // 1. Formative vs. Summative Policy Invariant (Strict canonical camelCase DTO check)
+  // 1. Formative vs. Summative Policy Invariant (Defensive DTO check across camelCase & snake_case contracts)
   const isProctored = Boolean(
-    quiz && quiz.quizType === 'OFFICIAL_TEST'
+    (quiz?.quizType === 'OFFICIAL_TEST' ||
+      quiz?.quiz_type === 'OFFICIAL_TEST' ||
+      attempt?.quizType === 'OFFICIAL_TEST' ||
+      attempt?.quiz_type === 'OFFICIAL_TEST' ||
+      quiz?.is_proctored ||
+      quiz?.require_lockdown) &&
+    !attempt?.isPractice &&
+    attempt?.quizType !== 'SELF_PRACTICE' &&
+    attempt?.quiz_type !== 'SELF_PRACTICE' &&
+    quiz?.quizType !== 'SELF_PRACTICE' &&
+    quiz?.quiz_type !== 'SELF_PRACTICE'
   );
 
   // 2. Physical Viewport Chrome Lockdown Lifecycle
@@ -99,6 +114,21 @@ export function QuizAttemptPage() {
     [triggerSubmit]
   );
 
+  // Defensive extraction of restored fullscreen exits across DTO shapes and telemetry log (guarded against negative/non-integer)
+  const rawRestoredExits = Number(
+    attempt?.fullscreenExits ??
+    attempt?.fullscreen_exits ??
+    (Array.isArray(attempt?.telemetry_log)
+      ? attempt.telemetry_log.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
+      : Array.isArray(attempt?.telemetryLog)
+      ? attempt.telemetryLog.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
+      : 0)
+  );
+  const restoredFullscreenExits =
+    Number.isFinite(rawRestoredExits) && rawRestoredExits > 0
+      ? Math.floor(rawRestoredExits)
+      : 0;
+
   const {
     lockdownState,
     infractionCount,
@@ -108,7 +138,8 @@ export function QuizAttemptPage() {
     quizId,
     attemptId: effectiveAttemptId,
     enabled: Boolean(isProctored && attempt?.status === 'IN_PROGRESS' && !isFinalized),
-    initialFullscreenExits: attempt?.fullscreenExits || 0,
+    initialFullscreenExits: restoredFullscreenExits,
+    restoredExits: restoredFullscreenExits,
     isSubmitting,
     onViolationAutoSubmit: handleViolationAutoSubmit,
   });
@@ -183,6 +214,44 @@ export function QuizAttemptPage() {
         syncStatus={syncStatus}
       />
 
+      {/* Mobile / Tablet Quick-Jump Bar (< lg screens) */}
+      <div className="lg:hidden">
+        <button
+          type="button"
+          onClick={() => setIsMobilePaletteOpen((prev) => !prev)}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 shadow-sm text-xs font-bold text-[#0a1142] dark:text-[#ffb81c] active:scale-[0.99] transition-all"
+          aria-expanded={isMobilePaletteOpen}
+          aria-label="Toggle Question Navigation Palette"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Question Palette ({answeredCount}/{questions.length} Answered)</span>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-slate-800 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
+            {isMobilePaletteOpen ? 'Hide Grid ▲' : 'Show Grid ▼'}
+          </span>
+        </button>
+
+        {isMobilePaletteOpen && (
+          <div className="mt-3 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-lg animate-fade-in">
+            <QuestionNavigationPalette
+              questions={questions}
+              currentQuestionIndex={currentQuestionIndex}
+              selectedAnswers={selectedAnswers}
+              onSelectQuestion={(idx) => {
+                navigateToQuestion(idx);
+                setIsMobilePaletteOpen(false);
+              }}
+              onOpenFinishModal={() => {
+                setIsMobilePaletteOpen(false);
+                setShowConfirmModal(true);
+              }}
+              isSubmitting={isSubmitting}
+            />
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <main className="lg:col-span-3 space-y-6">
           <QuizQuestionCard
@@ -198,14 +267,16 @@ export function QuizAttemptPage() {
           />
         </main>
 
-        <QuestionNavigationPalette
-          questions={questions}
-          currentQuestionIndex={currentQuestionIndex}
-          selectedAnswers={selectedAnswers}
-          onSelectQuestion={navigateToQuestion}
-          onOpenFinishModal={() => setShowConfirmModal(true)}
-          isSubmitting={isSubmitting}
-        />
+        <div className="hidden lg:block lg:col-span-1">
+          <QuestionNavigationPalette
+            questions={questions}
+            currentQuestionIndex={currentQuestionIndex}
+            selectedAnswers={selectedAnswers}
+            onSelectQuestion={navigateToQuestion}
+            onOpenFinishModal={() => setShowConfirmModal(true)}
+            isSubmitting={isSubmitting}
+          />
+        </div>
       </div>
 
       <QuizSubmissionModal

@@ -14,6 +14,12 @@ import {
   Clock,
   ShieldCheck,
   ArrowUpRight,
+  Crown,
+  Users,
+  UserPlus,
+  Plus,
+  X,
+  Trash2,
 } from 'lucide-react';
 
 export function HodDashboardPage() {
@@ -72,19 +78,22 @@ export function HodDashboardPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Course Allocation Matrix (Interactive Assign Dropdown)
+// 1. Course Allocation Matrix (Interactive Multi-Lecturer Allocation)
 // ─────────────────────────────────────────────────────────────────────────────
 function AllocationMatrix() {
   const [selectedSemester, setSelectedSemester] = useState('');
   const { data: allocations = [], isLoading, error } = useHodAllocations(selectedSemester || undefined);
   const { data: lecturers = [] } = useHodLecturers();
-  const { allocate } = useHodMutations();
+  const { allocate, deallocate } = useHodMutations();
   const [savingCourseId, setSavingCourseId] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  const [coLecturerModalCourse, setCoLecturerModalCourse] = useState(null);
+  const [selectedCoLecturerId, setSelectedCoLecturerId] = useState('');
+  const [isModalSaving, setIsModalSaving] = useState(false);
 
   const activeSemester = selectedSemester || allocations.semesterId || '';
 
-  const handleAssignLecturer = async (courseId, lecturerId) => {
+  const handleAssignLecturer = async (courseId, lecturerId, isPrimary = true) => {
     if (!lecturerId || !activeSemester) return;
     setSavingCourseId(courseId);
     setSuccessMsg(null);
@@ -93,13 +102,53 @@ function AllocationMatrix() {
         courseId,
         semesterId: activeSemester,
         lecturerId,
+        isPrimary,
       });
-      setSuccessMsg(`Lecturer successfully allocated!`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      setSuccessMsg(isPrimary ? 'Lead Course Coordinator allocated successfully!' : 'Co-Lecturer added successfully!');
+      setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err) {
       alert(err.response?.data?.error || err.message || 'Failed to allocate lecturer');
     } finally {
       setSavingCourseId(null);
+    }
+  };
+
+  const handleRemoveLecturer = async (allocationId, lecturerName, courseCode) => {
+    if (!allocationId) return;
+    const confirmed = window.confirm(
+      `Remove ${lecturerName || 'this lecturer'} from teaching ${courseCode}?`
+    );
+    if (!confirmed) return;
+
+    setSuccessMsg(null);
+    try {
+      await deallocate.mutateAsync(allocationId);
+      setSuccessMsg(`Teaching allocation removed for ${courseCode}`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err) {
+      alert(err.response?.data?.error || err.message || 'Failed to remove lecturer');
+    }
+  };
+
+  const handleAddCoLecturerSubmit = async (e) => {
+    e.preventDefault();
+    if (!coLecturerModalCourse || !selectedCoLecturerId || !activeSemester) return;
+    setIsModalSaving(true);
+    try {
+      await allocate.mutateAsync({
+        courseId: coLecturerModalCourse.course_id,
+        semesterId: activeSemester,
+        lecturerId: selectedCoLecturerId,
+        isPrimary: false,
+      });
+      setSuccessMsg(`Co-Lecturer successfully added to ${coLecturerModalCourse.code}!`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+      setCoLecturerModalCourse(null);
+      setSelectedCoLecturerId('');
+    } catch (err) {
+      alert(err.response?.data?.error || err.message || 'Failed to add co-lecturer');
+    } finally {
+      setIsModalSaving(false);
     }
   };
 
@@ -119,8 +168,19 @@ function AllocationMatrix() {
     );
   }
 
-  const assignedCount = allocations.filter((a) => a.lecturer_id).length;
+  const assignedCount = allocations.filter((a) => (Array.isArray(a.lecturers) && a.lecturers.length > 0) || a.lecturer_id).length;
   const unassignedCount = allocations.length - assignedCount;
+  const totalAllocations = allocations.reduce((acc, a) => acc + (Array.isArray(a.lecturers) && a.lecturers.length > 0 ? a.lecturers.length : (a.lecturer_id ? 1 : 0)), 0);
+
+  const assignedLecturerIdsInModal = new Set(
+    (coLecturerModalCourse?.lecturers || []).map((l) => l.lecturer_id)
+  );
+  if (coLecturerModalCourse?.lecturer_id) {
+    assignedLecturerIdsInModal.add(coLecturerModalCourse.lecturer_id);
+  }
+  const eligibleCoLecturers = lecturers.filter(
+    (lec) => !assignedLecturerIdsInModal.has(lec.lecturer_id)
+  );
 
   return (
     <div className="space-y-4">
@@ -142,7 +202,7 @@ function AllocationMatrix() {
           </div>
           <div>
             <div className="text-xl font-bold text-emerald-700">{assignedCount} Assigned</div>
-            <div className="text-xs text-gray-500 font-medium">Active Teaching Allocations</div>
+            <div className="text-xs text-gray-500 font-medium">{totalAllocations} Total Teaching Roles</div>
           </div>
         </div>
 
@@ -152,7 +212,7 @@ function AllocationMatrix() {
           </div>
           <div>
             <div className="text-xl font-bold text-amber-700">{unassignedCount} Pending</div>
-            <div className="text-xs text-gray-500 font-medium">Awaiting Lecturer Assignment</div>
+            <div className="text-xs text-gray-500 font-medium">Awaiting Lead Assignment</div>
           </div>
         </div>
       </div>
@@ -166,19 +226,23 @@ function AllocationMatrix() {
 
       {/* Interactive Allocations Table */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-card overflow-hidden">
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h3 className="font-bold text-sm text-[#0a1142]">Department Course Allocation Matrix</h3>
+            <h3 className="font-bold text-sm text-[#0a1142] flex items-center gap-2">
+              <Users size={18} className="text-[#0a1142]" />
+              Department Course Allocation Matrix
+            </h3>
             <p className="text-xs text-gray-500">
-              Select and assign verified academic staff to teach semester courses.
-            </p>
-          </div>
-          <span className="text-xs font-bold text-[#0a1142] bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
+              Assign Primary Course Coordinators and secondary Co-Lecturers with multi-instructor teaching authority.
+            </p
+          ></div>
+          <span className="text-xs font-bold text-[#0a1142] bg-blue-50 px-3 py-1 rounded-full border border-blue-100 self-start sm:self-auto">
             Semester: {allocations.semesterId || selectedSemester || 'Active Semester'}
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop View (>= md) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-100/70 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200 font-bold">
               <tr>
@@ -186,42 +250,95 @@ function AllocationMatrix() {
                 <th className="py-3 px-4">Title</th>
                 <th className="py-3 px-4 text-center">Units</th>
                 <th className="py-3 px-4 text-center">Level</th>
-                <th className="py-3 px-4">Assigned Lecturer</th>
-                <th className="py-3 px-4 text-right">Action / Reassign</th>
+                <th className="py-3 px-4 min-w-[280px]">Assigned Teaching Staff</th>
+                <th className="py-3 px-4 text-right min-w-[260px]">Assign / Add Co-Lecturer</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {allocations.map((row) => {
                 const isSaving = savingCourseId === row.course_id;
-                const isAssigned = Boolean(row.lecturer_id);
+                const rawLecturers = Array.isArray(row.lecturers) && row.lecturers.length > 0
+                  ? row.lecturers
+                  : (row.lecturer_id ? [{
+                      allocation_id: row.allocation_id,
+                      lecturer_id: row.lecturer_id,
+                      lecturer_name: row.lecturer_name,
+                      is_primary: true,
+                      role: 'LECTURER',
+                    }] : []);
+
+                const primaryLecturer = rawLecturers.find((l) => l.is_primary) || (rawLecturers.length > 0 ? rawLecturers[0] : null);
+                const secondaryLecturers = rawLecturers.filter((l) => l !== primaryLecturer);
+                const isAssigned = rawLecturers.length > 0;
 
                 return (
                   <tr key={row.course_id} className="hover:bg-gray-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-gray-900">
+                    <td className="py-3.5 px-4 font-mono font-bold text-gray-900">
                       {row.code}
                     </td>
-                    <td className="py-3 px-4 font-medium text-gray-800">
+                    <td className="py-3.5 px-4 font-medium text-gray-800">
                       {row.title}
                     </td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3.5 px-4 text-center">
                       <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-gray-100 text-gray-700 font-mono">
                         {row.units} U
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3.5 px-4 text-center">
                       <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-purple-50 text-purple-700">
                         {row.level}L
                       </span>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3.5 px-4">
                       {isAssigned ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-[#0a1142] text-white text-[10px] flex items-center justify-center font-bold">
-                            {row.lecturer_name?.charAt(0) || 'L'}
-                          </div>
-                          <span className="font-semibold text-gray-900 text-xs">
-                            {row.lecturer_name}
-                          </span>
+                        <div className="flex flex-col gap-1.5">
+                          {/* Primary / Lead Coordinator Badge */}
+                          {primaryLecturer && (
+                            <div className="flex items-center justify-between gap-2 bg-indigo-50/70 border border-indigo-200/80 rounded-lg px-2.5 py-1 text-xs">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-5 h-5 rounded-full bg-[#0a1142] text-amber-300 flex items-center justify-center shrink-0 text-[10px]" title="Lead Course Coordinator">
+                                  <Crown size={12} className="text-amber-400" />
+                                </div>
+                                <span className="font-bold text-gray-900 truncate">
+                                  {primaryLecturer.lecturer_name}
+                                </span>
+                              </div>
+                              <span className="shrink-0 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-[#0a1142] text-white">
+                                Lead
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Secondary / Co-Lecturers */}
+                          {secondaryLecturers.map((sec) => (
+                            <div
+                              key={sec.allocation_id || sec.lecturer_id}
+                              className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs group"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 text-[10px] font-bold">
+                                  {sec.lecturer_name?.charAt(0) || 'L'}
+                                </div>
+                                <span className="font-medium text-slate-800 truncate">
+                                  {sec.lecturer_name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider rounded bg-slate-200 text-slate-700">
+                                  Co-Lecturer
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLecturer(sec.allocation_id, sec.lecturer_name, row.code)}
+                                  aria-label={`Remove ${sec.lecturer_name} from ${row.code}`}
+                                  title={`Remove ${sec.lecturer_name} from ${row.code}`}
+                                  className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
@@ -230,26 +347,46 @@ function AllocationMatrix() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <select
-                        disabled={isSaving}
-                        value={row.lecturer_id || ''}
-                        onChange={(e) => handleAssignLecturer(row.course_id, e.target.value)}
-                        className={`text-xs px-3 py-1.5 rounded-lg border font-medium outline-none transition-all ${
-                          isSaving
-                            ? 'bg-gray-100 text-gray-400 border-gray-200'
-                            : 'bg-white border-gray-300 hover:border-[#0a1142] text-gray-800 focus:ring-1 focus:ring-[#0a1142]'
-                        }`}
-                      >
-                        <option value="" disabled>
-                          -- Choose Lecturer --
-                        </option>
-                        {lecturers.map((lec) => (
-                          <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                            {lec.full_name} ({lec.role})
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Select Primary Lecturer */}
+                        <select
+                          id={`desktop-assign-lecturer-${row.course_id}`}
+                          name={`assign_lecturer_${row.course_id}`}
+                          aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
+                          disabled={isSaving}
+                          value={primaryLecturer?.lecturer_id || ''}
+                          onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
+                          className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium outline-none transition-all max-w-[170px] truncate ${
+                            isSaving
+                              ? 'bg-gray-100 text-gray-400 border-gray-200'
+                              : 'bg-white border-gray-300 hover:border-[#0a1142] text-gray-800 focus:ring-1 focus:ring-[#0a1142]'
+                          }`}
+                        >
+                          <option value="" disabled>
+                            -- Set Lead --
                           </option>
-                        ))}
-                      </select>
+                          {lecturers.map((lec) => (
+                            <option key={lec.lecturer_id} value={lec.lecturer_id}>
+                              {lec.full_name} ({lec.role})
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Button to open Add Co-Lecturer Modal */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCoLecturerModalCourse(row);
+                            setSelectedCoLecturerId('');
+                          }}
+                          title="Add Secondary Lecturer / Co-Lecturer to this course"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#0a1142] bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors shrink-0"
+                        >
+                          <Plus size={13} />
+                          <span>Co-Lecturer</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -257,12 +394,221 @@ function AllocationMatrix() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile View (< md) */}
+        <div className="md:hidden divide-y divide-gray-100 p-3 space-y-3">
+          {allocations.map((row) => {
+            const isSaving = savingCourseId === row.course_id;
+            const rawLecturers = Array.isArray(row.lecturers) && row.lecturers.length > 0
+              ? row.lecturers
+              : (row.lecturer_id ? [{
+                  allocation_id: row.allocation_id,
+                  lecturer_id: row.lecturer_id,
+                  lecturer_name: row.lecturer_name,
+                  is_primary: true,
+                  role: 'LECTURER',
+                }] : []);
+
+            const primaryLecturer = rawLecturers.find((l) => l.is_primary) || (rawLecturers.length > 0 ? rawLecturers[0] : null);
+            const secondaryLecturers = rawLecturers.filter((l) => l !== primaryLecturer);
+            const isAssigned = rawLecturers.length > 0;
+
+            return (
+              <div key={row.course_id} className="bg-gray-50/70 rounded-xl p-3.5 space-y-3 border border-gray-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-bold text-sm text-[#0a1142]">{row.code}</span>
+                    <h5 className="font-medium text-xs text-gray-800 mt-0.5">{row.title}</h5>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700">
+                      {row.level}L
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 font-mono">
+                      {row.units}U
+                    </span>
+                  </div>
+                </div>
+
+                {/* Assigned Staff List */}
+                <div className="pt-2 border-t border-gray-200/60 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">Teaching Staff</span>
+                    {!isAssigned && (
+                      <span className="text-[11px] font-medium text-amber-700">Unassigned</span>
+                    )}
+                  </div>
+
+                  {primaryLecturer && (
+                    <div className="flex items-center justify-between gap-2 bg-indigo-50/80 border border-indigo-200/80 rounded-lg p-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-[#0a1142] text-amber-300 flex items-center justify-center shrink-0 text-[10px]">
+                          <Crown size={12} className="text-amber-400" />
+                        </div>
+                        <span className="font-bold text-gray-900 text-xs truncate">
+                          {primaryLecturer.lecturer_name}
+                        </span>
+                      </div>
+                      <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase rounded bg-[#0a1142] text-white shrink-0">
+                        Lead
+                      </span>
+                    </div>
+                  )}
+
+                  {secondaryLecturers.map((sec) => (
+                    <div
+                      key={sec.allocation_id || sec.lecturer_id}
+                      className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg p-2 text-xs"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 text-[10px] font-bold">
+                          {sec.lecturer_name?.charAt(0) || 'L'}
+                        </div>
+                        <span className="font-medium text-gray-800 text-xs truncate">
+                          {sec.lecturer_name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase rounded bg-slate-100 text-slate-700">
+                          Co-Lecturer
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLecturer(sec.allocation_id, sec.lecturer_name, row.code)}
+                          aria-label={`Remove ${sec.lecturer_name} from ${row.code}`}
+                          title={`Remove ${sec.lecturer_name} from ${row.code}`}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-gray-400 hover:text-red-600 rounded"
+                        >
+                          <X size={14} />
+                        </button></div>
+                    </div>
+                  ))}
+
+                  {/* Actions for Mobile */}
+                  <div className="pt-2 space-y-2">
+                    <select
+                      id={`mobile-assign-lecturer-${row.course_id}`}
+                      name={`assign_lecturer_${row.course_id}`}
+                      aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
+                      disabled={isSaving}
+                      value={primaryLecturer?.lecturer_id || ''}
+                      onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
+                      className={`w-full min-h-[44px] text-xs px-3 py-2 rounded-xl border font-medium outline-none transition-all ${
+                        isSaving
+                          ? 'bg-gray-100 text-gray-400 border-gray-200'
+                          : 'bg-white border-gray-300 text-gray-800 focus:ring-2 focus:ring-[#0a1142]/20'
+                      }`}
+                    >
+                      <option value="" disabled>
+                        -- Set Lead Coordinator --
+                      </option>
+                      {lecturers.map((lec) => (
+                        <option key={lec.lecturer_id} value={lec.lecturer_id}>
+                          {lec.full_name} ({lec.role})
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCoLecturerModalCourse(row);
+                        setSelectedCoLecturerId('');
+                      }}
+                      className="w-full min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#0a1142] bg-blue-50 border border-blue-200 active:bg-blue-100 transition-colors"
+                    >
+                      <Plus size={15} />
+                      <span>Add Co-Lecturer</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Add Co-Lecturer Modal */}
+      {coLecturerModalCourse && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-gray-200 shadow-xl overflow-hidden">
+            <div className="px-6 py-4 bg-[#0a1142] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserPlus size={18} className="text-blue-300" />
+                <h4 className="font-bold text-sm">Add Course Co-Lecturer</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCoLecturerModalCourse(null)}
+                className="text-gray-300 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddCoLecturerSubmit} className="p-6 space-y-4">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Target Course</span>
+                <div className="mt-1 font-mono font-bold text-base text-[#0a1142]">
+                  {coLecturerModalCourse.code}
+                </div>
+                <div className="text-xs text-gray-600 font-medium">{coLecturerModalCourse.title}</div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Select Co-Lecturer (Department Academic Staff)
+                </label>
+                {eligibleCoLecturers.length > 0 ? (
+                  <select
+                    value={selectedCoLecturerId}
+                    onChange={(e) => setSelectedCoLecturerId(e.target.value)}
+                    required
+                    className="w-full min-h-[44px] text-xs px-3 py-2.5 rounded-xl border border-gray-300 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 font-medium"
+                  >
+                    <option value="" disabled>
+                      -- Choose Academic Staff --
+                    </option>
+                    {eligibleCoLecturers.map((lec) => (
+                      <option key={lec.lecturer_id} value={lec.lecturer_id}>
+                        {lec.full_name} ({lec.role})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    All departmental academic staff are already assigned to teach this course.
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Co-lecturers receive full teaching rights to upload materials, create assignments, manage attendance, and contribute questions.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setCoLecturerModalCourse(null)}
+                  className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedCoLecturerId || isModalSaving || eligibleCoLecturers.length === 0}
+                  className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#0a1142] hover:bg-[#131f6e] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  <Plus size={14} />
+                  <span>{isModalSaving ? 'Adding...' : 'Confirm Co-Lecturer'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 2. Cohort Analytics Terminal (Finance Portfolio Style)
 // ─────────────────────────────────────────────────────────────────────────────
 function AnalyticsTerminal() {

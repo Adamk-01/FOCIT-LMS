@@ -18,6 +18,8 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
   let createdSessionId = null;
   let createdTestId = null;
   const courseId = 'CSC204';
+  let priorAllocations = [];
+  let activeSemId = null;
 
   before(async () => {
     // 1. Create express test harness
@@ -74,13 +76,29 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     const termRes = await pool.query(
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
     );
-    const semId = termRes.rows[0]?.id || '2026_RAIN';
+    activeSemId = termRes.rows[0]?.id || '2026_RAIN';
+
+    // Snapshot existing allocation state for CSC204 to preserve & restore during teardown
+    const allocSnapshot = await pool.query(
+      `SELECT lecturer_id, is_primary, allocated_by 
+       FROM hod_course_allocations 
+       WHERE course_id = 'CSC204' AND semester_id = $1`,
+      [activeSemId]
+    );
+    priorAllocations = allocSnapshot.rows;
+
+    // Demote any existing primary allocation for CSC204 to ensure test fixture independence
+    await pool.query(`
+      UPDATE hod_course_allocations 
+      SET is_primary = false 
+      WHERE course_id = 'CSC204' AND semester_id = $1;
+    `, [activeSemId]);
 
     await pool.query(`
-      INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
-      VALUES ('CSC204', $1, 'lecturer1', 'hod_csc')
-      ON CONFLICT (course_id, semester_id) DO UPDATE SET lecturer_id = 'lecturer1';
-    `, [semId]);
+      INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+      VALUES ('CSC204', $1, 'lecturer1', true, 'hod_csc')
+      ON CONFLICT (course_id, semester_id, lecturer_id) DO UPDATE SET is_primary = true, allocated_by = 'hod_csc';
+    `, [activeSemId]);
 
     await pool.query(`
       INSERT INTO course_representatives (course_id, semester_id, student_id, appointed_by)
@@ -96,6 +114,21 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     // Finding 11: Make test suite repeatable on a persistent database
     await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
     await pool.query("DELETE FROM quizzes WHERE course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST'").catch(() => {});
+    await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
+
+    // Restore prior allocation state cleanly to preserve original database integrity
+    if (activeSemId) {
+      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [activeSemId]).catch(() => {});
+      for (const alloc of priorAllocations) {
+        await pool.query(
+          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+           VALUES ('CSC204', $1, $2, $3, $4)
+           ON CONFLICT (course_id, semester_id, lecturer_id) 
+           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
+          [activeSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
+        ).catch(() => {});
+      }
+    }
   });
 
   test('Mode 4 Upload: Course Rep submits snapped sheet and OCR text', async () => {

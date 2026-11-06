@@ -11,6 +11,7 @@
 
 import { pool } from '../db/index.js';
 import { evaluateGpaStanding } from '../lib/academicStanding.js';
+import { calculateCourseProgress } from '../lib/courseProgress.js';
 import { logger } from '../lib/logger.js';
 
 export class StudentDashboardService {
@@ -67,12 +68,12 @@ export class StudentDashboardService {
 
     // 3. Parallel Database Aggregation: Enrollments, Units, Upcoming Activities & Today's Timetable
     const [coursesRes, metricsRes, assignmentsRes, timetableRes] = await Promise.all([
-      // A. Active & Completed Courses
+      // A. Active & Completed Courses with Live Dynamic Progress Aggregation
       pool.query(`
         SELECT 
           e.enrollment_id,
           e.status,
-          COALESCE(e.progress_percent, 0) AS progress_percent,
+          COALESCE(e.progress_percent, 0) AS legacy_progress_percent,
           e.grade,
           c.course_id,
           c.code,
@@ -81,9 +82,39 @@ export class StudentDashboardService {
           c.level,
           c.category,
           c.moodle_course_id,
-          c.description
+          c.description,
+          COALESCE(att.held_sessions, 0)::int AS held_sessions,
+          COALESCE(att.attended_sessions, 0)::int AS attended_sessions,
+          COALESCE(q.total_quizzes, 0)::int AS total_quizzes,
+          COALESCE(q.completed_quizzes, 0)::int AS completed_quizzes,
+          COALESCE(a.total_assignments, 0)::int AS total_assignments,
+          COALESCE(a.submitted_assignments, 0)::int AS submitted_assignments
         FROM enrollments e
         JOIN courses c ON c.course_id = e.course_id
+        LEFT JOIN LATERAL (
+          SELECT 
+            COUNT(s.session_id)::int AS held_sessions,
+            COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::int AS attended_sessions
+          FROM attendance_sessions s
+          LEFT JOIN attendance_records r ON r.session_id = s.session_id AND r.student_id = e.student_id
+          WHERE s.course_id = e.course_id
+        ) att ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT 
+            COUNT(DISTINCT qz.quiz_id)::int AS total_quizzes,
+            COUNT(DISTINCT qa.quiz_id) FILTER (WHERE qa.status IN ('SUBMITTED', 'COMPLETED', 'GRADED'))::int AS completed_quizzes
+          FROM quizzes qz
+          LEFT JOIN quiz_attempts qa ON qa.quiz_id = qz.quiz_id AND qa.student_id = e.student_id
+          WHERE qz.course_id = e.course_id AND qz.status = 'ACTIVE'
+        ) q ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT 
+            COUNT(DISTINCT ca.assignment_id)::int AS total_assignments,
+            COUNT(DISTINCT sub.assignment_id) FILTER (WHERE sub.status IN ('SUBMITTED', 'GRADED'))::int AS submitted_assignments
+          FROM course_assignments ca
+          LEFT JOIN student_assignment_submissions sub ON sub.assignment_id = ca.assignment_id AND sub.student_id = e.student_id
+          WHERE ca.course_id = e.course_id AND ca.status = 'PUBLISHED'
+        ) a ON TRUE
         WHERE e.student_id = $1
         ORDER BY 
           CASE WHEN e.status = 'IN_PROGRESS' THEN 1 WHEN e.status = 'ENROLLED' THEN 2 ELSE 3 END,
@@ -203,18 +234,34 @@ export class StudentDashboardService {
         exemption_reason: gpaTelemetry.exemption_reason,
         academic_term: activeTermName,
       },
-      courses: enrollments.map((e) => ({
-        id: e.moodle_course_id || e.course_id,
-        course_id: e.course_id,
-        code: e.code,
-        title: e.title,
-        units: e.units,
-        level: e.level,
-        category: e.category,
-        status: e.status === 'IN_PROGRESS' ? 'In Progress' : (e.status === 'COMPLETED' ? 'Completed' : 'Not Started'),
-        progress: e.progress_percent || 0,
-        grade: e.grade,
-      })),
+      courses: enrollments.map((e) => {
+        const dynamicProgress = calculateCourseProgress({
+          status: e.status,
+          held_sessions: e.held_sessions,
+          attended_sessions: e.attended_sessions,
+          total_quizzes: e.total_quizzes,
+          completed_quizzes: e.completed_quizzes,
+          total_assignments: e.total_assignments,
+          submitted_assignments: e.submitted_assignments,
+        });
+
+        return {
+          id: e.moodle_course_id || e.course_id,
+          course_id: e.course_id,
+          code: e.code,
+          title: e.title,
+          units: e.units,
+          level: e.level,
+          category: e.category,
+          status: e.status === 'IN_PROGRESS' ? 'In Progress' : (e.status === 'COMPLETED' ? 'Completed' : 'Not Started'),
+          progress: dynamicProgress,
+          grade: e.grade,
+          held_sessions: e.held_sessions,
+          attended_sessions: e.attended_sessions,
+          total_tasks: (e.total_quizzes || 0) + (e.total_assignments || 0),
+          completed_tasks: (e.completed_quizzes || 0) + (e.submitted_assignments || 0),
+        };
+      }),
       upcoming_activities: upcomingActivities,
       zoom_session: zoomSession,
     };

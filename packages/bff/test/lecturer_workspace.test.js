@@ -35,22 +35,54 @@ function mockRes() {
 }
 
 describe('Lecturer Workspace & Class Roster Verification', () => {
+  let priorAllocations = [];
+  let capturedSemId = null;
+
   before(async () => {
     const { rows: termRows } = await pool.query(
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
     );
-    const activeSemesterId = termRows[0]?.id || '2026_RAIN';
+    capturedSemId = termRows[0]?.id || '2026_RAIN';
+
+    // Snapshot existing allocation state for CSC204 to preserve & restore during teardown
+    const allocSnapshot = await pool.query(
+      `SELECT lecturer_id, is_primary, allocated_by 
+       FROM hod_course_allocations 
+       WHERE course_id = 'CSC204' AND semester_id = $1`,
+      [capturedSemId]
+    );
+    priorAllocations = allocSnapshot.rows;
+
+    // Demote any existing primary allocation for CSC204 to ensure test fixture independence
+    await pool.query(
+      `UPDATE hod_course_allocations 
+       SET is_primary = false 
+       WHERE course_id = 'CSC204' AND semester_id = $1`,
+      [capturedSemId]
+    );
 
     await pool.query(
-      `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
-       VALUES ('CSC204', $1, 'lecturer1', 'hod_csc')
-       ON CONFLICT (course_id, semester_id) DO UPDATE SET lecturer_id = 'lecturer1'`,
-      [activeSemesterId]
+      `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+       VALUES ('CSC204', $1, 'lecturer1', true, 'hod_csc')
+       ON CONFLICT (course_id, semester_id, lecturer_id) DO UPDATE SET is_primary = true, allocated_by = 'hod_csc'`,
+      [capturedSemId]
     );
   });
 
   after(async () => {
-    // cleanup any test artifacts if necessary
+    // Restore prior allocation state cleanly to preserve original database integrity
+    if (capturedSemId) {
+      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [capturedSemId]).catch(() => {});
+      for (const alloc of priorAllocations) {
+        await pool.query(
+          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+           VALUES ('CSC204', $1, $2, $3, $4)
+           ON CONFLICT (course_id, semester_id, lecturer_id) 
+           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
+          [capturedSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
+        ).catch(() => {});
+      }
+    }
   });
 
   test('Security Guard: Rejects non-staff users with 403 FORBIDDEN_NOT_LECTURER', async () => {

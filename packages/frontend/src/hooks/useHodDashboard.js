@@ -43,6 +43,33 @@ async function postJson(path, body) {
   return data;
 }
 
+async function deleteJson(path) {
+  if (typeof apiClient?.delete === 'function') {
+    const res = await apiClient.delete(path);
+    return res.data;
+  }
+
+  const res = await fetch(`/api${path}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: {
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Session-Nonce':
+        (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('session_nonce')) || '',
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.detail = data.error;
+    throw err;
+  }
+  return data;
+}
+
 async function getJson(path, signal) {
   const res = await apiClient.get(path, { signal });
   return res.data;
@@ -108,10 +135,15 @@ export function useHodMutations() {
     onSuccess: invalidateHod,
   });
 
+  const deallocate = useMutation({
+    mutationFn: (allocationId) => deleteJson(`/hod/allocations/${encodeURIComponent(allocationId)}`),
+    onSuccess: invalidateHod,
+  });
+
   const decide = useMutation({
     mutationFn: (body) => postJson('/hod/clearance/override', body),
     onSuccess: invalidateHod,
   });
 
-  return { allocate, decide };
+  return { allocate, deallocate, decide };
 }

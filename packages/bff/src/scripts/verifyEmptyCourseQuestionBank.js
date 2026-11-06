@@ -48,9 +48,9 @@ async function run() {
 
     // Allocate lecturer1 to this ephemeral course
     await pool.query(`
-      INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
-      VALUES ($1, $2, 'lecturer1', 'hod1')
-      ON CONFLICT (course_id, semester_id) DO NOTHING;
+      INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+      VALUES ($1, $2, 'lecturer1', true, 'hod1')
+      ON CONFLICT (course_id, semester_id, lecturer_id) DO UPDATE SET is_primary = true, allocated_by = 'hod1';
     `, [testCourseId, semesterId]);
 
     // Login as lecturer1

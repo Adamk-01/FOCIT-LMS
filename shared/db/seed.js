@@ -144,12 +144,12 @@ async function runSeed() {
     const allocTblCheck = await client.query("SELECT to_regclass('hod_course_allocations') AS tbl");
     if (allocTblCheck.rows[0]?.tbl) {
       await client.query(`
-        INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
-        SELECT c.course_id, s.id, 'lecturer1', 'hod_csc'
+        INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+        SELECT c.course_id, s.id, 'lecturer1', TRUE, 'hod_csc'
         FROM courses c
         CROSS JOIN (SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1) s
         WHERE c.code IN ('CSC 201', 'CSC 202', 'CSC 203', 'CSC 204', 'CSC 205', 'CSC201', 'CSC202', 'CSC203', 'CSC204', 'CSC205')
-        ON CONFLICT (course_id, semester_id) DO NOTHING;
+        ON CONFLICT DO NOTHING;
       `);
     }
     // Audit and verify seeded table records
