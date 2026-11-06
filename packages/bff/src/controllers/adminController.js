@@ -134,14 +134,22 @@ export async function getDashboardOverview(req, res, next) {
     };
     try {
       const moodleStart = Date.now();
-      const response = await fetch(`${config.moodle.baseUrl}/health`, {
-        signal: AbortSignal.timeout(3000),
+      // Standard Moodle has no /health route; probe web service or base URL
+      const probeUrl = `${config.moodle.baseUrl}/webservice/rest/server.php`;
+      let response = await fetch(probeUrl, {
+        signal: AbortSignal.timeout(4000),
       }).catch(() => null);
+
+      if (!response || (!response.ok && ![200, 301, 302, 303].includes(response.status))) {
+        response = await fetch(config.moodle.baseUrl, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+      }
 
       moodleHealth.latencyMs = Date.now() - moodleStart;
       if (!response) {
         moodleHealth.status = 'DOWN';
-      } else if (response.ok) {
+      } else if (response.ok || [200, 301, 302, 303].includes(response.status)) {
         moodleHealth.status = 'UP';
       } else {
         moodleHealth.status = 'DEGRADED';
@@ -967,12 +975,22 @@ export async function getMoodleHealth(req, res, next) {
     let statusCode = null;
 
     try {
-      const response = await fetch(`${config.moodle.baseUrl}/health`, {
+      const probeUrl = `${config.moodle.baseUrl}/webservice/rest/server.php`;
+      let response = await fetch(probeUrl, {
         signal: AbortSignal.timeout(4000),
-      });
+      }).catch(() => null);
+
+      if (!response || (!response.ok && ![200, 301, 302, 303].includes(response.status))) {
+        response = await fetch(config.moodle.baseUrl, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+      }
+
       latencyMs = Date.now() - start;
-      statusCode = response.status;
-      status = response.ok ? 'HEALTHY' : 'UNHEALTHY';
+      statusCode = response?.status || null;
+      status = (response && (response.ok || [200, 301, 302, 303].includes(response.status)))
+        ? 'HEALTHY'
+        : (response ? 'DEGRADED' : 'UNREACHABLE');
     } catch (fetchErr) {
       status = 'UNREACHABLE';
       latencyMs = Date.now() - start;
