@@ -14,6 +14,8 @@ COPY packages/bff ./packages/bff
 
 WORKDIR /app/packages/bff
 
+ENV HOST=0.0.0.0
 EXPOSE 3000
+EXPOSE 10000
 
 CMD ["node", "src/server.js"]
