@@ -41,7 +41,11 @@ export function useAntiCheat({
   isSubmitting = false,
   onViolationAutoSubmit,
 }) {
-  const effectiveInitialExits = Number(restoredExits ?? initialFullscreenExits) || 0;
+  const rawRestoredExits = Number(restoredExits ?? initialFullscreenExits);
+  const effectiveInitialExits =
+    Number.isFinite(rawRestoredExits) && rawRestoredExits > 0
+      ? Math.floor(rawRestoredExits)
+      : 0;
 
   const [lockdownState, setLockdownState] = useState(() => {
     if (!enabled) return 'ACTIVE';

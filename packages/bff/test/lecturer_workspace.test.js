@@ -41,6 +41,14 @@ describe('Lecturer Workspace & Class Roster Verification', () => {
     );
     const activeSemesterId = termRows[0]?.id || '2026_RAIN';
 
+    // Demote any existing primary allocation for CSC204 to ensure test fixture independence
+    await pool.query(
+      `UPDATE hod_course_allocations 
+       SET is_primary = false 
+       WHERE course_id = 'CSC204' AND semester_id = $1`,
+      [activeSemesterId]
+    );
+
     await pool.query(
       `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
        VALUES ('CSC204', $1, 'lecturer1', true, 'hod_csc')
@@ -50,7 +58,8 @@ describe('Lecturer Workspace & Class Roster Verification', () => {
   });
 
   after(async () => {
-    // cleanup any test artifacts if necessary
+    // Cleanup ephemeral allocation test fixture
+    await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND lecturer_id = 'lecturer1'").catch(() => {});
   });
 
   test('Security Guard: Rejects non-staff users with 403 FORBIDDEN_NOT_LECTURER', async () => {

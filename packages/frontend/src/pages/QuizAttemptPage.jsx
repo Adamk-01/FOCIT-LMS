@@ -114,8 +114,8 @@ export function QuizAttemptPage() {
     [triggerSubmit]
   );
 
-  // Defensive extraction of restored fullscreen exits across DTO shapes and telemetry log
-  const restoredFullscreenExits = Number(
+  // Defensive extraction of restored fullscreen exits across DTO shapes and telemetry log (guarded against negative/non-integer)
+  const rawRestoredExits = Number(
     attempt?.fullscreenExits ??
     attempt?.fullscreen_exits ??
     attemptData?.attempt?.fullscreenExits ??
@@ -125,7 +125,11 @@ export function QuizAttemptPage() {
       : Array.isArray(attempt?.telemetryLog)
       ? attempt.telemetryLog.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
       : 0)
-  ) || 0;
+  );
+  const restoredFullscreenExits =
+    Number.isFinite(rawRestoredExits) && rawRestoredExits > 0
+      ? Math.floor(rawRestoredExits)
+      : 0;
 
   const {
     lockdownState,

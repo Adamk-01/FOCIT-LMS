@@ -76,6 +76,13 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     );
     const semId = termRes.rows[0]?.id || '2026_RAIN';
 
+    // Demote any existing primary allocation for CSC204 to ensure test fixture independence
+    await pool.query(`
+      UPDATE hod_course_allocations 
+      SET is_primary = false 
+      WHERE course_id = 'CSC204' AND semester_id = $1;
+    `, [semId]);
+
     await pool.query(`
       INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
       VALUES ('CSC204', $1, 'lecturer1', true, 'hod_csc')
@@ -96,6 +103,7 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     // Finding 11: Make test suite repeatable on a persistent database
     await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
     await pool.query("DELETE FROM quizzes WHERE course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST'").catch(() => {});
+    await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND lecturer_id = 'lecturer1'").catch(() => {});
   });
 
   test('Mode 4 Upload: Course Rep submits snapped sheet and OCR text', async () => {
