@@ -11,6 +11,10 @@ BEGIN;
 ALTER TABLE hod_course_allocations 
 ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- Remove temporary DEFAULT TRUE after backfill so future co-lecturer allocations do not default to primary
+ALTER TABLE hod_course_allocations 
+ALTER COLUMN is_primary DROP DEFAULT;
+
 -- ------------------------------------------------------------------------------
 -- 2. DROP LEGACY SINGLE-LECTURER UNIQUE CONSTRAINT
 -- ------------------------------------------------------------------------------

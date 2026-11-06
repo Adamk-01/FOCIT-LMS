@@ -330,6 +330,7 @@ function AllocationMatrix() {
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveLecturer(sec.allocation_id, sec.lecturer_name, row.code)}
+                                  aria-label={`Remove ${sec.lecturer_name} from ${row.code}`}
                                   title={`Remove ${sec.lecturer_name} from ${row.code}`}
                                   className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
                                 >
@@ -474,11 +475,12 @@ function AllocationMatrix() {
                         <button
                           type="button"
                           onClick={() => handleRemoveLecturer(sec.allocation_id, sec.lecturer_name, row.code)}
+                          aria-label={`Remove ${sec.lecturer_name} from ${row.code}`}
+                          title={`Remove ${sec.lecturer_name} from ${row.code}`}
                           className="min-h-[32px] min-w-[32px] flex items-center justify-center text-gray-400 hover:text-red-600 rounded"
                         >
                           <X size={14} />
-                        </button
-                      ></div>
+                        </button></div>
                     </div>
                   ))}
 

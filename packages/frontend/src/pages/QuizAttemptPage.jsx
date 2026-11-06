@@ -42,15 +42,18 @@ export function QuizAttemptPage() {
   // Defensive Ingress Normalization: resolve attemptId whether arriving via path segment or query param
   const effectiveAttemptId = attemptId || searchParams.get('attemptId');
 
-  // Synchronize to canonical path if accessed via query parameter
+  // Synchronize to canonical path if accessed via query parameter while preserving question navigation (e.g. ?q=N)
   useEffect(() => {
     if (!attemptId && effectiveAttemptId && courseId && quizId) {
+      const remainingParams = new URLSearchParams(searchParams);
+      remainingParams.delete('attemptId');
+      const searchStr = remainingParams.toString();
       navigate(
-        `/courses/${encodeURIComponent(courseId)}/quizzes/${encodeURIComponent(quizId)}/attempts/${encodeURIComponent(effectiveAttemptId)}`,
+        `/courses/${encodeURIComponent(courseId)}/quizzes/${encodeURIComponent(quizId)}/attempts/${encodeURIComponent(effectiveAttemptId)}${searchStr ? `?${searchStr}` : ''}`,
         { replace: true }
       );
     }
-  }, [attemptId, effectiveAttemptId, courseId, quizId, navigate]);
+  }, [attemptId, effectiveAttemptId, courseId, quizId, navigate, searchParams]);
 
   const {
     attempt,
@@ -77,9 +80,19 @@ export function QuizAttemptPage() {
     triggerSubmit,
   } = useQuizAttempt({ quizId, attemptId: effectiveAttemptId, studentId });
 
-  // 1. Formative vs. Summative Policy Invariant (Strict canonical camelCase DTO check)
+  // 1. Formative vs. Summative Policy Invariant (Defensive DTO check across camelCase & snake_case contracts)
   const isProctored = Boolean(
-    quiz && quiz.quizType === 'OFFICIAL_TEST'
+    (quiz?.quizType === 'OFFICIAL_TEST' ||
+      quiz?.quiz_type === 'OFFICIAL_TEST' ||
+      attempt?.quizType === 'OFFICIAL_TEST' ||
+      attempt?.quiz_type === 'OFFICIAL_TEST' ||
+      quiz?.is_proctored ||
+      quiz?.require_lockdown) &&
+    !attempt?.isPractice &&
+    attempt?.quizType !== 'SELF_PRACTICE' &&
+    attempt?.quiz_type !== 'SELF_PRACTICE' &&
+    quiz?.quizType !== 'SELF_PRACTICE' &&
+    quiz?.quiz_type !== 'SELF_PRACTICE'
   );
 
   // 2. Physical Viewport Chrome Lockdown Lifecycle
@@ -101,6 +114,15 @@ export function QuizAttemptPage() {
     [triggerSubmit]
   );
 
+  // Defensive extraction of restored fullscreen exits across DTO shapes and telemetry log
+  const restoredFullscreenExits = Number(
+    attempt?.fullscreenExits ??
+    attempt?.fullscreen_exits ??
+    (Array.isArray(attempt?.telemetry_log)
+      ? attempt.telemetry_log.filter((e) => e && e.type === 'FULLSCREEN_EXIT').length
+      : 0)
+  ) || 0;
+
   const {
     lockdownState,
     infractionCount,
@@ -110,7 +132,7 @@ export function QuizAttemptPage() {
     quizId,
     attemptId: effectiveAttemptId,
     enabled: Boolean(isProctored && attempt?.status === 'IN_PROGRESS' && !isFinalized),
-    initialFullscreenExits: attempt?.fullscreenExits || 0,
+    initialFullscreenExits: restoredFullscreenExits,
     isSubmitting,
     onViolationAutoSubmit: handleViolationAutoSubmit,
   });

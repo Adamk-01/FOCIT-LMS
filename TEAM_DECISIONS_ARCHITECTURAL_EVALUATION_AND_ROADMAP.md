@@ -132,6 +132,9 @@ CONSTRAINT uq_hod_alloc_course_semester UNIQUE (course_id, semester_id)
 ALTER TABLE hod_course_allocations 
 ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT TRUE;
 
+ALTER TABLE hod_course_allocations 
+ALTER COLUMN is_primary DROP DEFAULT;
+
 -- 2. Drop legacy single-lecturer unique constraint
 ALTER TABLE hod_course_allocations 
 DROP CONSTRAINT IF EXISTS uq_hod_alloc_course_semester;
