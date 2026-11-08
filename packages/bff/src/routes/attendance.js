@@ -706,14 +706,17 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       .update(`${courseId}:${otp}`)
       .digest('hex');
 
-    // Commit authoritative hash and expiry to PostgreSQL L2 ledger
-    await pool.query(`
+    // Commit authoritative hash and expiry to PostgreSQL L2 ledger using DB authoritative time (clock-skew immune)
+    const updateRes = await pool.query(`
       UPDATE attendance_sessions
       SET active_otp_hash = $1,
-          otp_expires_at = TO_TIMESTAMP($2 / 1000.0),
+          otp_expires_at = NOW() + ($2 || ' seconds')::interval,
           updated_at = NOW()
       WHERE session_id = $3
-    `, [activeOtpHash, expiresAt, session.session_id]);
+      RETURNING (EXTRACT(EPOCH FROM otp_expires_at) * 1000)::bigint AS expires_at_ms, otp_expires_at
+    `, [activeOtpHash, ttlSeconds, session.session_id]);
+
+    const authoritativeExpiresAt = Number(updateRes.rows[0]?.expires_at_ms) || expiresAt;
 
     const payload = JSON.stringify({
       otp,
@@ -721,13 +724,13 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       courseId,
       sessionId: session.session_id,
       weekNumber: session.week_number,
-      expiresAt,
+      expiresAt: authoritativeExpiresAt,
     });
 
     try {
       if (redis && typeof redis.set === 'function') {
         await redis.set(`attendance:otp:${courseId}`, payload, 'EX', ttlSeconds);
-        await redis.zadd('attendance:active_sessions_zset', expiresAt, courseId);
+        await redis.zadd('attendance:active_sessions_zset', authoritativeExpiresAt, courseId);
         await redis.zremrangebyscore('attendance:active_sessions_zset', '-inf', Date.now());
       }
     } catch (_) {}
@@ -739,14 +742,14 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       courseId,
       sessionId: session.session_id,
       weekNumber: session.week_number,
-      expiresAt,
+      expiresAt: authoritativeExpiresAt,
     });
 
     res.json({
       status: 'SUCCESS',
       otp,
       expiresInSeconds: ttlSeconds,
-      expiresAt,
+      expiresAt: authoritativeExpiresAt,
       sessionId: session.session_id,
       weekNumber: session.week_number,
       message: 'Dynamic 5-minute attendance passcode generated.',
@@ -756,10 +759,300 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
   }
 });
 
+// ─── 1D-1. Mode 2: Ingress Ticket Acquisition (Monotonic 3-Min Lease & Circuit Breaker) ────
+async function handleOtpTicketRequest(req, res, next) {
+  const { courseId, sessionId } = req.params;
+  const targetSessionId = sessionId && String(sessionId).trim() ? String(sessionId).trim() : (req.body?.sessionId || null);
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+
+  try {
+    // 0. Ensure row existence before snapshot scan to avoid MVCC invisibility race under concurrent bursts
+    await pool.query(`
+      INSERT INTO attendance_records (session_id, student_id, status, verification_method, confidence_score)
+      SELECT s.session_id, $2, 'ABSENT', 'CODE_OTP', 1.000
+      FROM attendance_sessions s
+      JOIN enrollments e ON e.course_id = s.course_id AND e.student_id = $2
+      WHERE s.course_id = $1 AND ($3::uuid IS NULL OR s.session_id = $3::uuid)
+      ON CONFLICT (session_id, student_id) DO NOTHING;
+    `, [courseId, studentId, targetSessionId]);
+
+    const ticketQuery = `
+      WITH target_session AS (
+          SELECT 
+              s.session_id,
+              s.course_id,
+              s.week_number,
+              s.is_locked,
+              s.otp_expires_at,
+              (s.is_locked = FALSE AND s.otp_expires_at IS NOT NULL AND s.otp_expires_at > NOW()) AS is_session_active
+          FROM attendance_sessions s
+          WHERE s.course_id = $2
+            AND ($1::uuid IS NULL OR s.session_id = $1::uuid)
+          ORDER BY s.created_at DESC
+          LIMIT 1
+      ),
+      verified_enrollment AS (
+          SELECT e.student_id
+          FROM enrollments e
+          JOIN target_session ts ON ts.course_id = e.course_id
+          WHERE e.student_id = $3
+            AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+          LIMIT 1
+      ),
+      ensure_record AS (
+          INSERT INTO attendance_records (
+              session_id,
+              student_id,
+              status,
+              verification_method,
+              confidence_score
+          )
+          SELECT 
+              ts.session_id,
+              ve.student_id,
+              'ABSENT',
+              'CODE_OTP',
+              1.000
+          FROM target_session ts
+          JOIN verified_enrollment ve ON TRUE
+          ON CONFLICT (session_id, student_id) DO NOTHING
+          RETURNING id
+      ),
+      locked_record AS (
+          SELECT 
+              ar.id,
+              ar.session_id,
+              ar.student_id,
+              ar.status,
+              ar.is_locked_out,
+              ar.attempt_count,
+              ar.active_ticket_id,
+              ar.active_ticket_expires_at,
+              ar.ticket_opened_at,
+              (ar.active_ticket_id IS NOT NULL AND ar.active_ticket_expires_at > NOW() AND ar.status != 'PRESENT') AS has_valid_lease,
+              (ar.active_ticket_id IS NOT NULL AND ar.active_ticket_expires_at <= NOW() AND ar.status != 'PRESENT') AS has_expired_lease,
+              (ar.attempt_count + CASE 
+                  WHEN (ar.active_ticket_id IS NOT NULL AND ar.active_ticket_expires_at <= NOW() AND ar.status != 'PRESENT') THEN 1 
+                  ELSE 0 
+              END) AS projected_attempts
+          FROM attendance_records ar
+          JOIN target_session ts ON ts.session_id = ar.session_id
+          JOIN verified_enrollment ve ON ve.student_id = ar.student_id
+          FOR UPDATE OF ar
+      ),
+      upsert_ticket AS (
+          UPDATE attendance_records ar
+          SET 
+              attempt_count = lr.projected_attempts,
+              is_locked_out = ar.is_locked_out OR (lr.projected_attempts >= 3 AND lr.status != 'PRESENT'),
+              locked_out_at = CASE 
+                  WHEN (ar.is_locked_out = FALSE AND lr.projected_attempts >= 3 AND lr.status != 'PRESENT') THEN NOW()
+                  ELSE ar.locked_out_at 
+              END,
+              active_ticket_id = CASE
+                  WHEN ar.is_locked_out OR lr.projected_attempts >= 3 OR lr.status = 'PRESENT' OR ts.is_session_active = FALSE THEN NULL
+                  WHEN lr.has_valid_lease THEN ar.active_ticket_id
+                  ELSE gen_random_uuid()
+              END,
+              active_ticket_expires_at = CASE
+                  WHEN ar.is_locked_out OR lr.projected_attempts >= 3 OR lr.status = 'PRESENT' OR ts.is_session_active = FALSE THEN NULL
+                  WHEN lr.has_valid_lease THEN ar.active_ticket_expires_at
+                  ELSE LEAST(NOW() + INTERVAL '180 seconds', ts.otp_expires_at)
+              END,
+              ticket_opened_at = CASE
+                  WHEN ar.is_locked_out OR lr.projected_attempts >= 3 OR lr.status = 'PRESENT' OR ts.is_session_active = FALSE THEN NULL
+                  WHEN lr.has_valid_lease THEN ar.ticket_opened_at
+                  ELSE NOW()
+              END
+          FROM locked_record lr
+          JOIN target_session ts ON TRUE
+          WHERE ar.id = lr.id
+          RETURNING 
+              ar.session_id,
+              ar.student_id,
+              ar.status,
+              ar.attempt_count,
+              ar.is_locked_out,
+              ar.active_ticket_id,
+              ar.active_ticket_expires_at,
+              ar.ticket_opened_at,
+              GREATEST(0, CEIL(EXTRACT(EPOCH FROM (ar.active_ticket_expires_at - NOW()))))::int AS ticket_remaining_seconds,
+              lr.has_valid_lease AS was_idempotent_reuse,
+              lr.has_expired_lease AS was_lazy_expired
+      )
+      SELECT 
+          (SELECT session_id FROM target_session) AS session_id,
+          (SELECT week_number FROM target_session) AS week_number,
+          (SELECT is_session_active FROM target_session) AS is_session_active,
+          (SELECT is_locked FROM target_session) AS is_session_locked,
+          (SELECT student_id FROM verified_enrollment) AS enrolled_student_id,
+          ut.*
+      FROM target_session ts
+      LEFT JOIN verified_enrollment ve ON TRUE
+      LEFT JOIN upsert_ticket ut ON TRUE;
+    `;
+
+    const resQuery = await pool.query(ticketQuery, [targetSessionId, courseId, studentId]);
+    const row = resQuery.rows[0];
+
+    if (!row || !row.enrolled_student_id) {
+      return res.status(403).json({
+        error: 'Forbidden: You are not actively enrolled in this course for the current semester.',
+        code: 'NOT_ENROLLED',
+      });
+    }
+
+    if (!row.session_id) {
+      return res.status(404).json({
+        error: 'No attendance session found for this course.',
+        code: 'SESSION_NOT_FOUND',
+      });
+    }
+
+    if (row.is_session_locked) {
+      return res.status(409).json({
+        error: 'This attendance session has already been finalized and locked by the lecturer.',
+        code: 'SESSION_LOCKED',
+      });
+    }
+
+    if (!row.is_session_active) {
+      return res.status(400).json({
+        error: 'The attendance passcode window for this session has closed.',
+        code: 'SESSION_EXPIRED',
+      });
+    }
+
+    if (row.status === 'PRESENT') {
+      return res.status(200).json({
+        status: 'ALREADY_PRESENT',
+        alreadyCheckedIn: true,
+        message: 'Your attendance is already confirmed for this session.',
+        sessionId: row.session_id,
+        weekNumber: row.week_number,
+      });
+    }
+
+    if (row.is_locked_out || row.attempt_count >= 3) {
+      return res.status(423).json({
+        error: 'Passcode entry locked: Maximum attempts (3) exceeded for this session. Contact your lecturer to be verified.',
+        code: 'ATTEMPTS_EXCEEDED',
+        isLockedOut: true,
+        attemptCount: row.attempt_count,
+        maxAttempts: 3,
+      });
+    }
+
+    const remainingSeconds = Math.max(0, Math.min(180, row.ticket_remaining_seconds ?? (row.active_ticket_expires_at ? Math.max(0, Math.floor((new Date(row.active_ticket_expires_at).getTime() - Date.now()) / 1000)) : 180)));
+    const attemptNumber = Math.min(3, (row.attempt_count || 0) + 1);
+    const attemptsRemaining = Math.max(0, 3 - attemptNumber);
+
+    return res.status(200).json({
+      status: 'TICKET_GRANTED',
+      ticketId: row.active_ticket_id,
+      sessionId: row.session_id,
+      weekNumber: row.week_number,
+      expiresAt: row.active_ticket_expires_at,
+      countdownSeconds: remainingSeconds,
+      remainingSeconds,
+      attemptNumber,
+      attemptCount: row.attempt_count,
+      attemptsRemaining,
+      isLockedOut: false,
+      idempotent: Boolean(row.was_idempotent_reuse),
+      wasLazyExpired: Boolean(row.was_lazy_expired),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.post('/courses/:courseId/sessions/:sessionId/otp/ticket', handleOtpTicketRequest);
+router.post('/courses/:courseId/sessions/otp/ticket', handleOtpTicketRequest);
+
+// ─── 1D-2. Mode 2: Explicit Modal Dismissal / Ticket Close ────────────────────
+async function handleOtpTicketClose(req, res, next) {
+  const { courseId, sessionId } = req.params;
+  const targetSessionId = sessionId && String(sessionId).trim() ? String(sessionId).trim() : (req.body?.sessionId || null);
+  const { ticketId } = req.body || {};
+  const studentId = req.user?.student_id || req.user?.id || req.user?.username;
+
+  try {
+    const closeQuery = `
+      WITH target_session AS (
+          SELECT s.session_id, s.course_id
+          FROM attendance_sessions s
+          WHERE s.course_id = $2
+            AND ($1::uuid IS NULL OR s.session_id = $1::uuid)
+          ORDER BY s.created_at DESC
+          LIMIT 1
+      ),
+      locked_record AS (
+          SELECT 
+              ar.id, 
+              ar.attempt_count, 
+              ar.is_locked_out,
+              ar.active_ticket_id,
+              ar.status
+          FROM attendance_records ar
+          JOIN target_session ts ON ts.session_id = ar.session_id
+          WHERE ar.student_id = $3
+          FOR UPDATE OF ar
+      ),
+      burn_lease AS (
+          UPDATE attendance_records ar
+          SET 
+              attempt_count = CASE 
+                  WHEN lr.active_ticket_id IS NOT NULL AND lr.status != 'PRESENT' THEN ar.attempt_count + 1
+                  ELSE ar.attempt_count
+              END,
+              is_locked_out = CASE 
+                  WHEN lr.status = 'PRESENT' THEN FALSE
+                  WHEN lr.is_locked_out = TRUE THEN TRUE
+                  WHEN lr.active_ticket_id IS NOT NULL AND (ar.attempt_count + 1 >= 3) THEN TRUE
+                  ELSE FALSE
+              END,
+              locked_out_at = CASE 
+                  WHEN lr.status = 'PRESENT' THEN NULL
+                  WHEN lr.is_locked_out = TRUE THEN ar.locked_out_at
+                  WHEN lr.active_ticket_id IS NOT NULL AND (ar.attempt_count + 1 >= 3) THEN NOW()
+                  ELSE ar.locked_out_at
+              END,
+              active_ticket_id = NULL,
+              active_ticket_expires_at = NULL
+          FROM locked_record lr
+          WHERE ar.id = lr.id
+            AND ($4::uuid IS NULL OR lr.active_ticket_id = $4::uuid)
+          RETURNING ar.attempt_count, ar.is_locked_out
+      )
+      SELECT 
+          (SELECT session_id FROM target_session) AS session_id,
+          b.attempt_count,
+          b.is_locked_out
+      FROM burn_lease b;
+    `;
+
+    const resQuery = await pool.query(closeQuery, [targetSessionId, courseId, studentId, ticketId || null]);
+    const row = resQuery.rows[0];
+
+    return res.status(200).json({
+      status: 'TICKET_CLOSED',
+      message: 'Active attendance passcode session closed.',
+      attemptCount: row?.attempt_count ?? null,
+      isLockedOut: Boolean(row?.is_locked_out),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.post('/courses/:courseId/sessions/:sessionId/otp/ticket/close', handleOtpTicketClose);
+router.post('/courses/:courseId/sessions/otp/ticket/close', handleOtpTicketClose);
+
 // ─── 1D. Mode 2: Student Check-in via OTP ────────────────────────────────────
 router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) => {
   const { courseId } = req.params;
-  const { otp, sessionId } = req.body || {};
+  const { otp, sessionId, ticketId } = req.body || {};
   const studentId = req.user?.student_id || req.user?.id || req.user?.username;
 
   if (!otp || !String(otp).trim()) {
@@ -768,21 +1061,15 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
 
   const cleanOtp = String(otp).trim();
   const targetSessionId = sessionId && String(sessionId).trim() ? String(sessionId).trim() : null;
+  const targetTicketId = ticketId && String(ticketId).trim() ? String(ticketId).trim() : null;
 
   try {
     const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
-    // Canonical hash based on courseId:otp (allows 1-RTT zero-waterfall CTE even when sessionId is NULL)
     const canonicalHash = crypto
       .createHmac('sha256', hmacSecret)
       .update(`${courseId}:${cleanOtp}`)
       .digest('hex');
 
-    // Legacy hash support (${sessionId}:${courseId}:${otp}) for backward compatibility
-    const legacyHash = targetSessionId
-      ? crypto.createHmac('sha256', hmacSecret).update(`${targetSessionId}:${courseId}:${cleanOtp}`).digest('hex')
-      : canonicalHash;
-
-    // Hardened Single-Statement 4-Part Atomic CTE (Zero-RTT waterfall, Relational Set-Difference & Idempotency)
     const cteQuery = `
       WITH target_session AS (
           SELECT 
@@ -814,41 +1101,88 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
             AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
           LIMIT 1
       ),
-      existing_record AS (
-          SELECT r.id, r.status, r.marked_at
-          FROM attendance_records r
-          JOIN target_session ts ON ts.session_id = r.session_id
-          WHERE r.student_id = $3
-      ),
-      upsert_attendance AS (
+      ensure_record AS (
           INSERT INTO attendance_records (
               session_id,
               student_id,
               status,
               verification_method,
-              confidence_score,
-              marked_at
+              confidence_score
           )
           SELECT 
               ts.session_id,
               ve.student_id,
-              'PRESENT',
+              'ABSENT',
               'CODE_OTP',
-              1.000,
-              NOW()
+              1.000
           FROM target_session ts
           JOIN verified_enrollment ve ON TRUE
-          WHERE ts.is_locked = FALSE 
-            AND ts.otp_valid = TRUE
-            AND ts.otp_matched = TRUE
-          ON CONFLICT (session_id, student_id)
-          DO UPDATE SET 
-              status = 'PRESENT',
+          ON CONFLICT (session_id, student_id) DO NOTHING
+          RETURNING id
+      ),
+      locked_record AS (
+          SELECT 
+              ar.id, 
+              ar.status, 
+              ar.marked_at,
+              ar.is_locked_out,
+              ar.attempt_count,
+              ar.active_ticket_id,
+              ar.active_ticket_expires_at,
+              (ar.active_ticket_expires_at IS NOT NULL AND ar.active_ticket_expires_at > NOW()) AS ticket_valid,
+              (ar.active_ticket_id IS NOT NULL AND $5::uuid IS NOT NULL AND ar.active_ticket_id = $5::uuid) AS ticket_matched
+          FROM attendance_records ar
+          JOIN target_session ts ON ts.session_id = ar.session_id
+          WHERE ar.student_id = $3
+          FOR UPDATE OF ar
+      ),
+      upsert_attendance AS (
+          UPDATE attendance_records ar
+          SET 
+              status = CASE 
+                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE AND lr.is_locked_out = FALSE AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL) THEN 'PRESENT'
+                  ELSE ar.status
+              END,
               verification_method = 'CODE_OTP',
               confidence_score = 1.000,
-              marked_at = NOW()
-          WHERE attendance_records.status != 'PRESENT'
-          RETURNING id, status, marked_at
+              marked_at = CASE 
+                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE AND lr.is_locked_out = FALSE AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL) THEN NOW()
+                  ELSE ar.marked_at
+              END,
+              attempt_count = CASE 
+                  WHEN ar.status = 'PRESENT' THEN ar.attempt_count
+                  WHEN ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE) THEN ar.attempt_count + 1
+                  ELSE ar.attempt_count
+              END,
+              is_locked_out = CASE 
+                  WHEN ar.status = 'PRESENT' THEN FALSE
+                  WHEN ar.is_locked_out = TRUE THEN TRUE
+                  WHEN (ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE)) AND (ar.attempt_count + 1 >= 3) THEN TRUE
+                  ELSE FALSE
+              END,
+              locked_out_at = CASE 
+                  WHEN ar.status = 'PRESENT' THEN NULL
+                  WHEN ar.is_locked_out = TRUE THEN ar.locked_out_at
+                  WHEN (ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE)) AND (ar.attempt_count + 1 >= 3) THEN NOW()
+                  ELSE ar.locked_out_at
+              END,
+              active_ticket_id = CASE
+                  WHEN ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
+                  ELSE ar.active_ticket_id
+              END,
+              active_ticket_expires_at = CASE
+                  WHEN ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
+                  ELSE ar.active_ticket_expires_at
+              END
+          FROM locked_record lr
+          JOIN target_session ts ON TRUE
+          WHERE ar.id = lr.id
+          RETURNING 
+              ar.id, 
+              ar.status, 
+              ar.marked_at, 
+              ar.attempt_count, 
+              ar.is_locked_out
       )
       SELECT 
           (SELECT session_id FROM target_session) AS session_id,
@@ -858,17 +1192,24 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
           (SELECT otp_valid FROM target_session) AS otp_valid,
           (SELECT otp_matched FROM target_session) AS otp_matched,
           (SELECT student_id FROM verified_enrollment) AS student_id,
-          COALESCE((SELECT id FROM upsert_attendance), (SELECT id FROM existing_record)) AS record_id,
-          COALESCE((SELECT status FROM upsert_attendance), (SELECT status FROM existing_record)) AS record_status,
-          COALESCE((SELECT marked_at FROM upsert_attendance), (SELECT marked_at FROM existing_record)) AS marked_at,
-          ((SELECT id FROM upsert_attendance) IS NULL AND (SELECT status FROM existing_record) = 'PRESENT') AS was_idempotent_retry;
+          (SELECT is_locked_out FROM locked_record) AS was_locked_out,
+          (SELECT ticket_valid FROM locked_record) AS was_ticket_valid,
+          (SELECT active_ticket_id FROM locked_record) AS prior_ticket_id,
+          ua.id AS record_id,
+          ua.status AS record_status,
+          ua.marked_at AS marked_at,
+          ua.attempt_count AS new_attempt_count,
+          ua.is_locked_out AS new_is_locked_out,
+          (ua.status = 'PRESENT' AND (SELECT status FROM locked_record) = 'PRESENT') AS was_idempotent_retry
+      FROM target_session ts
+      LEFT JOIN verified_enrollment ve ON TRUE
+      LEFT JOIN upsert_attendance ua ON TRUE;
     `;
 
-    const queryRes = await pool.query(cteQuery, [targetSessionId, courseId, studentId, canonicalHash]);
+    const queryRes = await pool.query(cteQuery, [targetSessionId, courseId, studentId, canonicalHash, targetTicketId]);
     const row = queryRes.rows[0];
 
     // Invariant #4: Zero-Trust Precedence. Non-enrolled students are rejected with 403
-    // before exposing any metadata about session existence, lock status, or expiration.
     if (!row || !row.student_id) {
       return res.status(403).json({
         error: 'Forbidden: You are not actively enrolled in this course for the current semester.',
@@ -884,11 +1225,38 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
     if (row.is_locked) {
       return res.status(409).json({ error: 'This attendance session has already been locked by the lecturer.', code: 'SESSION_LOCKED' });
     }
+    if (row.was_locked_out || row.new_is_locked_out) {
+      return res.status(423).json({
+        error: 'Passcode entry locked: Maximum attempts (3) exceeded for this session. Contact your lecturer to be verified.',
+        code: 'ATTEMPTS_EXCEEDED',
+        isLockedOut: true,
+        attemptCount: row.new_attempt_count ?? 3,
+        maxAttempts: 3,
+      });
+    }
+    if (row.prior_ticket_id && !row.was_ticket_valid) {
+      return res.status(400).json({
+        error: 'Your 3-minute passcode entry countdown has expired. Please open a fresh attempt.',
+        code: 'TICKET_EXPIRED',
+        attemptCount: row.new_attempt_count,
+        attemptsRemaining: Math.max(0, 3 - (row.new_attempt_count || 0)),
+        isLockedOut: Boolean(row.new_is_locked_out),
+      });
+    }
     if (!row.otp_valid) {
       return res.status(400).json({ error: 'This 5-minute passcode window has expired.', code: 'OTP_EXPIRED' });
     }
     if (!row.otp_matched) {
-      return res.status(400).json({ error: 'Invalid 6-digit passcode. Check the lecture screen and try again.', code: 'INVALID_OTP' });
+      const remaining = Math.max(0, 3 - (row.new_attempt_count || 0));
+      return res.status(400).json({
+        error: remaining > 0 
+          ? `Invalid 6-digit passcode. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+          : 'Invalid 6-digit passcode. Maximum attempts (3) exceeded. Passcode entry locked.',
+        code: 'INVALID_OTP',
+        attemptCount: row.new_attempt_count,
+        attemptsRemaining: remaining,
+        isLockedOut: Boolean(row.new_is_locked_out),
+      });
     }
 
     return res.status(200).json({
@@ -987,6 +1355,9 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
               r.status,
               r.verification_method,
               r.marked_at,
+              r.attempt_count,
+              r.is_locked_out,
+              r.locked_out_at,
               s.matric_number,
               s.full_name,
               p.code AS programme_code,
@@ -1008,6 +1379,9 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
               r.status,
               r.verification_method,
               r.marked_at,
+              r.attempt_count,
+              r.is_locked_out,
+              r.locked_out_at,
               s.matric_number,
               s.full_name,
               p.code AS programme_code,
@@ -1033,6 +1407,9 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
           markedAt: r.marked_at,
           matricNumber: r.matric_number,
           fullName: r.full_name,
+          attemptCount: r.attempt_count,
+          isLockedOut: Boolean(r.is_locked_out),
+          lockedOutAt: r.locked_out_at,
           programmeCode: r.programme_code,
           level: r.level,
         }));
@@ -1335,6 +1712,11 @@ router.get('/sessions/:sessionId', async (req, res, next) => {
         r.verification_method,
         r.confidence_score,
         r.marked_at,
+        r.attempt_count,
+        r.is_locked_out,
+        r.locked_out_at,
+        r.active_ticket_id,
+        r.active_ticket_expires_at,
         s.matric_number,
         s.full_name,
         p.code AS programme_code,
@@ -1349,6 +1731,59 @@ router.get('/sessions/:sessionId', async (req, res, next) => {
     res.json({
       session,
       records: recordsRes.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── 3B. Mode 2: Faculty Reset / Unlock Student Passcode Lockout ─────────────
+router.post('/sessions/:sessionId/records/:studentId/unlock', async (req, res, next) => {
+  const { sessionId, studentId } = req.params;
+  const actorId = req.attendanceActor.userId;
+
+  try {
+    const sessionRes = await pool.query(
+      `SELECT session_id, course_id, semester_id FROM attendance_sessions WHERE session_id = $1 LIMIT 1`,
+      [sessionId]
+    );
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Attendance session not found', code: 'SESSION_NOT_FOUND' });
+    }
+    const session = sessionRes.rows[0];
+
+    const access = await verifyAttendanceAccess(req.attendanceActor, session.course_id, session.semester_id);
+    if (!access || !['LECTURER', 'HOD', 'ADMIN'].includes(access.role)) {
+      return res.status(403).json({
+        error: 'Forbidden: Only allocated course lecturers, HODs, or Administrators may unlock student attendance attempts.',
+        code: 'FORBIDDEN_STAFF_REQUIRED',
+      });
+    }
+
+    const updateRes = await pool.query(`
+      UPDATE attendance_records
+      SET attempt_count = 0,
+          is_locked_out = FALSE,
+          locked_out_at = NULL,
+          active_ticket_id = NULL,
+          active_ticket_expires_at = NULL
+      WHERE session_id = $1 AND student_id = $2
+      RETURNING *;
+    `, [sessionId, studentId]);
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Attendance record not found for student in this session',
+        code: 'RECORD_NOT_FOUND',
+      });
+    }
+
+    logger.info({ sessionId, studentId, unlockedBy: actorId }, '[Attendance] Student lockout reset by faculty');
+
+    return res.status(200).json({
+      status: 'UNLOCKED',
+      message: `Passcode attempts for student ${studentId} have been reset by faculty.`,
+      record: updateRes.rows[0],
     });
   } catch (err) {
     next(err);

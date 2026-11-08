@@ -7,6 +7,8 @@
  * 2. Real-Time Active OTP Session Discovery with Polling
  * 3. Course Weekly Timeline Ingress (Zero Peer Leakage)
  * 4. Atomic OTP Check-In Mutation with Multi-Key Invalidation
+ * 5. Ingress Ticket Acquisition & Idempotent Lease Management
+ * 6. Explicit Modal Dismissal Burner
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -74,10 +76,10 @@ export function useSubmitOtpCheckIn() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ courseId, otp, sessionId }) => {
+    mutationFn: async ({ courseId, otp, sessionId, ticketId }) => {
       const res = await apiClient.post(
         `/attendance/courses/${encodeURIComponent(courseId)}/sessions/otp/check-in`,
-        { otp: String(otp).trim(), sessionId }
+        { otp: String(otp).trim(), sessionId, ticketId }
       );
       return res.data;
     },
@@ -91,3 +93,48 @@ export function useSubmitOtpCheckIn() {
   });
 }
 
+/**
+ * useRequestOtpTicket
+ * Requests an authoritative, monotonic 3-minute ticket lease and checks circuit breaker.
+ */
+export function useRequestOtpTicket() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ courseId, sessionId }) => {
+      const url = sessionId
+        ? `/attendance/courses/${encodeURIComponent(courseId)}/sessions/${encodeURIComponent(sessionId)}/otp/ticket`
+        : `/attendance/courses/${encodeURIComponent(courseId)}/sessions/otp/ticket`;
+      const res = await apiClient.post(url, { sessionId });
+      return res.data;
+    },
+    onError: (err, variables) => {
+      if (err?.response?.status === 423 || err?.data?.isLockedOut) {
+        queryClient.invalidateQueries({ queryKey: ['student-attendance-active-sessions'] });
+        queryClient.invalidateQueries({ queryKey: ['course-student-attendance', variables.courseId] });
+      }
+    },
+  });
+}
+
+/**
+ * useCloseOtpTicket
+ * Explicitly burns active lease when modal is closed by user (Strictly not in useEffect cleanup).
+ */
+export function useCloseOtpTicket() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ courseId, sessionId, ticketId }) => {
+      const url = sessionId
+        ? `/attendance/courses/${encodeURIComponent(courseId)}/sessions/${encodeURIComponent(sessionId)}/otp/ticket/close`
+        : `/attendance/courses/${encodeURIComponent(courseId)}/sessions/otp/ticket/close`;
+      const res = await apiClient.post(url, { sessionId, ticketId });
+      return res.data;
+    },
+    onSettled: (data, err, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['student-attendance-active-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['course-student-attendance', variables.courseId] });
+    },
+  });
+}
