@@ -90,6 +90,7 @@ export function AdminUsersPage() {
                 <tr className="text-[11px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-slate-50/50">
                   <th className="py-3 px-4">User & Contact</th>
                   <th className="py-3 px-4">ID / Matric</th>
+                  <th className="py-3 px-4">Course / Department</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -109,6 +110,16 @@ export function AdminUsersPage() {
                         <div className="text-xs font-semibold text-slate-600">{u.email || '—'}</div>
                       </td>
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 text-xs">{displayIdentifier}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-extrabold text-slate-800 text-xs">
+                          {u.programmeName || u.departmentName || u.departmentId || '—'}
+                        </div>
+                        {u.level && (
+                          <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                            {u.level} Level
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3.5 px-4">
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">{u.role}</span>
                       </td>

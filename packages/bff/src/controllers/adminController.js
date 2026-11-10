@@ -255,11 +255,14 @@ export async function listUsers(req, res, next) {
           s.email AS email,
           'STUDENT' AS role,
           p.department_id AS department_id,
+          p.name AS programme_name,
+          d.name AS department_name,
           s.level AS level,
           COALESCE(s.account_status, 'ACTIVE') AS status,
           s.created_at AS created_at
         FROM students s
         LEFT JOIN programmes p ON p.id = s.programme_id
+        LEFT JOIN departments d ON d.id = p.department_id
         UNION ALL
         SELECT 
           sa.advisor_id AS id,
@@ -268,10 +271,13 @@ export async function listUsers(req, res, next) {
           sa.email AS email,
           sa.role AS role,
           sa.department_id AS department_id,
+          NULL AS programme_name,
+          d.name AS department_name,
           sa.assigned_level AS level,
           COALESCE(sa.account_status, 'ACTIVE') AS status,
           sa.created_at AS created_at
         FROM staff_advisors sa
+        LEFT JOIN departments d ON d.id = sa.department_id
       )
       SELECT * FROM unified_users
       WHERE 1=1
@@ -313,6 +319,8 @@ export async function listUsers(req, res, next) {
           email: u.email,
           role: u.role,
           departmentId: u.department_id,
+          programmeName: u.programme_name,
+          departmentName: u.department_name,
           level: u.level,
           status: u.status,
           createdAt: u.created_at,
