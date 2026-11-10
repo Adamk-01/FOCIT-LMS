@@ -79,6 +79,7 @@ export class StudentAttendanceService {
               BOOL_OR(s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() AND COALESCE(r.status, 'ABSENT') != 'PRESENT') AS requires_check_in,
               -- Already checked in for live active session
               BOOL_OR(s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() AND r.status = 'PRESENT') AS already_checked_in_active,
+              BOOL_OR(s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() AND COALESCE(r.is_locked_out, FALSE) = TRUE) AS is_locked_out,
               MAX(CASE WHEN s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() THEN s.session_id::text END) AS active_session_id,
               MAX(CASE WHEN s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() THEN s.week_number END) AS active_week_number
           FROM enrolled_courses ec
@@ -204,6 +205,7 @@ export class StudentAttendanceService {
         hasActiveSession: Boolean(r.has_active_session),
         requiresCheckIn: Boolean(r.requires_check_in),
         alreadyCheckedInActive: Boolean(r.already_checked_in_active),
+        isLockedOut: Boolean(r.is_locked_out),
         activeSessionId: r.active_session_id || null,
         activeWeekNumber: r.active_week_number || null,
       };
@@ -253,7 +255,12 @@ export class StudentAttendanceService {
             s.week_number,
             s.session_date,
             GREATEST(0, EXTRACT(EPOCH FROM (s.otp_expires_at - NOW())))::int AS remaining_seconds,
-            COALESCE(r.status = 'PRESENT', FALSE) AS already_checked_in
+            COALESCE(r.status = 'PRESENT', FALSE) AS already_checked_in,
+            COALESCE(r.is_locked_out, FALSE) AS is_locked_out,
+            COALESCE(r.attempt_count, 0)::int AS attempt_count,
+            r.active_ticket_id,
+            r.active_ticket_expires_at,
+            CASE WHEN r.active_ticket_expires_at IS NOT NULL AND r.active_ticket_expires_at > NOW() THEN GREATEST(0, EXTRACT(EPOCH FROM (r.active_ticket_expires_at - NOW())))::int ELSE NULL END AS ticket_remaining_seconds
         FROM attendance_sessions s
         JOIN courses c ON c.course_id = s.course_id
         JOIN enrollments e ON e.course_id = s.course_id AND e.student_id = $1
@@ -281,6 +288,11 @@ export class StudentAttendanceService {
           sessionDate: r.session_date,
           remainingSeconds: r.remaining_seconds,
           alreadyCheckedIn: Boolean(r.already_checked_in),
+          isLockedOut: Boolean(r.is_locked_out),
+          attemptCount: r.attempt_count,
+          activeTicketId: r.active_ticket_id,
+          ticketExpiresAt: r.active_ticket_expires_at,
+          ticketRemainingSeconds: r.ticket_remaining_seconds,
         })),
       };
     } catch (err) {
@@ -352,6 +364,11 @@ export class StudentAttendanceService {
           (s.is_locked = FALSE AND s.session_mode = 'CODE_OTP' AND s.otp_expires_at > NOW() AND r.status = 'PRESENT') AS already_checked_in_active,
           GREATEST(0, EXTRACT(EPOCH FROM (s.otp_expires_at - NOW())))::int AS otp_remaining_seconds,
           COALESCE(r.status, 'NOT_RECORDED') AS status,
+          COALESCE(r.is_locked_out, FALSE) AS is_locked_out,
+          COALESCE(r.attempt_count, 0)::int AS attempt_count,
+          r.active_ticket_id,
+          r.active_ticket_expires_at,
+          CASE WHEN r.active_ticket_expires_at IS NOT NULL AND r.active_ticket_expires_at > NOW() THEN GREATEST(0, EXTRACT(EPOCH FROM (r.active_ticket_expires_at - NOW())))::int ELSE NULL END AS ticket_remaining_seconds,
           r.verification_method,
           r.marked_at
       FROM attendance_sessions s
@@ -370,6 +387,11 @@ export class StudentAttendanceService {
       sessionMode: row.session_mode,
       isLocked: row.is_locked,
       status: row.status,
+      isLockedOut: Boolean(row.is_locked_out),
+      attemptCount: row.attempt_count,
+      activeTicketId: row.active_ticket_id,
+      ticketExpiresAt: row.active_ticket_expires_at,
+      ticketRemainingSeconds: row.ticket_remaining_seconds,
       verificationMethod: row.verification_method,
       markedAt: row.marked_at,
       notes: row.is_locked ? row.notes : null,

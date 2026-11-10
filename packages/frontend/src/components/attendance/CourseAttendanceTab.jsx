@@ -255,6 +255,7 @@ export function CourseAttendanceTab({ courseId }) {
                 weekNumber: activeSessionItem.weekNumber,
                 sessionDate: activeSessionItem.sessionDate,
                 remainingSeconds: activeSessionItem.otpRemainingSeconds || 300,
+                isLockedOut: Boolean(activeSessionItem.isLockedOut),
               })}
               className="min-h-[44px] px-4 py-2 bg-[#ffb81c] hover:bg-[#e5a200] text-[#0a1142] rounded-xl text-xs font-bold transition shadow-sm shrink-0 flex items-center justify-center gap-1.5"
             >

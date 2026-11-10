@@ -1,3 +1,9 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 /** @type {import('tailwindcss').Config} */
 function withOpacity(variableName) {
   return `rgb(var(${variableName}) / <alpha-value>)`;
@@ -6,8 +12,13 @@ function withOpacity(variableName) {
 export default {
   darkMode: 'class',
   content: [
+    path.join(__dirname, 'index.html'),
+    path.join(__dirname, 'src/**/*.{js,ts,jsx,tsx}'),
+    path.join(__dirname, '../../shared/**/*.{js,ts,jsx,tsx}'),
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    "./packages/frontend/index.html",
+    "./packages/frontend/src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {

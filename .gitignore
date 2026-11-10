@@ -53,3 +53,11 @@ uploads/
 # Postman
 .postman/
 postman/
+
+
+# Architecture & Agent Doctrine (Confidential / Internal Plans)
+.agents/
+.agent*
+*PLAN*.md
+*_PLAN.md
+docs/*PLAN*.md

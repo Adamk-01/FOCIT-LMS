@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useAttendanceSessionDetails } from '../../hooks/useAttendance';
 import { AttendanceSheetDocumentMockup } from './AttendanceSheetDocumentMockup';
+import { apiClient } from '../../lib/api';
 
 export function AttendanceVerificationDeskModal({
   sessionId,
@@ -236,7 +237,36 @@ export function AttendanceVerificationDeskModal({
                     {records.map((r) => (
                       <tr key={r.student_id} className="hover:bg-gray-50/70 transition-colors">
                         <td className="py-2.5 px-3 font-medium text-gray-900">
-                          {r.full_name || r.student_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.matric_number || r.student_id}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>{r.full_name || r.student_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.matric_number || r.student_id}</span>
+                            {r.is_locked_out && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                <Lock size={10} />
+                                <span>Locked Out ({r.attempt_count}/3)</span>
+                              </span>
+                            )}
+                            {r.is_locked_out && !session?.is_locked && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await apiClient.post(`/attendance/sessions/${sessionId}/records/${r.student_id}/unlock`);
+                                    setRecords((prev) =>
+                                      prev.map((rec) =>
+                                        rec.student_id === r.student_id
+                                          ? { ...rec, is_locked_out: false, attempt_count: 0 }
+                                          : rec
+                                      )
+                                    );
+                                  } catch (_) {}
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold border border-blue-200 transition cursor-pointer"
+                                title="Reset passcode attempts for this student"
+                              >
+                                Unlock
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 font-mono text-gray-600 text-[11px]">
                           {r.matric_number || r.student_id}
