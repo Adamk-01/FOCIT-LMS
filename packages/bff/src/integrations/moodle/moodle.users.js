@@ -24,7 +24,12 @@ export async function getMoodleUserByField(field, value) {
     }
     return null;
   } catch (err) {
-    if (err.errorCode === 'usernotfound') {
+    if (
+      err.errorCode === 'usernotfound' ||
+      err.errorCode === 'accessexception' ||
+      err.errorCode === 'webservice_access_exception'
+    ) {
+      logger.warn({ field, value, code: err.errorCode }, '[MoodleUser] User lookup bypassed or not found, falling back to provision');
       return null;
     }
     throw err;
