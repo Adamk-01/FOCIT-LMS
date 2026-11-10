@@ -444,4 +444,49 @@ describe('Admin Controller Governance & Security Guards', () => {
     assert.strictEqual(res.statusCode, 400);
     assert.strictEqual(res.body.code, 'INVALID_LEVEL');
   });
+  // 16. Round 22: Returns stored staff level in createUser response
+  test('Round 22: Returns stored staff level in createUser response', async () => {
+    // Test Lecturer: level should be null
+    const uniqueLecturerId = `LEC_TEST_${Date.now()}`;
+    const lecturerReq = {
+      body: {
+        identifier: uniqueLecturerId,
+        fullName: 'Test Lecturer',
+        email: `${uniqueLecturerId.toLowerCase()}@focit.uniosun.edu.ng`,
+        role: 'LECTURER',
+        departmentId: 'CSC',
+        level: 200, // Should be ignored/nullified for LECTURER
+      },
+      user: { id: 'admin1', role: 'ADMIN' },
+      ip: '127.0.0.1',
+    };
+    const lecturerRes = mockRes();
+    await createUser(lecturerReq, lecturerRes, () => {});
+
+    assert.strictEqual(lecturerRes.statusCode, 201);
+    assert.strictEqual(lecturerRes.body.data.user.level, null, 'Lecturer stored level must be null');
+
+    // Test Level Advisor: level should be 200
+    const uniqueAdvisorId = `ADV_TEST_${Date.now()}`;
+    const advisorReq = {
+      body: {
+        identifier: uniqueAdvisorId,
+        fullName: 'Test Advisor',
+        email: `${uniqueAdvisorId.toLowerCase()}@focit.uniosun.edu.ng`,
+        role: 'LEVEL_ADVISOR',
+        departmentId: 'CSC',
+        assignedLevel: 200,
+      },
+      user: { id: 'admin1', role: 'ADMIN' },
+      ip: '127.0.0.1',
+    };
+    const advisorRes = mockRes();
+    await createUser(advisorReq, advisorRes, () => {});
+
+    assert.strictEqual(advisorRes.statusCode, 201);
+    assert.strictEqual(advisorRes.body.data.user.level, 200, 'Level Advisor stored level must be 200');
+
+    // Clean up
+    await pool.query('DELETE FROM staff_advisors WHERE staff_number IN ($1, $2)', [uniqueLecturerId, uniqueAdvisorId]);
+  });
 });

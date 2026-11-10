@@ -450,9 +450,11 @@ export async function createUser(req, res, next) {
     inTransaction = true;
 
     let createdId;
+    let storedLevel = null;
     if (normalizedRole === 'STUDENT') {
       const studentId = `student_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
       createdId = studentId;
+      storedLevel = candidateLevel;
 
       await client.query(
         `
@@ -499,6 +501,7 @@ export async function createUser(req, res, next) {
       const staffLevel = normalizedRole === 'LEVEL_ADVISOR' && (rawLevel !== undefined && rawLevel !== null && rawLevel !== '')
         ? candidateLevel 
         : null;
+      storedLevel = staffLevel;
 
       await client.query(
         `
@@ -544,7 +547,7 @@ export async function createUser(req, res, next) {
           email,
           role: normalizedRole,
           departmentId,
-          level: candidateLevel,
+          level: storedLevel,
           status: 'ACTIVE',
         },
       },
