@@ -214,6 +214,19 @@ export function useAdminDashboard() {
     },
   });
 
+  // 9c. Mutation: Update User Details (role, department, full name, email, level)
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, updates }) => {
+      const res = await apiClient.patch(`/admin/users/${encodeURIComponent(userId)}`, updates);
+      return res.data?.data || res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'audit-logs'] });
+    },
+  });
+
   // 10. Handlers
   const handleToggleRegistrationWindow = useCallback(
     (semesterId, currentIsOpen) => {
@@ -299,6 +312,9 @@ export function useAdminDashboard() {
     resetUserPassword: (userId, password) => resetUserPasswordMutation.mutateAsync({ userId, password }),
     isResettingPassword: resetUserPasswordMutation.isPending,
     resetPasswordError: resetUserPasswordMutation.error,
+    updateUser: (userId, updates) => updateUserMutation.mutateAsync({ userId, updates }),
+    isUpdatingUser: updateUserMutation.isPending,
+    updateUserError: updateUserMutation.error,
 
     // Manual Refresh
     refetchAll: () => {

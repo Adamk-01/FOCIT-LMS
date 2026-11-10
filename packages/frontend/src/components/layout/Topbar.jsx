@@ -101,7 +101,7 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
     ...pathSegments.map((segment, index) => {
       const fullSubPath = location.pathname.split('/').slice(0, index + 2).join('/');
       const displayName = ROUTE_NAME_MAP[segment] || (segment === '1' ? 'CSC 204' : segment);
-      return { id: `${segment}-${index}`, name: displayName, path: fullSubPath };
+      return { id: `crumb-${index}-${segment}`, name: displayName, path: fullSubPath };
     }),
   ];
 

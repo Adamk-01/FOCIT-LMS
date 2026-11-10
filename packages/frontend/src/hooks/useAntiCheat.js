@@ -36,12 +36,22 @@ export function useAntiCheat({
   quizId,
   attemptId,
   enabled = true,
+  initialFullscreenExits = 0,
+  restoredExits,
   isSubmitting = false,
   onViolationAutoSubmit,
 }) {
+  const rawRestoredExits = Number(restoredExits ?? initialFullscreenExits);
+  const effectiveInitialExits =
+    Number.isFinite(rawRestoredExits) && rawRestoredExits > 0
+      ? Math.floor(rawRestoredExits)
+      : 0;
+
   const [lockdownState, setLockdownState] = useState(() => {
     if (!enabled) return 'ACTIVE';
     if (!isFullscreenSupported()) return 'ACTIVE';
+    if (effectiveInitialExits >= 2) return 'AUTO_SUBMITTING';
+    if (effectiveInitialExits === 1) return 'SUSPENDED_AWAY';
     if (typeof document !== 'undefined' && !document.fullscreenElement) {
       return 'NEEDS_FULLSCREEN';
     }
@@ -54,14 +64,33 @@ export function useAntiCheat({
   });
 
   const [infractionCount, setInfractionCount] = useState(0);
-  const [fullscreenExits, setFullscreenExits] = useState(0);
+  const [fullscreenExits, setFullscreenExits] = useState(effectiveInitialExits);
 
-  const fullscreenExitCountRef = useRef(0);
-  const hasAutoSubmittedViolationRef = useRef(false);
+  const fullscreenExitCountRef = useRef(effectiveInitialExits);
+  const hasAutoSubmittedViolationRef = useRef(effectiveInitialExits >= 2);
   const blurStartRef = useRef(null);
   const graceTimerRef = useRef(null);
   const telemetryQueueRef = useRef([]);
   const isFlushingRef = useRef(false);
+  const isUnloadingRef = useRef(false);
+  const unloadResetTimerRef = useRef(null);
+
+  // Synchronize persisted strike counter on server rehydration
+  useEffect(() => {
+    if (effectiveInitialExits > 0 && fullscreenExitCountRef.current < effectiveInitialExits) {
+      fullscreenExitCountRef.current = effectiveInitialExits;
+      setFullscreenExits(effectiveInitialExits);
+      if (effectiveInitialExits >= 2 && !hasAutoSubmittedViolationRef.current) {
+        hasAutoSubmittedViolationRef.current = true;
+        setLockdownState('AUTO_SUBMITTING');
+        if (typeof onViolationAutoSubmit === 'function') {
+          onViolationAutoSubmit('FULLSCREEN_VIOLATION_AUTO_SUBMIT');
+        }
+      } else if (effectiveInitialExits === 1 && lockdownState === 'ACTIVE') {
+        setLockdownState('SUSPENDED_AWAY');
+      }
+    }
+  }, [effectiveInitialExits, lockdownState, onViolationAutoSubmit]);
 
   // Flush queued telemetry events to BFF with offline retry resilience
   const flushTelemetry = useCallback(async () => {
@@ -214,6 +243,11 @@ export function useAntiCheat({
       const active = Boolean(document.fullscreenElement);
       setIsFullscreen(active);
 
+      // Non-Punitive Guard: Suppress false strikes if document is currently in an unload / reload sequence
+      if (isUnloadingRef.current) {
+        return;
+      }
+
       if (!active) {
         // Increment exit counter
         fullscreenExitCountRef.current += 1;
@@ -238,7 +272,34 @@ export function useAntiCheat({
       }
     };
 
-    // 4. Clipboard & Context Menu Lockout
+    // 4. Non-Punitive Fullscreen Recovery Handlers for Cancelled Reloads
+    const handleBeforeUnload = () => {
+      isUnloadingRef.current = true;
+      if (unloadResetTimerRef.current) {
+        clearTimeout(unloadResetTimerRef.current);
+      }
+      // If user clicks "Cancel" (Stay on Page), execution context survives.
+      // Reset suppression after 2,000ms and non-punitively require fullscreen entry without incrementing strikes!
+      unloadResetTimerRef.current = setTimeout(() => {
+        isUnloadingRef.current = false;
+        if (isFullscreenSupported() && !document.fullscreenElement) {
+          if (lockdownState !== 'AUTO_SUBMITTING') {
+            setLockdownState('NEEDS_FULLSCREEN');
+          }
+        }
+      }, 2000);
+    };
+
+    const handlePageShow = () => {
+      isUnloadingRef.current = false;
+      if (isFullscreenSupported() && !document.fullscreenElement) {
+        if (lockdownState !== 'AUTO_SUBMITTING') {
+          setLockdownState('NEEDS_FULLSCREEN');
+        }
+      }
+    };
+
+    // 5. Clipboard & Context Menu Lockout
     const suppressClipboard = (e) => {
       e.preventDefault();
       queueEvent('CLIPBOARD_BLOCKED', Date.now(), 0);
@@ -259,12 +320,15 @@ export function useAntiCheat({
     document.addEventListener('cut', suppressClipboard);
     document.addEventListener('paste', suppressClipboard);
     document.addEventListener('contextmenu', suppressContextMenu);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pageshow', handlePageShow);
 
     const onlineListener = () => flushTelemetry();
     window.addEventListener('online', onlineListener);
 
     return () => {
       if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+      if (unloadResetTimerRef.current) clearTimeout(unloadResetTimerRef.current);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
@@ -276,6 +340,8 @@ export function useAntiCheat({
       document.removeEventListener('cut', suppressClipboard);
       document.removeEventListener('paste', suppressClipboard);
       document.removeEventListener('contextmenu', suppressContextMenu);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pageshow', handlePageShow);
       window.removeEventListener('online', onlineListener);
     };
   }, [

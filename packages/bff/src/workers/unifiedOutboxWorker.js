@@ -194,6 +194,14 @@ export class UnifiedOutboxWorker {
         case 'ENROLLMENT_SYNC': {
           const studentId = payload.student_id || aggregate_id;
           const courseId = payload.course_id;
+
+          // Guard: Check if student exists in database (auto-quarantine orphaned events)
+          const studentCheck = await pool.query('SELECT 1 FROM students WHERE student_id = $1', [studentId]);
+          if (studentCheck.rows.length === 0) {
+            const orphanError = new Error(`Student ${studentId} does not exist in FOCIT database (orphaned event)`);
+            orphanError.isRetryable = false;
+            throw orphanError;
+          }
           let semesterId = payload.semester_id;
 
           if (!semesterId) {

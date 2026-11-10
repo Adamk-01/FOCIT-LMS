@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout.jsx';
 import { resolveRemediation } from '../lib/userFriendlyMessages.js';
+import { ActivatePortalModal } from '../components/auth/ActivatePortalModal.jsx';
 
 export const LoginPage = () => {
   const { login } = useAuth();
@@ -14,6 +15,7 @@ export const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState(null);
+  const [isActivateModalOpen, setIsActivateModalOpen] = useState(false);
 
   const sessionTimeoutError = searchParams.get('reason') === 'session_timeout' ? {
     code: 'UPSTREAM_EXPIRED',
@@ -39,6 +41,28 @@ export const LoginPage = () => {
     setAuthError(null);
 
     const trimmedId = studentId.trim();
+
+    // UNIOSUN Matric Number Format Validation: YYYY/XXXXX (strict 5 digits)
+    if (/^\d{4}[/-]/.test(trimmedId) || /^[A-Za-z]+\/\d{4}[/-]/.test(trimmedId)) {
+      const parts = trimmedId.split(/[/-]/);
+      const suffix = parts[parts.length - 1];
+      if (/^\d+$/.test(suffix) && suffix.length !== 5) {
+        isSubmittingRef.current = false;
+        setAuthError({
+          code: 'INVALID_MATRIC_FORMAT',
+          title: 'Invalid Matriculation Format',
+          problem: `The matric number "${trimmedId}" is invalid. UNIOSUN student matric numbers require exactly 5 digits after the year (e.g. 2023/47162).`,
+          remediation: 'Please check your matriculation number and ensure you enter the full 5 digits assigned to you.',
+          severity: 'error',
+          recoveryAction: {
+            type: 'FOCUS_INPUT',
+            target: 'studentId',
+            label: 'Fix Matric Number',
+          },
+        });
+        return;
+      }
+    }
     if (!trimmedId || !password) {
       isSubmittingRef.current = false;
       setAuthError({
@@ -134,7 +158,7 @@ export const LoginPage = () => {
                       setStudentId(e.target.value);
                       if (authError) setAuthError(null);
                     }}
-                    placeholder="e.g. 2024/28682 or student1"
+                    placeholder="e.g. 2023/47162"
                     className="appearance-none block w-full min-h-[44px] px-3.5 py-2.5 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0a1142] dark:focus:ring-[#ffb81c] focus:border-[#0a1142] dark:focus:border-[#ffb81c] text-sm font-sans transition-all"
                   />
                 </div>
@@ -166,6 +190,36 @@ export const LoginPage = () => {
                 </div>
               </fieldset>
             </form>
+
+              <div className="mt-6 pt-5 border-t border-gray-100 dark:border-slate-800 text-center">
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-2 font-sans">
+                  New or returning student setting up your portal?
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsActivateModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold text-[#0a1142] dark:text-[#ffb81c] bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800/60 rounded-xl transition-all shadow-xs w-full sm:w-auto"
+                >
+                  <span>Activate Student Portal</span>
+                  <span aria-hidden="true">&rarr;</span>
+                </button>
+              </div>
+
+              <ActivatePortalModal
+                isOpen={isActivateModalOpen}
+                onClose={() => setIsActivateModalOpen(false)}
+                onActivated={({ matricNumber, temporaryPassword }) => {
+                  setStudentId(matricNumber);
+                  setPassword(temporaryPassword);
+                  setAuthError({
+                    code: 'TEMPORARY_PASSWORD_COPIED',
+                    title: 'Temporary Password Copied',
+                    problem: 'Your temporary password has been copied to your clipboard and filled in above.',
+                    remediation: 'Click "Sign In to Academic Portal" to log in and set your permanent secret password.',
+                    severity: 'success',
+                  });
+                }}
+              />
           </div>
         </div>
         </div>

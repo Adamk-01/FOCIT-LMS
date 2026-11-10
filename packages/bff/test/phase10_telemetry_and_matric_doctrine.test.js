@@ -11,9 +11,9 @@ describe('Phase 10: Senate Matriculation Canonicalization & Telemetry Doctrine',
     assert.strictEqual(standard1.value, '2024/28682');
     assert.strictEqual(standard1.error, null);
 
-    const standard2 = canonicalizeMatricNumber('2023/104921');
+    const standard2 = canonicalizeMatricNumber('2023/47162');
     assert.strictEqual(standard2.valid, true);
-    assert.strictEqual(standard2.value, '2023/104921');
+    assert.strictEqual(standard2.value, '2023/47162');
 
     // 2. Loose legacy extraction (hyphens, spaces, faculty prefixes)
     const legacyPrefix = canonicalizeMatricNumber('FOCIT/2024/28682');
@@ -32,7 +32,9 @@ describe('Phase 10: Senate Matriculation Canonicalization & Telemetry Doctrine',
     assert.strictEqual(canonicalizeMatricNumber('').valid, false);
     assert.strictEqual(canonicalizeMatricNumber('ABC/XYZ').valid, false);
     assert.strictEqual(canonicalizeMatricNumber('1990/1234').valid, false); // Out of year bounds
-    assert.strictEqual(canonicalizeMatricNumber('2024/12').valid, false); // Less than 4 digits serial
+    assert.strictEqual(canonicalizeMatricNumber('2024/12').valid, false); // Less than 5 digits serial
+    assert.strictEqual(canonicalizeMatricNumber('2024/0042').valid, false); // 4-digit serial rejected under 5-digit rule
+    assert.strictEqual(canonicalizeMatricNumber('2023/104921').valid, false); // 6-digit serial rejected under 5-digit rule
     assert.strictEqual(canonicalizeMatricNumber(12345).valid, false); // Non-string
   });
 

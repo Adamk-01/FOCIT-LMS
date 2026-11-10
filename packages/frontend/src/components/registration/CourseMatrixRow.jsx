@@ -6,24 +6,27 @@ import React from 'react';
  * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
 export function CourseMatrixRow({ course, isSelected, toggleCourse, studentLevel }) {
-  const maxCapacity = course.max_capacity ?? 0;
-  const isFull = maxCapacity <= 0 || (course.enrolled_count || 0) >= maxCapacity;
+  const maxCapacity = Number(course.max_capacity) || 0;
+  const isFull = maxCapacity > 0 && (course.enrolled_count || 0) >= maxCapacity;
+  const canToggle = isSelected || !isFull;
   const isCarryover = course.is_carryover || (studentLevel && course.level < studentLevel);
 
   return (
     <tr
-      onClick={() => !isFull && toggleCourse(course.course_id)}
-      className={`cursor-pointer transition-colors ${
+      onClick={() => canToggle && toggleCourse(course.course_id)}
+      className={`transition-colors ${
+        canToggle ? 'cursor-pointer' : 'cursor-not-allowed'
+      } ${
         isSelected ? 'bg-[#0a1142]/5 font-medium' : 'hover:bg-gray-50/80'
-      } ${isFull ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+      } ${isFull && !isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
     >
       <td className="py-3 px-4 text-center">
         <div className="flex items-center justify-center min-h-[40px]">
           <input
             type="checkbox"
             checked={isSelected}
-            disabled={isFull}
-            onChange={() => toggleCourse(course.course_id)}
+            disabled={!canToggle}
+            onChange={() => canToggle && toggleCourse(course.course_id)}
             onClick={(e) => e.stopPropagation()}
             aria-label={`Select ${course.code}: ${course.title}`}
             className="w-4 h-4 rounded text-[#0a1142] focus:ring-[#0a1142] border-gray-300 cursor-pointer disabled:cursor-not-allowed"
@@ -66,8 +69,14 @@ export function CourseMatrixRow({ course, isSelected, toggleCourse, studentLevel
       </td>
       <td className="py-3 px-4">
         <span className={`text-xs font-semibold ${isFull ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
-          {course.enrolled_count || 0} / {course.max_capacity || 200}
-          {isFull && ' (FULL)'}
+          {maxCapacity > 0 ? (
+            <>
+              {course.enrolled_count || 0} / {maxCapacity}
+              {isFull && ' (FULL)'}
+            </>
+          ) : (
+            `${course.enrolled_count || 0} / Unlimited`
+          )}
         </span>
       </td>
     </tr>

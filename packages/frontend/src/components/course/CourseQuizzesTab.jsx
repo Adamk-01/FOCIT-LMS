@@ -66,7 +66,7 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
       queryClient.setQueryData(['quiz-attempt', quizId, freshAttemptId], data);
       queryClient.invalidateQueries({ queryKey: ['course-quizzes', courseId] });
       navigate(
-        `/courses/${encodeURIComponent(courseId)}/quizzes/${quizId}?attemptId=${encodeURIComponent(freshAttemptId)}`
+        `/courses/${encodeURIComponent(courseId)}/quizzes/${quizId}/attempts/${encodeURIComponent(freshAttemptId)}`
       );
     },
     onError: (err) => {
@@ -162,7 +162,8 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
     <div className="space-y-4">
       {quizzes.map((quiz) => {
         const attempt = quiz.attempt;
-        const isGraded = attempt?.status === 'GRADED';
+        const isPractice = quiz.quizType === 'SELF_PRACTICE' || Boolean(quiz.isPractice);
+        const isCompleted = ['SUBMITTED', 'GRADED', 'EXPIRED'].includes(attempt?.status);
         const isInProgress = attempt?.status === 'IN_PROGRESS';
         const formattedDueDate = quiz.dueDate
           ? new Date(quiz.dueDate).toLocaleDateString('en-US', {
@@ -185,19 +186,25 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
                   <h3 className="text-base font-bold text-focitText-primary">
                     {quiz.title}
                   </h3>
-                  {isGraded ? (
+                  {isCompleted ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      GRADED ({attempt.score !== null ? attempt.score.toFixed(2) : '0.00'} / {quiz.totalPoints.toFixed(2)} pts)
+                      {attempt?.score != null && quiz?.totalPoints != null
+                        ? `SCORE: ${Number(attempt.score).toFixed(2)} / ${Number(quiz.totalPoints).toFixed(2)} pts`
+                        : 'COMPLETED'}
                     </span>
                   ) : isInProgress ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                       <Clock className="w-3.5 h-3.5" />
                       IN PROGRESS
                     </span>
+                  ) : isPractice ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      PRACTICE DRILL
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      ACTIVE
+                      OFFICIAL TEST
                     </span>
                   )}
                 </div>
@@ -227,54 +234,71 @@ export function CourseQuizzesTab({ courseId, courseCode }) {
                 <span>Due: <strong className="text-focitText-secondary font-medium">{formattedDueDate}</strong></span>
               </div>
 
-              {/* Action Navigation */}
-              {isGraded ? (
-                <Link
-                  to={`/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}${attempt?.attemptId ? `?attemptId=${encodeURIComponent(attempt.attemptId)}` : ''}`}
-                  className="min-h-[44px] px-5 py-2 rounded-xl bg-surface-alt hover:bg-surface border border-surface-border text-focitText-primary text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5"
-                >
-                  View Assessment Receipt
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              ) : isInProgress ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    requestAutoFullscreen();
-                    navigate(
-                      `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}${attempt?.attemptId ? `?attemptId=${encodeURIComponent(attempt.attemptId)}` : ''}`
-                    );
-                  }}
-                  className="min-h-[44px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5 shadow-xs"
-                >
-                  Resume Quiz Attempt
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={startingQuizId === quiz.quizId || startQuizMutation.isPending}
-                  onClick={() => {
-                    requestAutoFullscreen();
-                    setStartError(null);
-                    setStartingQuizId(quiz.quizId);
-                    startQuizMutation.mutate(quiz.quizId);
-                  }}
-                  className="min-h-[44px] px-5 py-2 rounded-xl bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5 shadow-xs"
-                >
-                  {startingQuizId === quiz.quizId ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Securing Attempt...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Start Quiz</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
-              )}
+              {/* Action Navigation Cluster */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {isCompleted && (
+                  <Link
+                    to={attempt?.attemptId 
+                      ? `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}/attempts/${encodeURIComponent(attempt.attemptId)}`
+                      : `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}`}
+                    className="min-h-[44px] px-4 py-2 rounded-xl bg-surface-alt hover:bg-surface border border-surface-border text-focitText-primary text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5"
+                  >
+                    <span>View Assessment Receipt</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                )}
+
+                {isInProgress && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isPractice) requestAutoFullscreen();
+                      navigate(
+                        attempt?.attemptId 
+                          ? `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}/attempts/${encodeURIComponent(attempt.attemptId)}`
+                          : `/courses/${encodeURIComponent(courseId)}/quizzes/${quiz.quizId}`
+                      );
+                    }}
+                    className="min-h-[44px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    <span>{isPractice ? 'Resume Practice Drill' : 'Resume Quiz Attempt'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                {/* Formative Practice Retake OR Unstarted Quiz Initialization */}
+                {(!isInProgress && (!isCompleted || isPractice)) && (
+                  <button
+                    type="button"
+                    disabled={startingQuizId === quiz.quizId || startQuizMutation.isPending}
+                    onClick={() => {
+                      if (!isPractice) requestAutoFullscreen();
+                      setStartError(null);
+                      setStartingQuizId(quiz.quizId);
+                      startQuizMutation.mutate(quiz.quizId);
+                    }}
+                    className="min-h-[44px] px-5 py-2 rounded-xl bg-[#0a1142] dark:bg-indigo-600 hover:bg-[#16258f] dark:hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold transition-colors inline-flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    {startingQuizId === quiz.quizId ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Securing Attempt...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          {isCompleted && isPractice 
+                            ? 'Practice Again' 
+                            : isPractice 
+                              ? 'Start Practice Drill' 
+                              : 'Start Assessment'}
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </article>
         );

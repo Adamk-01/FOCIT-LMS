@@ -11,10 +11,17 @@
 
 export const REMEDIATION_REGISTRY = {
   // ── Authentication & Session ──
+  INVALID_MATRIC_FORMAT: (serverError) => ({
+    title: 'Invalid Matriculation Format',
+    problem: serverError?.problem || serverError?.error || 'UNIOSUN matric numbers require exactly 5 digits after the year (e.g., 2023/47162).',
+    remediation: 'Please check your matriculation number. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162). 4-digit numbers are invalid.',
+    severity: 'error',
+    recoveryAction: { type: 'FOCUS_INPUT', target: 'studentId', label: 'Fix Matric Number' },
+  }),
   INVALID_CREDENTIALS: () => ({
     title: 'Authentication Failed',
     problem: 'The Matric Number or password entered does not match university records.',
-    remediation: 'Check your matric number format (e.g. 2024/28682) and re-enter your password.',
+    remediation: 'Double-check your Student ID / Matric Number and re-enter your password. If this is your first time logging in, use your assigned temporary password.',
     severity: 'error',
     recoveryAction: { type: 'FOCUS_INPUT', target: 'studentId' },
   }),

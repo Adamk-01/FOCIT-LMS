@@ -61,6 +61,7 @@ import { unifiedOutboxWorker } from './workers/unifiedOutboxWorker.js';
 import { notificationBroadcaster } from './services/notificationBroadcaster.js';
 import { quizSweeperWorker } from './workers/quizSweeperWorker.js';
 
+console.log(`[BOOT] FOCIT BFF process ${process.pid} initialized. Binding to port ${config.port}...`);
 const app = express();
 
 // ─── Reverse Proxy Trust (Required for Render / Vercel / Cloudflare) ───
@@ -205,7 +206,8 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // ─── Start HTTP Server (Stateless Web Plane) ─────────────────
-const server = app.listen(config.port, () => {
+const HOST = '0.0.0.0';
+const server = app.listen(config.port, HOST, () => {
   console.log(`\n  ┌──────────────────────────────────────────┐`);
   console.log(`  │  FOCIT BFF Proxy (Web Plane)             │`);
   console.log(`  │  http://localhost:${config.port}                  │`);
@@ -215,7 +217,7 @@ const server = app.listen(config.port, () => {
 
   logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
 
-  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production';
+  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS !== 'false';
   if (shouldRunEmbeddedWorkers) {
     // Start Unified Transactional Outbox Worker
     unifiedOutboxWorker.start();

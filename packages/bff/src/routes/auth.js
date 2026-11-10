@@ -15,7 +15,7 @@ import { redis } from '../lib/redis.js';
 import { redisCircuitBreaker } from '../lib/redisCircuitBreaker.js';
 import { logger } from '../lib/logger.js';
 import { pool } from '../db/index.js';
-import { verifyPassword } from '../lib/passwords.js';
+import { verifyPassword, hashPassword } from '../lib/passwords.js';
 import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 import { authMiddleware } from '../middleware/auth.js';
 
@@ -45,6 +45,19 @@ router.post('/login', async (req, res) => {
   }
 
   const candidateId = studentId.trim();
+
+  // Validate student matriculation number syntax (UNIOSUN 5-digit standard YYYY/XXXXX)
+  if (/^\d{4}[/-]/.test(candidateId) || /^[A-Za-z]+\/\d{4}[/-]/.test(candidateId)) {
+    const parts = candidateId.split(/[/-]/);
+    const suffix = parts[parts.length - 1];
+    if (/^\d+$/.test(suffix) && suffix.length !== 5) {
+      return res.status(422).json({
+        error: 'Invalid matriculation number format. UNIOSUN matric numbers require 5 digits after the year (e.g., 2023/47162).',
+        code: 'INVALID_MATRIC_FORMAT',
+        expected_format: 'YYYY/XXXXX',
+      });
+    }
+  }
   // Normalize candidate identifier for flexible matching (strip dashes, whitespace, normalize slashes)
   const cleanedId = candidateId.replace(/\s+/g, '').toUpperCase();
   const normalizedSlashId = cleanedId.replace(/-/g, '/');
@@ -476,6 +489,139 @@ router.get('/status', authMiddleware, (req, res) => {
     server_epoch: Math.floor(nowMs / 1000),
     server_epoch_ms: nowMs,
   });
+});
+
+
+/**
+ * PORTAL ONBOARDING & ACTIVATION: POST /api/auth/activate
+ *
+ * Implements:
+ * 1. Level-Agnostic Self-Service Portal Activation (100L - 400L)
+ * 2. Identity Verification: Validates Matric Number + Registered Faculty Email
+ * 3. Strict One-Time Lock: If is_activated = TRUE, refuses repeat activation
+ * 4. Generates high-entropy temporary password, marks must_change_password = TRUE
+ * 5. Appends immutable PORTAL_ACTIVATION_ISSUED audit log
+ */
+router.post('/activate', async (req, res) => {
+  const { matricNumber, email } = req.body || {};
+  const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  if (!matricNumber || typeof matricNumber !== 'string' || !email || typeof email !== 'string') {
+    return res.status(400).json({
+      error: 'Matriculation number and registered email are required to activate your portal.',
+      code: 'ACTIVATION_INVALID_PAYLOAD',
+    });
+  }
+
+  const cleanMatric = matricNumber.trim();
+  const cleanEmail = email.trim().toLowerCase();
+
+  // Validate matriculation syntax (strict UNIOSUN 5-digit standard YYYY/XXXXX)
+  if (!/^[0-9]{4}\/[0-9]{5}$/.test(cleanMatric)) {
+    return res.status(422).json({
+      error: 'Invalid matriculation number format. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162).',
+      code: 'INVALID_MATRIC_FORMAT',
+    });
+  }
+
+  try {
+    const studentRes = await pool.query(
+      `
+      SELECT 
+        s.student_id,
+        s.matric_number,
+        s.full_name,
+        s.email,
+        s.account_status,
+        sp.must_change_password,
+        COALESCE(sp.is_activated, FALSE) AS is_activated
+      FROM students s
+      LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+      WHERE s.matric_number = $1
+         OR UPPER(s.matric_number) = UPPER($1)
+      LIMIT 1
+      `,
+      [cleanMatric]
+    );
+
+    if (studentRes.rows.length === 0) {
+      return res.status(404).json({
+        error: 'No student record found with this matriculation number. Please verify your details or contact your department.',
+        code: 'STUDENT_NOT_FOUND',
+      });
+    }
+
+    const student = studentRes.rows[0];
+
+    // Check account status
+    if (student.account_status === 'SUSPENDED') {
+      return res.status(403).json({
+        error: 'This account has been suspended by university administration. Contact the Faculty ICT Desk.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
+
+    // Verify registered email (case-insensitive)
+    const registeredEmail = String(student.email || '').trim().toLowerCase();
+    if (registeredEmail !== cleanEmail) {
+      return res.status(400).json({
+        error: 'The email provided does not match the registered faculty admission email for this matriculation number.',
+        code: 'EMAIL_MISMATCH',
+      });
+    }
+
+    // ONE-TIME ACTIVATION LOCK:
+    // If the account has already completed first-time activation and set a permanent password
+    if (student.is_activated === true && student.must_change_password === false) {
+      return res.status(409).json({
+        error: 'This student portal has already been activated. Please sign in using your permanent password, or contact administration if you require a reset.',
+        code: 'ACCOUNT_ALREADY_ACTIVATED',
+      });
+    }
+
+    // Generate high-entropy 12-character temporary password
+    const temporaryPassword = crypto.randomBytes(9).toString('base64url') + '!A1';
+    const tempPasswordHash = await hashPassword(temporaryPassword);
+
+    // Save temporary credentials and flag must_change_password = TRUE
+    await pool.query(
+      `
+      INSERT INTO student_profiles (student_id, password_hash, must_change_password, is_activated, updated_at)
+      VALUES ($1, $2, TRUE, FALSE, NOW())
+      ON CONFLICT (student_id)
+      DO UPDATE SET
+        password_hash = $2,
+        must_change_password = TRUE,
+        updated_at = NOW();
+      `,
+      [student.student_id, tempPasswordHash]
+    );
+
+    // Record immutable audit event
+    await recordIdentityAuditLog(pool, {
+      eventType: 'PORTAL_ACTIVATION_ISSUED',
+      actorId: student.student_id,
+      actorRole: 'STUDENT',
+      targetId: student.student_id,
+      targetType: 'CREDENTIALS',
+      ipAddress,
+      metadata: { matricNumber: student.matric_number, email: cleanEmail },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Portal activation credentials generated successfully.',
+      temporaryPassword,
+      matricNumber: student.matric_number,
+      fullName: student.full_name,
+    });
+  } catch (err) {
+    logger.error({ err, matricNumber: cleanMatric }, '[Auth] Portal activation failed');
+    return res.status(500).json({
+      error: 'Failed to process portal activation due to an internal server error. Please try again.',
+      code: 'ACTIVATION_INTERNAL_ERROR',
+    });
+  }
 });
 
 export default router;

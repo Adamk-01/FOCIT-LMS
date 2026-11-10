@@ -88,29 +88,100 @@ export function AvailableCoursesTable({
             </button>
           </div>
         ) : (
-          <table className="w-full text-left border-collapse text-sm">
-            <thead className="sticky top-0 bg-gray-100/95 dark:bg-slate-800/95 backdrop-blur-sm text-gray-700 dark:text-slate-300 text-xs uppercase tracking-wider font-bold z-10 border-b border-gray-200 dark:border-slate-700">
-              <tr>
-                <th className="py-3 px-4 w-14 text-center">Select</th>
-                <th className="py-3 px-4">Code</th>
-                <th className="py-3 px-4">Module Title</th>
-                <th className="py-3 px-4">Category</th>
-                <th className="py-3 px-4">Units</th>
-                <th className="py-3 px-4">Seats</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 font-sans">
-              {filteredCatalog.map((course) => (
-                <CourseMatrixRow
-                  key={course.course_id}
-                  course={course}
-                  isSelected={selectedCourseIds.includes(course.course_id)}
-                  toggleCourse={toggleCourse}
-                  studentLevel={studentLevel}
-                />
-              ))}
-            </tbody>
-          </table>
+          <>
+            {/* Desktop View (>= md) */}
+            <div className="hidden md:block">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead className="sticky top-0 bg-gray-100/95 dark:bg-slate-800/95 backdrop-blur-sm text-gray-700 dark:text-slate-300 text-xs uppercase tracking-wider font-bold z-10 border-b border-gray-200 dark:border-slate-700">
+                  <tr>
+                    <th className="py-3 px-4 w-14 text-center">Select</th>
+                    <th className="py-3 px-4">Code</th>
+                    <th className="py-3 px-4">Module Title</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4">Units</th>
+                    <th className="py-3 px-4">Seats</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-sans">
+                  {filteredCatalog.map((course) => (
+                    <CourseMatrixRow
+                      key={course.course_id}
+                      course={course}
+                      isSelected={selectedCourseIds.includes(course.course_id)}
+                      toggleCourse={toggleCourse}
+                      studentLevel={studentLevel}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile / Small Tablet Card View (< md) */}
+            <div className="md:hidden p-3 space-y-2.5">
+              {filteredCatalog.map((course) => {
+                const isSelected = selectedCourseIds.includes(course.course_id);
+                const maxCapacity = Number(course.max_capacity) || 0;
+                const isFull = maxCapacity > 0 && (course.enrolled_count || 0) >= maxCapacity;
+                const canToggle = isSelected || !isFull;
+                const isCarryover = course.is_carryover || (studentLevel && course.level < studentLevel);
+
+                return (
+                  <div
+                    key={course.course_id}
+                    onClick={() => canToggle && toggleCourse(course.course_id)}
+                    className={`p-3.5 rounded-2xl border transition-all ${
+                      canToggle ? 'cursor-pointer' : 'cursor-not-allowed'
+                    } ${
+                      isSelected
+                        ? 'bg-blue-50/70 dark:bg-indigo-950/30 border-[#0a1142] dark:border-indigo-500 shadow-xs'
+                        : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 hover:border-gray-300'
+                    } ${isFull && !isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={!canToggle}
+                          onChange={() => canToggle && toggleCourse(course.course_id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select ${course.code}`}
+                          className="w-5 h-5 rounded text-[#0a1142] focus:ring-[#0a1142] border-gray-300 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-black text-sm text-[#0a1142] dark:text-[#ffb81c]">{course.code}</span>
+                            <span className="text-xs font-bold text-gray-700 dark:text-slate-300">({course.units} Units)</span>
+                            {isCarryover && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
+                                {course.level}L Carryover
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-800 dark:text-slate-200 font-medium mt-1 leading-snug">{course.title}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex items-center justify-between text-[11px] text-gray-500 border-t border-gray-100 dark:border-slate-800 pt-2">
+                      <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                        course.category === 'CORE'
+                          ? 'bg-blue-100 text-blue-800'
+                          : course.category === 'ELECTIVE'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {course.category}
+                      </span>
+                      <span className={isFull ? 'text-red-600 font-bold' : 'text-gray-500'}>
+                        Seats: {maxCapacity > 0 ? `${course.enrolled_count || 0}/${maxCapacity}${isFull ? ' (FULL)' : ''}` : `${course.enrolled_count || 0} (Unlimited)`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 

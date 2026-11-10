@@ -92,7 +92,8 @@ export const COURSE_OPTIONS = [
  */
 export function CourseCard({ course, focus = null }) {
   const canonicalId = course.course_id || course.id || '1';
-  const progressVal = Number(course.progress) || 45;
+  const rawProgress = Number(course.progress ?? course.progress_percent ?? 0);
+  const progressVal = Number.isFinite(rawProgress) ? Math.min(100, Math.max(0, Math.round(rawProgress))) : 0;
   const isCompleted = course.status === 'Completed' || course.status === 'COMPLETED';
 
   const sliderRef = useRef(null);
@@ -341,15 +342,14 @@ export function CourseCard({ course, focus = null }) {
         </div>
 
         {/* Interactive Slider Dots Indicator */}
-        <div className="flex items-center justify-center gap-1.5 pt-0.5" role="tablist" aria-label="Course options pagination">
+        <div className="flex items-center justify-center gap-1.5 pt-0.5" role="group" aria-label="Course options pagination">
           {COURSE_OPTIONS.map((opt, i) => (
             <button
               key={opt.id}
               type="button"
               onClick={() => jumpToSlide(i)}
               aria-label={`Jump to option ${opt.label}`}
-              aria-selected={activeSlideIndex === i}
-              role="tab"
+              aria-current={activeSlideIndex === i ? 'true' : undefined}
               className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                 activeSlideIndex === i 
                   ? 'w-4 bg-[#0a1142] dark:bg-indigo-400' 

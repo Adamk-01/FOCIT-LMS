@@ -43,10 +43,13 @@ export function UserProvisioningModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit({
+    const payload = {
       ...formData,
-      level: parseInt(formData.level || formData.assignedLevel, 10) || 100,
-    });
+      ...(formData.role === 'STUDENT'
+        ? { level: parseInt(formData.level || formData.assignedLevel, 10) || 100 }
+        : { level: null, assignedLevel: null }),
+    };
+    onSubmit(payload);
   };
 
   return createPortal(

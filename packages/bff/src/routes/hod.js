@@ -64,13 +64,42 @@ router.get('/allocations', async (req, res, next) => {
     }
     const { rows } = await db.query(
       `SELECT c.course_id, c.code, c.title, c.units, c.level,
-              hca.id AS allocation_id, sa.advisor_id AS lecturer_id,
-              sa.full_name AS lecturer_name, hca.updated_at
+              COALESCE(hca_prim.id, hca_any.id) AS allocation_id,
+              COALESCE(sa_prim.advisor_id, sa_any.advisor_id) AS lecturer_id,
+              COALESCE(sa_prim.full_name, sa_any.full_name) AS lecturer_name,
+              COALESCE(hca_prim.is_primary, hca_any.is_primary, TRUE) AS is_primary,
+              COALESCE(hca_prim.updated_at, hca_any.updated_at) AS updated_at,
+              COALESCE(
+                (
+                  SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'allocation_id', a.id,
+                      'lecturer_id', s.advisor_id,
+                      'lecturer_name', s.full_name,
+                      'is_primary', COALESCE(a.is_primary, FALSE),
+                      'role', s.role
+                    ) ORDER BY a.is_primary DESC, a.created_at ASC
+                  )
+                  FROM hod_course_allocations a
+                  JOIN staff_advisors s ON s.advisor_id = a.lecturer_id
+                  WHERE a.course_id = c.course_id AND a.semester_id = $2
+                ),
+                '[]'::jsonb
+              ) AS lecturers
        FROM courses c
-       LEFT JOIN hod_course_allocations hca
-         ON hca.course_id = c.course_id
-        AND hca.semester_id = $2
-       LEFT JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+       LEFT JOIN hod_course_allocations hca_prim
+         ON hca_prim.course_id = c.course_id
+        AND hca_prim.semester_id = $2
+        AND hca_prim.is_primary = TRUE
+       LEFT JOIN staff_advisors sa_prim ON sa_prim.advisor_id = hca_prim.lecturer_id
+       LEFT JOIN LATERAL (
+         SELECT a.id, a.lecturer_id, a.is_primary, a.updated_at
+         FROM hod_course_allocations a
+         WHERE a.course_id = c.course_id AND a.semester_id = $2
+         ORDER BY a.is_primary DESC, a.created_at ASC
+         LIMIT 1
+       ) hca_any ON hca_prim.id IS NULL
+       LEFT JOIN staff_advisors sa_any ON sa_any.advisor_id = hca_any.lecturer_id
        WHERE c.department_id = $1 AND c.is_active = TRUE
        ORDER BY c.code`,
       [req.hodScope.department_id, semesterId]
@@ -85,11 +114,12 @@ router.get('/allocations', async (req, res, next) => {
 });
 
 router.post('/allocations', async (req, res, next) => {
-  const { courseId, semesterId, lecturerId } = req.body || {};
+  const { courseId, semesterId, lecturerId, isPrimary = true } = req.body || {};
   if (!courseId || !semesterId || !lecturerId) {
     return res.status(422).json({ error: 'courseId, semesterId and lecturerId are required', code: 'VALIDATION_ERROR' });
   }
   try {
+    const markAsPrimary = Boolean(isPrimary);
     const result = await db.transaction(async (client) => {
       const course = await client.query(
         `SELECT course_id FROM courses WHERE course_id = $1 AND department_id = $2`,
@@ -106,27 +136,78 @@ router.post('/allocations', async (req, res, next) => {
       if (lecturer.rowCount === 0) {
         const e = new Error('Lecturer not verified in your department'); e.status = 422; throw e;
       }
+
+      // If assigning as Primary Lecturer (Course Coordinator), demote any existing primary lecturer for this course/semester
+      if (markAsPrimary) {
+        await client.query(
+          `UPDATE hod_course_allocations 
+           SET is_primary = FALSE, updated_at = NOW() 
+           WHERE course_id = $1 AND semester_id = $2 AND is_primary = TRUE AND lecturer_id != $3`,
+          [courseId, semesterId, lecturerId]
+        );
+      }
+
       const { rows } = await client.query(
-        `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, allocated_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (course_id, semester_id)
-         DO UPDATE SET lecturer_id = EXCLUDED.lecturer_id,
+        `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (course_id, semester_id, lecturer_id)
+         DO UPDATE SET is_primary = EXCLUDED.is_primary,
                        allocated_by = EXCLUDED.allocated_by,
                        updated_at = NOW()
          RETURNING *`,
-        [courseId, semesterId, lecturerId, req.hodScope.advisor_id]
+        [courseId, semesterId, lecturerId, markAsPrimary, req.hodScope.advisor_id]
       );
+
       await recordIdentityAuditLog(client, {
         eventType: 'HOD_COURSE_ALLOCATED',
         actorId: req.user.id,
         actorRole: 'HOD',
         targetId: courseId,
         targetType: 'COURSE_ALLOCATION',
-        metadata: { semesterId, lecturerId },
+        metadata: { semesterId, lecturerId, isPrimary: markAsPrimary },
       });
       return rows[0];
     });
     res.status(201).json(result);
+  } catch (err) { next(err); }
+});
+
+router.delete('/allocations/:allocationId', async (req, res, next) => {
+  const { allocationId } = req.params;
+  if (!allocationId) {
+    return res.status(400).json({ error: 'allocationId is required', code: 'MISSING_ID' });
+  }
+  try {
+    const result = await db.transaction(async (client) => {
+      const checkRes = await client.query(
+        `SELECT hca.id, hca.course_id, hca.semester_id, hca.lecturer_id, hca.is_primary, c.department_id
+         FROM hod_course_allocations hca
+         JOIN courses c ON c.course_id = hca.course_id
+         WHERE hca.id = $1`,
+        [allocationId]
+      );
+      if (checkRes.rowCount === 0) {
+        const e = new Error('Course allocation not found'); e.status = 404; throw e;
+      }
+      const alloc = checkRes.rows[0];
+      if (alloc.department_id !== req.hodScope.department_id && !req.user.isSystemAdmin) {
+        const e = new Error('Forbidden: Course not in your department'); e.status = 403; throw e;
+      }
+
+      await client.query(`DELETE FROM hod_course_allocations WHERE id = $1`, [allocationId]);
+
+      await recordIdentityAuditLog(client, {
+        eventType: 'HOD_COURSE_DEALLOCATED',
+        actorId: req.user.id,
+        actorRole: 'HOD',
+        targetId: alloc.course_id,
+        targetType: 'COURSE_ALLOCATION',
+        metadata: { semesterId: alloc.semester_id, lecturerId: alloc.lecturer_id, wasPrimary: alloc.is_primary },
+      });
+
+      return { success: true, deletedAllocationId: allocationId };
+    });
+    res.json(result);
   } catch (err) { next(err); }
 });
 
