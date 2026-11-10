@@ -134,14 +134,22 @@ export async function getDashboardOverview(req, res, next) {
     };
     try {
       const moodleStart = Date.now();
-      const response = await fetch(`${config.moodle.baseUrl}/health`, {
-        signal: AbortSignal.timeout(3000),
+      // Standard Moodle has no /health route; probe web service or base URL
+      const probeUrl = `${config.moodle.baseUrl}/webservice/rest/server.php`;
+      let response = await fetch(probeUrl, {
+        signal: AbortSignal.timeout(4000),
       }).catch(() => null);
+
+      if (!response || (!response.ok && ![200, 301, 302, 303].includes(response.status))) {
+        response = await fetch(config.moodle.baseUrl, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+      }
 
       moodleHealth.latencyMs = Date.now() - moodleStart;
       if (!response) {
         moodleHealth.status = 'DOWN';
-      } else if (response.ok) {
+      } else if (response.ok || [200, 301, 302, 303].includes(response.status)) {
         moodleHealth.status = 'UP';
       } else {
         moodleHealth.status = 'DEGRADED';
@@ -372,17 +380,43 @@ export async function createUser(req, res, next) {
     }
 
     const normalizedRole = String(role).toUpperCase();
-    const candidateLevel = parseInt(level || assignedLevel, 10) || 100;
     const resolvedDeptId = resolveDepartmentId(departmentId);
     const resolvedProgId = `BSC_${resolvedDeptId}`;
 
-    // Strict Role Allowlist Validation
-    const ALLOWED_ROLES = ['STUDENT', 'LEVEL_ADVISOR', 'HOD', 'DEAN', 'ADMIN', 'SYSTEM_ADMIN'];
+    // Strict Role Allowlist Validation (Dean role excluded per LMS scope)
+    const ALLOWED_ROLES = ['STUDENT', 'LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'];
     if (!ALLOWED_ROLES.includes(normalizedRole)) {
       return res.status(400).json({
         error: `Invalid role: ${role}. Permitted roles: ${ALLOWED_ROLES.join(', ')}`,
         code: 'INVALID_ROLE',
       });
+    }
+
+    // Validate the matric number before acquiring a database connection or starting transaction (BEGIN)
+    if (normalizedRole === 'STUDENT') {
+      const trimmedMatric = String(identifier).trim();
+      if (!/^[0-9]{4}\/[0-9]{5}$/.test(trimmedMatric)) {
+        return res.status(400).json({
+          error: 'Invalid student matriculation number. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162).',
+          code: 'INVALID_MATRIC_FORMAT',
+        });
+      }
+    }
+
+    // Validate level before it reaches the database check
+    const VALID_LEVELS = [100, 200, 300, 400];
+    const rawLevel = level !== undefined && level !== null && level !== '' ? level : assignedLevel;
+    let candidateLevel = 100;
+
+    if (rawLevel !== undefined && rawLevel !== null && rawLevel !== '') {
+      const parsed = parseInt(rawLevel, 10);
+      if (!VALID_LEVELS.includes(parsed)) {
+        return res.status(400).json({
+          error: 'Invalid academic level: level must be 100, 200, 300, or 400',
+          code: 'INVALID_LEVEL',
+        });
+      }
+      candidateLevel = parsed;
     }
 
     // Restrict provisioning SYSTEM_ADMIN accounts strictly to existing SYSTEM_ADMIN callers
@@ -416,9 +450,11 @@ export async function createUser(req, res, next) {
     inTransaction = true;
 
     let createdId;
+    let storedLevel = null;
     if (normalizedRole === 'STUDENT') {
       const studentId = `student_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
       createdId = studentId;
+      storedLevel = candidateLevel;
 
       await client.query(
         `
@@ -462,6 +498,10 @@ export async function createUser(req, res, next) {
     } else {
       const advisorId = `staff_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
       createdId = advisorId;
+      const staffLevel = normalizedRole === 'LEVEL_ADVISOR' && (rawLevel !== undefined && rawLevel !== null && rawLevel !== '')
+        ? candidateLevel 
+        : null;
+      storedLevel = staffLevel;
 
       await client.query(
         `
@@ -470,7 +510,7 @@ export async function createUser(req, res, next) {
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, 'ACTIVE')
         `,
-        [advisorId, identifier, fullName, email, resolvedDeptId, candidateLevel, normalizedRole, passwordHash]
+        [advisorId, identifier, fullName, email, resolvedDeptId, staffLevel, normalizedRole, passwordHash]
       );
     }
 
@@ -507,7 +547,7 @@ export async function createUser(req, res, next) {
           email,
           role: normalizedRole,
           departmentId,
-          level: candidateLevel,
+          level: storedLevel,
           status: 'ACTIVE',
         },
       },
@@ -724,7 +764,7 @@ export async function updateUserRole(req, res, next) {
   }
 
   const normalizedRole = String(role).toUpperCase();
-  const VALID_STAFF_ROLES = ['LEVEL_ADVISOR', 'HOD', 'DEAN', 'SENATE_OFFICER', 'ADMIN', 'SYSTEM_ADMIN'];
+  const VALID_STAFF_ROLES = ['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'];
 
   if (!VALID_STAFF_ROLES.includes(normalizedRole)) {
     return res.status(400).json({
@@ -841,6 +881,261 @@ export async function updateUserRole(req, res, next) {
     });
   } catch (err) {
     logger.error({ err, id }, '[AdminController] Error updating user role');
+    return next(err);
+  }
+}
+
+/**
+ * 4b. PATCH /api/admin/users/:id
+ * Update academic staff position, department, and general user profile details.
+ */
+export async function updateUserDetails(req, res, next) {
+  const { id } = req.params;
+  const { role, departmentId, fullName, email, level } = req.body || {};
+
+  if (!id || typeof id !== 'string' || id.trim().length === 0) {
+    return res.status(400).json({
+      error: 'Missing or invalid user identifier',
+      code: 'INVALID_USER_ID',
+    });
+  }
+
+  // Validate level before it reaches the database check
+  if (level !== undefined && level !== null && level !== '') {
+    const parsedLevel = parseInt(level, 10);
+    if (![100, 200, 300, 400].includes(parsedLevel)) {
+      return res.status(400).json({
+        error: 'Invalid academic level: level must be 100, 200, 300, or 400',
+        code: 'INVALID_LEVEL',
+      });
+    }
+  }
+
+  const searchId = id.trim();
+
+  try {
+    // 1. Resolve user from staff_advisors or students
+    let userType = null;
+    let targetUser = null;
+
+    const staffRes = await pool.query(
+      `SELECT advisor_id, staff_number, full_name, email, department_id, assigned_level, role, account_status 
+       FROM staff_advisors 
+       WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+      [searchId]
+    );
+
+    if (staffRes.rowCount > 0) {
+      userType = 'STAFF';
+      targetUser = staffRes.rows[0];
+    } else {
+      const studentRes = await pool.query(
+        `SELECT student_id, matric_number, full_name, email, programme_id, level, account_status 
+         FROM students 
+         WHERE student_id = $1 OR matric_number = $1 OR username = $1 OR email = $1`,
+        [searchId]
+      );
+      if (studentRes.rowCount > 0) {
+        userType = 'STUDENT';
+        targetUser = studentRes.rows[0];
+      }
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({
+        error: 'User not found in directory',
+        code: 'USER_NOT_FOUND',
+      });
+    }
+
+    if (userType === 'STAFF') {
+      const newRole = role ? String(role).toUpperCase().trim() : targetUser.role;
+      const VALID_STAFF_ROLES = ['LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN', 'SYSTEM_ADMIN'];
+      if (role && !VALID_STAFF_ROLES.includes(newRole)) {
+        return res.status(400).json({
+          error: `Invalid role: ${role}. Permitted staff roles: ${VALID_STAFF_ROLES.join(', ')}`,
+          code: 'INVALID_ROLE',
+        });
+      }
+
+      // Self-demotion guard
+      const isSelf = req.user && (
+        req.user.id === targetUser.advisor_id ||
+        req.user.username === targetUser.advisor_id ||
+        req.user.username === targetUser.staff_number ||
+        req.user.email === targetUser.email
+      );
+
+      if (isSelf && role && newRole !== 'ADMIN' && newRole !== 'SYSTEM_ADMIN') {
+        return res.status(400).json({
+          error: 'Administrators cannot remove their own administrative privileges',
+          code: 'CANNOT_DEMOTE_SELF',
+        });
+      }
+
+      // Prevent demoting the last active SYSTEM_ADMIN
+      if (targetUser.role === 'SYSTEM_ADMIN' && newRole !== 'SYSTEM_ADMIN') {
+        const countRes = await pool.query(
+          "SELECT COUNT(*)::int AS count FROM staff_advisors WHERE role = 'SYSTEM_ADMIN' AND account_status = 'ACTIVE'"
+        );
+        const activeSysadminCount = countRes.rows[0]?.count || 0;
+        if (activeSysadminCount <= 1) {
+          return res.status(400).json({
+            error: 'Cannot demote the last active System Administrator.',
+            code: 'CANNOT_DEMOTE_LAST_SYSTEM_ADMIN',
+          });
+        }
+      }
+
+      // Privilege escalation barriers
+      if (newRole === 'SYSTEM_ADMIN' && req.user?.role !== 'SYSTEM_ADMIN') {
+        return res.status(403).json({
+          error: 'Only a System Administrator can grant SYSTEM_ADMIN privileges',
+          code: 'FORBIDDEN_ELEVATE_SYSTEM_ADMIN',
+        });
+      }
+      if (targetUser.role === 'SYSTEM_ADMIN' && req.user?.role !== 'SYSTEM_ADMIN') {
+        return res.status(403).json({
+          error: 'Only a System Administrator can alter an existing SYSTEM_ADMIN role',
+          code: 'FORBIDDEN_MODIFY_SYSTEM_ADMIN',
+        });
+      }
+
+      const updatedFullName = fullName && String(fullName).trim().length > 0 ? String(fullName).trim() : targetUser.full_name;
+      const updatedEmail = email && String(email).trim().length > 0 ? String(email).trim().toLowerCase() : targetUser.email;
+      const updatedDeptId = departmentId ? resolveDepartmentId(departmentId) : targetUser.department_id;
+      
+      // If role is LECTURER, HOD, or ADMIN, assigned_level is null; for LEVEL_ADVISOR it can be assigned
+      let updatedAssignedLevel = targetUser.assigned_level;
+      if (['LECTURER', 'HOD', 'ADMIN'].includes(newRole)) {
+        updatedAssignedLevel = null;
+      } else if (level !== undefined) {
+        updatedAssignedLevel = level ? parseInt(level, 10) : null;
+      }
+
+      const updateRes = await pool.query(
+        `UPDATE staff_advisors 
+         SET full_name = $1, email = $2, department_id = $3, role = $4, assigned_level = $5
+         WHERE advisor_id = $6
+         RETURNING advisor_id, staff_number, full_name, email, department_id, assigned_level, role, account_status`,
+        [updatedFullName, updatedEmail, updatedDeptId, newRole, updatedAssignedLevel, targetUser.advisor_id]
+      );
+
+      const updatedRecord = updateRes.rows[0];
+
+      // If role changed, revoke active sessions
+      let sessionPurged = false;
+      if (targetUser.role !== newRole) {
+        const purgeRes = await purgeUserSessions(targetUser.advisor_id);
+        sessionPurged = purgeRes.success;
+      }
+
+      // Audit ledger entry
+      await recordIdentityAuditLog(pool, {
+        eventType: 'ADMIN_USER_UPDATED',
+        actorId: req.user?.id || 'admin1',
+        actorRole: req.user?.role || 'ADMIN',
+        targetId: targetUser.advisor_id,
+        targetType: 'STAFF_ADVISOR',
+        ipAddress: req.ip,
+        metadata: {
+          previous: {
+            role: targetUser.role,
+            departmentId: targetUser.department_id,
+            fullName: targetUser.full_name,
+            email: targetUser.email,
+          },
+          updated: {
+            role: updatedRecord.role,
+            departmentId: updatedRecord.department_id,
+            fullName: updatedRecord.full_name,
+            email: updatedRecord.email,
+          },
+          sessionsRevoked: sessionPurged,
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: updatedRecord.advisor_id,
+          identifier: updatedRecord.staff_number,
+          fullName: updatedRecord.full_name,
+          email: updatedRecord.email,
+          role: updatedRecord.role,
+          departmentId: updatedRecord.department_id,
+          level: updatedRecord.assigned_level,
+          status: updatedRecord.account_status,
+          message: 'Academic staff details updated successfully.',
+        },
+      });
+    } else {
+      // Student details update
+      const updatedFullName = fullName && String(fullName).trim().length > 0 ? String(fullName).trim() : targetUser.full_name;
+      const updatedEmail = email && String(email).trim().length > 0 ? String(email).trim().toLowerCase() : targetUser.email;
+      let updatedProgrammeId = targetUser.programme_id;
+      if (departmentId) {
+        const resolvedDept = resolveDepartmentId(departmentId);
+        updatedProgrammeId = `BSC_${resolvedDept}`;
+      }
+      const updatedLevel = level ? parseInt(level, 10) : targetUser.level;
+
+      const updateRes = await pool.query(
+        `UPDATE students 
+         SET full_name = $1, email = $2, programme_id = $3, level = $4
+         WHERE student_id = $5
+         RETURNING student_id, matric_number, full_name, email, programme_id, level, account_status`,
+        [updatedFullName, updatedEmail, updatedProgrammeId, updatedLevel, targetUser.student_id]
+      );
+
+      const updatedRecord = updateRes.rows[0];
+
+      await recordIdentityAuditLog(pool, {
+        eventType: 'ADMIN_USER_UPDATED',
+        actorId: req.user?.id || 'admin1',
+        actorRole: req.user?.role || 'ADMIN',
+        targetId: targetUser.student_id,
+        targetType: 'STUDENT',
+        ipAddress: req.ip,
+        metadata: {
+          previous: {
+            fullName: targetUser.full_name,
+            email: targetUser.email,
+            programmeId: targetUser.programme_id,
+            level: targetUser.level,
+          },
+          updated: {
+            fullName: updatedRecord.full_name,
+            email: updatedRecord.email,
+            programmeId: updatedRecord.programme_id,
+            level: updatedRecord.level,
+          },
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: updatedRecord.student_id,
+          identifier: updatedRecord.matric_number,
+          fullName: updatedRecord.full_name,
+          email: updatedRecord.email,
+          role: 'STUDENT',
+          departmentId: updatedRecord.programme_id ? updatedRecord.programme_id.replace(/^BSC_/, '') : 'CSC',
+          level: updatedRecord.level,
+          status: updatedRecord.account_status,
+          message: 'Student details updated successfully.',
+        },
+      });
+    }
+  } catch (err) {
+    logger.error({ err, id }, '[AdminController] Error updating user details');
+    if (err.code === '23505') {
+      return res.status(409).json({
+        error: 'A user with this email address already exists.',
+        code: 'USER_ALREADY_EXISTS',
+      });
+    }
     return next(err);
   }
 }
@@ -967,12 +1262,22 @@ export async function getMoodleHealth(req, res, next) {
     let statusCode = null;
 
     try {
-      const response = await fetch(`${config.moodle.baseUrl}/health`, {
+      const probeUrl = `${config.moodle.baseUrl}/webservice/rest/server.php`;
+      let response = await fetch(probeUrl, {
         signal: AbortSignal.timeout(4000),
-      });
+      }).catch(() => null);
+
+      if (!response || (!response.ok && ![200, 301, 302, 303].includes(response.status))) {
+        response = await fetch(config.moodle.baseUrl, {
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => null);
+      }
+
       latencyMs = Date.now() - start;
-      statusCode = response.status;
-      status = response.ok ? 'HEALTHY' : 'UNHEALTHY';
+      statusCode = response?.status || null;
+      status = (response && (response.ok || [200, 301, 302, 303].includes(response.status)))
+        ? 'HEALTHY'
+        : (response ? 'DEGRADED' : 'UNREACHABLE');
     } catch (fetchErr) {
       status = 'UNREACHABLE';
       latencyMs = Date.now() - start;

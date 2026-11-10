@@ -16,6 +16,10 @@ const DEPARTMENTS = [
  * Standard: The 8-8-8 Architectural Doctrine (<180 lines)
  */
 export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, isSubmitting, error }) {
+  const isStudent = formData.role === 'STUDENT';
+  const isAdvisor = formData.role === 'LEVEL_ADVISOR';
+  const showLevelSelector = isStudent || isAdvisor;
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3.5">
       <div>
@@ -45,10 +49,12 @@ export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, is
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label htmlFor="identifier" className="block text-xs font-bold text-gray-700 mb-1">Matric / Staff Number</label>
+          <label htmlFor="identifier" className="block text-xs font-bold text-gray-700 mb-1">
+            {isStudent ? 'Matric Number' : 'Staff Number'}
+          </label>
           <input
             id="identifier" name="identifier" type="text" required value={formData.identifier} onChange={onChange}
-            placeholder="e.g. FOCIT/2026/0421"
+            placeholder={isStudent ? 'e.g. 2023/47162' : 'e.g. FOCIT/2026/0421'}
             className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142]"
           />
         </div>
@@ -61,6 +67,7 @@ export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, is
             <option value="STUDENT">Student</option>
             <option value="LECTURER">Lecturer</option>
             <option value="LEVEL_ADVISOR">Level Advisor</option>
+            <option value="HOD">Head of Department (HOD)</option>
             <option value="ADMIN">Faculty Administrator</option>
           </select>
         </div>
@@ -87,7 +94,35 @@ export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, is
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {showLevelSelector ? (
+        <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="departmentId" className="block text-xs font-bold text-gray-700 mb-1">Department</label>
+              <select
+                id="departmentId" name="departmentId" value={formData.departmentId} onChange={onChange}
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
+              >
+                {DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="assignedLevel" className="block text-xs font-bold text-gray-700 mb-1">
+                {isStudent ? 'Level' : 'Assigned Level'}
+              </label>
+              <select
+                id="assignedLevel" name="assignedLevel" value={formData.assignedLevel} onChange={onChange}
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
+              >
+                {[100, 200, 300, 400].map((lvl) => <option key={lvl} value={lvl}>{lvl} Level</option>)}
+              </select>
+            </div>
+          </div>
+          {isAdvisor && (
+            <p className="text-[11px] text-blue-700 mt-1 font-medium">Designated level advisor for reviewing and approving student course registrations at this level.</p>
+          )}
+        </div>
+      ) : (
         <div>
           <label htmlFor="departmentId" className="block text-xs font-bold text-gray-700 mb-1">Department</label>
           <select
@@ -96,17 +131,14 @@ export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, is
           >
             {DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
+          {formData.role === 'HOD' && (
+            <p className="text-[11px] text-blue-700 mt-1 font-medium">Designated as Head of Department for academic governance and course allocations.</p>
+          )}
+          {formData.role === 'LECTURER' && (
+            <p className="text-[11px] text-gray-500 mt-1">Academic staff can teach and manage course rosters across any student level.</p>
+          )}
         </div>
-        <div>
-          <label htmlFor="assignedLevel" className="block text-xs font-bold text-gray-700 mb-1">Level</label>
-          <select
-            id="assignedLevel" name="assignedLevel" value={formData.assignedLevel} onChange={onChange}
-            className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
-          >
-            {[100, 200, 300, 400].map((lvl) => <option key={lvl} value={lvl}>{lvl} Level</option>)}
-          </select>
-        </div>
-      </div>
+      )}
 
       <div className="mt-2 pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
         <button type="button" onClick={onClose} disabled={isSubmitting} className="px-4 py-2 text-xs font-bold text-gray-600 hover:text-gray-900 transition-colors">
