@@ -380,7 +380,6 @@ export async function createUser(req, res, next) {
     }
 
     const normalizedRole = String(role).toUpperCase();
-    const candidateLevel = parseInt(level || assignedLevel, 10) || 100;
     const resolvedDeptId = resolveDepartmentId(departmentId);
     const resolvedProgId = `BSC_${resolvedDeptId}`;
 
@@ -391,6 +390,33 @@ export async function createUser(req, res, next) {
         error: `Invalid role: ${role}. Permitted roles: ${ALLOWED_ROLES.join(', ')}`,
         code: 'INVALID_ROLE',
       });
+    }
+
+    // Validate the matric number before acquiring a database connection or starting transaction (BEGIN)
+    if (normalizedRole === 'STUDENT') {
+      const trimmedMatric = String(identifier).trim();
+      if (!/^[0-9]{4}\/[0-9]{5}$/.test(trimmedMatric)) {
+        return res.status(400).json({
+          error: 'Invalid student matriculation number. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162).',
+          code: 'INVALID_MATRIC_FORMAT',
+        });
+      }
+    }
+
+    // Validate level before it reaches the database check
+    const VALID_LEVELS = [100, 200, 300, 400];
+    const rawLevel = level !== undefined && level !== null && level !== '' ? level : assignedLevel;
+    let candidateLevel = 100;
+
+    if (rawLevel !== undefined && rawLevel !== null && rawLevel !== '') {
+      const parsed = parseInt(rawLevel, 10);
+      if (!VALID_LEVELS.includes(parsed)) {
+        return res.status(400).json({
+          error: 'Invalid academic level: level must be 100, 200, 300, or 400',
+          code: 'INVALID_LEVEL',
+        });
+      }
+      candidateLevel = parsed;
     }
 
     // Restrict provisioning SYSTEM_ADMIN accounts strictly to existing SYSTEM_ADMIN callers
@@ -422,17 +448,6 @@ export async function createUser(req, res, next) {
     client = await pool.connect();
     await client.query('BEGIN');
     inTransaction = true;
-
-    // Enforce UNIOSUN 5-digit matriculation format on student provisioning
-    if (normalizedRole === 'STUDENT') {
-      const trimmedMatric = String(identifier).trim();
-      if (!/^[0-9]{4}\/[0-9]{5}$/.test(trimmedMatric)) {
-        return res.status(400).json({
-          error: 'Invalid student matriculation number. UNIOSUN matric numbers require 5 digits after the year (e.g. 2023/47162).',
-          code: 'INVALID_MATRIC_FORMAT',
-        });
-      }
-    }
 
     let createdId;
     if (normalizedRole === 'STUDENT') {
@@ -481,8 +496,8 @@ export async function createUser(req, res, next) {
     } else {
       const advisorId = `staff_${identifier.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
       createdId = advisorId;
-      const staffLevel = normalizedRole === 'LEVEL_ADVISOR' && (level || assignedLevel) 
-        ? parseInt(level || assignedLevel, 10) 
+      const staffLevel = normalizedRole === 'LEVEL_ADVISOR' && (rawLevel !== undefined && rawLevel !== null && rawLevel !== '')
+        ? candidateLevel 
         : null;
 
       await client.query(
@@ -880,6 +895,17 @@ export async function updateUserDetails(req, res, next) {
       error: 'Missing or invalid user identifier',
       code: 'INVALID_USER_ID',
     });
+  }
+
+  // Validate level before it reaches the database check
+  if (level !== undefined && level !== null && level !== '') {
+    const parsedLevel = parseInt(level, 10);
+    if (![100, 200, 300, 400].includes(parsedLevel)) {
+      return res.status(400).json({
+        error: 'Invalid academic level: level must be 100, 200, 300, or 400',
+        code: 'INVALID_LEVEL',
+      });
+    }
   }
 
   const searchId = id.trim();

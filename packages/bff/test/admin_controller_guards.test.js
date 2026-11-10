@@ -15,6 +15,7 @@ import {
   getDashboardOverview,
   getOutboxEvents,
   retryOutboxEvent,
+  updateUserDetails,
 } from '../src/controllers/adminController.js';
 import { hashPassword } from '../src/lib/passwords.js';
 import authRouter from '../src/routes/auth.js';
@@ -381,5 +382,66 @@ describe('Admin Controller Governance & Security Guards', () => {
 
     assert.strictEqual(res.statusCode, 400);
     assert.strictEqual(res.body.code, 'INVALID_IDENTIFIER_FORMAT');
+  });
+  // 13. Round 21: Rejects invalid student matriculation number before BEGIN
+  test('Round 21: Rejects invalid student matriculation format before BEGIN', async () => {
+    const req = {
+      body: {
+        identifier: 'INVALID_MATRIC_FORMAT',
+        fullName: 'Test Student',
+        email: 'invalid_student@focit.uniosun.edu.ng',
+        role: 'STUDENT',
+        departmentId: 'CSC',
+        level: 100,
+      },
+      user: { id: 'admin1', role: 'ADMIN' },
+      ip: '127.0.0.1',
+    };
+    const res = mockRes();
+
+    await createUser(req, res, () => {});
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.code, 'INVALID_MATRIC_FORMAT');
+  });
+
+  // 14. Round 21: Rejects invalid academic level before reaching database check
+  test('Round 21: Rejects invalid academic level before database check in createUser', async () => {
+    const req = {
+      body: {
+        identifier: '2023/12345',
+        fullName: 'Invalid Level Student',
+        email: 'invalid_level@focit.uniosun.edu.ng',
+        role: 'STUDENT',
+        departmentId: 'CSC',
+        level: 999, // Invalid level
+      },
+      user: { id: 'admin1', role: 'ADMIN' },
+      ip: '127.0.0.1',
+    };
+    const res = mockRes();
+
+    await createUser(req, res, () => {});
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.code, 'INVALID_LEVEL');
+  });
+
+  // 15. Round 21: Rejects invalid level in updateUserDetails before reaching database check
+  test('Round 21: Rejects invalid academic level in updateUserDetails', async () => {
+    const req = {
+      params: { id: 'student1' },
+      body: {
+        level: 800, // Invalid level
+      },
+      user: { id: 'admin1', role: 'ADMIN' },
+      ip: '127.0.0.1',
+    };
+    const res = mockRes();
+
+    await updateUserDetails(req, res, () => {});
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.code, 'INVALID_LEVEL');
   });
 });

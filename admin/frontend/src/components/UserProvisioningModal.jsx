@@ -43,10 +43,12 @@ export function UserProvisioningModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const hasLevel = formData.role === 'STUDENT' || formData.role === 'LEVEL_ADVISOR';
+    const parsedLevel = parseInt(formData.level || formData.assignedLevel, 10) || 100;
     const payload = {
       ...formData,
-      ...(formData.role === 'STUDENT'
-        ? { level: parseInt(formData.level || formData.assignedLevel, 10) || 100 }
+      ...(hasLevel
+        ? { level: parsedLevel, assignedLevel: parsedLevel }
         : { level: null, assignedLevel: null }),
     };
     onSubmit(payload);

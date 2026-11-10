@@ -60,7 +60,7 @@ export function EditUserModal({ isOpen, user, onClose, onSave, isSubmitting = fa
         email: formData.email,
         role: formData.role,
         departmentId: formData.departmentId,
-        level: isStudent ? formData.level : null,
+        level: (isStudent || formData.role === 'LEVEL_ADVISOR') ? (parseInt(formData.level, 10) || 100) : null,
       },
     });
   };
@@ -160,11 +160,13 @@ export function EditUserModal({ isOpen, user, onClose, onSave, isSubmitting = fa
             </div>
           </div>
 
-          {isStudent && (
+          {(isStudent || formData.role === 'LEVEL_ADVISOR') && (
             <div>
-              <label htmlFor="edit-level" className="block text-xs font-bold text-gray-700 mb-1">Student Level</label>
+              <label htmlFor="edit-level" className="block text-xs font-bold text-gray-700 mb-1">
+                {isStudent ? 'Student Level' : 'Assigned Level'}
+              </label>
               <select
-                id="edit-level" name="level" value={formData.level} onChange={handleChange}
+                id="edit-level" name="level" value={formData.level || 100} onChange={handleChange}
                 className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white font-medium"
               >
                 {[100, 200, 300, 400].map((lvl) => <option key={lvl} value={lvl}>{lvl} Level</option>)}

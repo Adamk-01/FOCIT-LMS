@@ -15,7 +15,7 @@ export function AdminUsersPage() {
     users, isUsersLoading, userSearch, setUserSearch, userRoleFilter, setUserRoleFilter,
     toggleUserStatus, isTogglingStatus, statusError, isProvisionModalOpen, openProvisionModal,
     closeProvisionModal, provisionUser, isProvisioning, provisionError, provisionResult,
-    resetUserPassword, isResettingPassword, updateUser, isUpdatingUser, updateUserError,
+    resetUserPassword, isResettingPassword, updateUser, isUpdatingUser, updateUserError, resetUpdateUser,
   } = useAdminDashboard();
 
   const [userToSuspend, setUserToSuspend] = useState(null);
@@ -122,7 +122,7 @@ export function AdminUsersPage() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5">
                           <button
-                            type="button" onClick={() => setUserToEdit(u)}
+                            type="button" onClick={() => { resetUpdateUser?.(); setUserToEdit(u); }}
                             title="Edit User Role / Position"
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
                           >
@@ -176,10 +176,18 @@ export function AdminUsersPage() {
       <EditUserModal
         isOpen={Boolean(userToEdit)}
         user={userToEdit}
-        onClose={() => setUserToEdit(null)}
-        onSave={async ({ userId, updates }) => {
-          await updateUser(userId, updates);
+        onClose={() => {
+          resetUpdateUser?.();
           setUserToEdit(null);
+        }}
+        onSave={async ({ userId, updates }) => {
+          try {
+            await updateUser(userId, updates);
+            resetUpdateUser?.();
+            setUserToEdit(null);
+          } catch (_err) {
+            // Error is captured in updateUserError and surfaced within EditUserModal UI
+          }
         }}
         isSubmitting={isUpdatingUser}
         error={updateUserError}

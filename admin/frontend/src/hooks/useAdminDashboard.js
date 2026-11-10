@@ -315,6 +315,7 @@ export function useAdminDashboard() {
     updateUser: (userId, updates) => updateUserMutation.mutateAsync({ userId, updates }),
     isUpdatingUser: updateUserMutation.isPending,
     updateUserError: updateUserMutation.error,
+    resetUpdateUser: updateUserMutation.reset,
 
     // Manual Refresh
     refetchAll: () => {

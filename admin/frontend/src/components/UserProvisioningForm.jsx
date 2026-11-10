@@ -17,6 +17,8 @@ const DEPARTMENTS = [
  */
 export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, isSubmitting, error }) {
   const isStudent = formData.role === 'STUDENT';
+  const isAdvisor = formData.role === 'LEVEL_ADVISOR';
+  const showLevelSelector = isStudent || isAdvisor;
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3.5">
@@ -92,26 +94,33 @@ export function UserProvisioningForm({ formData, onChange, onSubmit, onClose, is
         </div>
       </div>
 
-      {isStudent ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="departmentId" className="block text-xs font-bold text-gray-700 mb-1">Department</label>
-            <select
-              id="departmentId" name="departmentId" value={formData.departmentId} onChange={onChange}
-              className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
-            >
-              {DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-            </select>
+      {showLevelSelector ? (
+        <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="departmentId" className="block text-xs font-bold text-gray-700 mb-1">Department</label>
+              <select
+                id="departmentId" name="departmentId" value={formData.departmentId} onChange={onChange}
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
+              >
+                {DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="assignedLevel" className="block text-xs font-bold text-gray-700 mb-1">
+                {isStudent ? 'Level' : 'Assigned Level'}
+              </label>
+              <select
+                id="assignedLevel" name="assignedLevel" value={formData.assignedLevel} onChange={onChange}
+                className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
+              >
+                {[100, 200, 300, 400].map((lvl) => <option key={lvl} value={lvl}>{lvl} Level</option>)}
+              </select>
+            </div>
           </div>
-          <div>
-            <label htmlFor="assignedLevel" className="block text-xs font-bold text-gray-700 mb-1">Level</label>
-            <select
-              id="assignedLevel" name="assignedLevel" value={formData.assignedLevel} onChange={onChange}
-              className="w-full px-3.5 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142] bg-white"
-            >
-              {[100, 200, 300, 400].map((lvl) => <option key={lvl} value={lvl}>{lvl} Level</option>)}
-            </select>
-          </div>
+          {isAdvisor && (
+            <p className="text-[11px] text-blue-700 mt-1 font-medium">Designated level advisor for reviewing and approving student course registrations at this level.</p>
+          )}
         </div>
       ) : (
         <div>
