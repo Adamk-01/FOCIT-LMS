@@ -256,13 +256,105 @@ router.post('/courses/:courseId/upload-sheet-image', async (req, res, next) => {
   }
 });
 
+// ─── 0B. Mode 4 Presigned Object Storage Ticket Issuance (Zero-Heap Upload) ──
+router.post('/courses/:courseId/upload-ticket', async (req, res, next) => {
+  const { courseId } = req.params;
+  const week_number = req.body?.week_number ?? req.body?.weekNumber;
+  const rawSubSession = req.body?.sub_session ?? req.body?.subSession ?? 1;
+  const sub_session = Math.max(1, Math.min(6, parseInt(rawSubSession, 10) || 1));
+  const fileName = req.body?.fileName || req.body?.filename || 'sheet.jpg';
+  const mimeType = req.body?.mimeType || 'image/jpeg';
+  const actorId = req.attendanceActor?.userId;
+
+  if (!week_number || week_number < 1 || week_number > 15) {
+    return res.status(400).json({ error: 'Valid week_number (1-15) is required', code: 'INVALID_WEEK' });
+  }
+
+  try {
+    const termRes = await pool.query(
+      `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+    );
+    const semesterId = termRes.rows[0]?.id || '2026_RAIN';
+
+    const access = await verifyAttendanceAccess(req.attendanceActor, courseId, semesterId);
+    if (!access || !['LECTURER', 'HOD', 'ADMIN', 'COURSE_REP'].includes(access.role)) {
+      return res.status(403).json({ error: 'Permission denied: Unauthorized for this course', code: 'FORBIDDEN' });
+    }
+
+    const safeCourse = courseId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const randomHex = crypto.randomBytes(6).toString('hex');
+    const objectKey = `sheets/${semesterId}/${safeCourse}/w${week_number}_s${sub_session}_${Date.now()}_${randomHex}.jpg`;
+
+    // Direct Presigned Upload Capability Token (HMAC Signed)
+    const hmacSecret = process.env.UPLOAD_TICKET_SECRET || config.jwt?.secret || 'focit_upload_ticket_hmac_2026';
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const signature = crypto
+      .createHmac('sha256', hmacSecret)
+      .update(`${objectKey}:${expiresAt}:${actorId}`)
+      .digest('hex');
+
+    return res.status(200).json({
+      status: 'TICKET_ISSUED',
+      objectKey,
+      uploadUrl: `/api/attendance/storage/upload?key=${encodeURIComponent(objectKey)}&expires=${encodeURIComponent(expiresAt)}&sig=${signature}`,
+      expiresAt,
+      prefix: `sheets/${semesterId}/${safeCourse}/w${week_number}_s${sub_session}_`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── 0C. Mode 4 Presigned Object Storage Stream Receiver (Zero-Heap Ingress) ──
+router.put('/storage/upload', async (req, res, next) => {
+  const objectKey = req.query?.key;
+  const expiresAt = req.query?.expires;
+  const sig = req.query?.sig;
+  const actorId = req.attendanceActor?.userId;
+
+  if (!objectKey || !expiresAt || !sig) {
+    return res.status(400).json({ error: 'Missing required storage capability parameters', code: 'INVALID_CAPABILITY' });
+  }
+
+  if (new Date(expiresAt).getTime() < Date.now()) {
+    return res.status(401).json({ error: 'Upload capability ticket has expired', code: 'TICKET_EXPIRED' });
+  }
+
+  const hmacSecret = process.env.UPLOAD_TICKET_SECRET || config.jwt?.secret || 'focit_upload_ticket_hmac_2026';
+  const expectedSignature = crypto
+    .createHmac('sha256', hmacSecret)
+    .update(`${objectKey}:${expiresAt}:${actorId}`)
+    .digest('hex');
+
+  if (sig !== expectedSignature) {
+    return res.status(403).json({ error: 'Tampered or invalid capability signature', code: 'INVALID_SIGNATURE' });
+  }
+
+  const sanitizedFilename = objectKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const targetPath = path.join(SHEETS_DIR, sanitizedFilename);
+  const writeStream = createWriteStream(targetPath);
+
+  try {
+    await streamPipeline(req, writeStream);
+    return res.status(200).json({
+      status: 'UPLOAD_SUCCESS',
+      objectKey,
+    });
+  } catch (err) {
+    await fs.unlink(targetPath).catch(() => {});
+    next(err);
+  }
+});
+
 // ─── 1. Upload Scanned Attendance Sheet (Mode 4 Workflow) ────────────────────
 router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) => {
   const { courseId } = req.params;
   const week_number = req.body?.week_number ?? req.body?.weekNumber;
+  const rawSubSession = req.body?.sub_session ?? req.body?.subSession ?? 1;
+  const sub_session = Math.max(1, Math.min(6, parseInt(rawSubSession, 10) || 1));
   const session_date = req.body?.session_date ?? req.body?.sessionDate;
-  const sheet_image_urls = req.body?.sheet_image_urls ?? req.body?.sheetImageUrls ?? [];
-  const extracted_matric_numbers = req.body?.extracted_matric_numbers ?? req.body?.extractedMatricNumbers ?? [];
+  const rawUrls = req.body?.sheet_image_urls ?? req.body?.sheetImageUrls ?? [];
+  const sheet_image_urls = Array.isArray(rawUrls) ? rawUrls : [rawUrls].filter(Boolean);
   const raw_extracted_text = req.body?.raw_extracted_text ?? req.body?.rawExtractedText ?? '';
   const notesProvided = req.body && ('notes' in req.body);
   const rawNotes = req.body?.notes;
@@ -296,17 +388,48 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       });
     }
 
+    // Refinement 3: Strict Prefix Enforcement & Cross-Session Replay Prevention
+    const safeCourse = courseId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const expectedPrefix = `sheets/${semesterId}/${safeCourse}/w${week_number}_s${sub_session}_`;
+
+    for (const key of sheet_image_urls) {
+      if (typeof key === 'string' && key.startsWith('sheets/')) {
+        if (!key.startsWith(expectedPrefix)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `Invalid objectKey "${key}": Path prefix must match session slot "${expectedPrefix}".`,
+            code: 'OBJECT_KEY_CROSS_SESSION_MISMATCH',
+          });
+        }
+        // Verify key has not already been used in another session
+        const replayCheck = await client.query(`
+          SELECT session_id, week_number, sub_session FROM attendance_sessions
+          WHERE course_id = $1 AND semester_id = $2
+            AND (week_number != $3 OR sub_session != $4)
+            AND sheet_image_urls::text LIKE '%' || $5 || '%'
+          LIMIT 1;
+        `, [courseId, semesterId, week_number, sub_session, key]);
+        if (replayCheck.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: `Object key "${key}" has already been bound to Week ${replayCheck.rows[0].week_number} (session ${replayCheck.rows[0].sub_session}). Cross-session replay is prohibited.`,
+            code: 'OBJECT_KEY_REPLAY_DETECTED',
+          });
+        }
+      }
+    }
+
     // 2.1 Enforce Session Lock Guard: Reject sheet uploads if session is already finalized and locked
     const existingSession = await client.query(
-      `SELECT session_id, is_locked, session_mode, created_by FROM attendance_sessions 
-       WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 
+      `SELECT session_id, is_locked, session_mode, created_by, sheet_image_urls FROM attendance_sessions 
+       WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 AND sub_session = $4
        LIMIT 1 FOR UPDATE`,
-      [courseId, semesterId, week_number]
+      [courseId, semesterId, week_number, sub_session]
     );
     if (existingSession.rows[0]?.is_locked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
+        error: `Attendance session for week ${week_number} (session ${sub_session}) has already been approved and locked. Modifications are prohibited.`,
         code: 'SESSION_LOCKED',
       });
     }
@@ -330,14 +453,27 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       }
     }
 
+    // Multi-Page Append (Refinement 3): Merge existing sheet images with new uploads without duplicates
+    let existingImageUrls = [];
+    if (existingSession.rows.length > 0 && existingSession.rows[0].sheet_image_urls) {
+      try {
+        existingImageUrls = Array.isArray(existingSession.rows[0].sheet_image_urls)
+          ? existingSession.rows[0].sheet_image_urls
+          : JSON.parse(existingSession.rows[0].sheet_image_urls);
+      } catch (_) {
+        existingImageUrls = [];
+      }
+    }
+    const finalSheetImages = Array.from(new Set([...existingImageUrls, ...sheet_image_urls]));
+
     // 3. Create or Update Attendance Session
     const sessionRes = await client.query(`
       INSERT INTO attendance_sessions (
-        course_id, semester_id, week_number, session_date, session_mode, 
+        course_id, semester_id, week_number, sub_session, session_date, session_mode, 
         created_by, is_locked, sheet_image_urls, raw_extracted_text, notes
       )
-      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7, $9)
-      ON CONFLICT (course_id, semester_id, week_number) 
+      VALUES ($1, $2, $3, $10, COALESCE($4::date, CURRENT_DATE), 'SHEET_SCAN', $5, FALSE, $6, $7, $9)
+      ON CONFLICT (course_id, semester_id, week_number, sub_session) 
       DO UPDATE SET
         sheet_image_urls = EXCLUDED.sheet_image_urls,
         raw_extracted_text = EXCLUDED.raw_extracted_text,
@@ -351,10 +487,11 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       week_number,
       session_date || null,
       actorId,
-      JSON.stringify(sheet_image_urls),
+      JSON.stringify(finalSheetImages),
       raw_extracted_text,
       notesProvided,
       notesValue,
+      sub_session,
     ]);
 
     if (sessionRes.rows.length === 0) {
@@ -367,45 +504,34 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
 
     const session = sessionRes.rows[0];
 
-    // 4. Fetch All Verified Enrolled Students in this Course
-    const enrolledRes = await client.query(`
-      SELECT s.student_id, s.matric_number, s.full_name
+    // 4. Invariant 3: Zero-Trust Pre-seeding with Strict Dijkstra Ordering (ORDER BY s.student_id ASC)
+    // Client-supplied `extracted_matric_numbers` is strictly ignored to eliminate client-side forgery.
+    // All enrolled students are safely seeded as 'ABSENT' with confidence 0.000 until lecturer verification.
+    await client.query(`
+      INSERT INTO attendance_records (session_id, student_id, status, verification_method, confidence_score)
+      SELECT $1, s.student_id, 'ABSENT', 'SHEET_SCAN', 0.000
       FROM enrollments e
       JOIN students s ON s.student_id = e.student_id
-      WHERE e.course_id = $1 AND (e.semester_id = $2 OR e.semester_id IS NULL) AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
-      ORDER BY s.matric_number ASC;
-    `, [courseId, semesterId]);
+      WHERE e.course_id = $2 
+        AND (e.semester_id = $3 OR e.semester_id IS NULL) 
+        AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+      ORDER BY s.student_id ASC
+      ON CONFLICT (session_id, student_id) DO NOTHING;
+    `, [session.session_id, courseId, semesterId]);
 
-    const enrolledStudents = enrolledRes.rows;
+    // 5. Query authoritative counts from PostgreSQL
+    const tallyRes = await client.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE status = 'PRESENT')::int AS present_count,
+        COUNT(*) FILTER (WHERE status != 'PRESENT')::int AS absent_count,
+        COUNT(*)::int AS total_enrolled
+      FROM attendance_records
+      WHERE session_id = $1;
+    `, [session.session_id]);
 
-    // 5. Intelligent Matcher: Normalize detected Matric Numbers
-    // Any student whose matric appears in extracted_matric_numbers or raw text is PRESENT
-    const normalizedDetected = new Set(
-      extracted_matric_numbers.map((m) => String(m).trim().toUpperCase().replace(/\s+/g, ''))
-    );
-
-    let presentCount = 0;
-    let absentCount = 0;
-
-    for (const student of enrolledStudents) {
-      const canonicalMatric = student.matric_number.toUpperCase().replace(/\s+/g, '');
-      const escapedMatric = canonicalMatric.replace(/[.*+?^${}()|[\]\\]/g, (m) => '\\' + m);
-      // Token-boundary regex: prevents '2021/CSC/01' from falsely matching substring in '2021/CSC/015'
-      const tokenRegex = new RegExp(`(^|[^A-Z0-9])${escapedMatric}([^A-Z0-9]|$)`, 'i');
-      const rawTextMatches = Boolean(raw_extracted_text && tokenRegex.test(raw_extracted_text));
-      const isDetected = normalizedDetected.has(canonicalMatric) || rawTextMatches;
-
-      const status = isDetected ? 'PRESENT' : 'ABSENT';
-      if (status === 'PRESENT') presentCount++;
-      else absentCount++;
-
-      await client.query(`
-        INSERT INTO attendance_records (session_id, student_id, status, verification_method, confidence_score)
-        VALUES ($1, $2, $3, 'SHEET_SCAN', $4)
-        ON CONFLICT (session_id, student_id)
-        DO UPDATE SET status = EXCLUDED.status, marked_at = NOW();
-      `, [session.session_id, student.student_id, status, isDetected ? 0.950 : 1.000]);
-    }
+    const presentCount = tallyRes.rows[0]?.present_count || 0;
+    const absentCount = tallyRes.rows[0]?.absent_count || 0;
+    const totalEnrolled = tallyRes.rows[0]?.total_enrolled || 0;
 
     // 6. Notify Course Lecturer of Scanned Sheet Upload
     const allocRes = await client.query(`
@@ -421,7 +547,7 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
     if (lecturer) {
       const notifPayload = {
         title: `📋 Week ${week_number} Attendance Sheet Uploaded`,
-        body: `Course Rep uploaded sheet scan for ${lecturer.course_code}. ${presentCount} students detected present, ${absentCount} absent. Review and lock session.`,
+        body: `Course Rep uploaded sheet scan for ${lecturer.course_code}. ${presentCount} students verified present, ${absentCount} pending review. Review and lock session.`,
         action_url: `/lecturer`,
         course_id: courseId,
         session_id: session.session_id,
@@ -434,6 +560,36 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       }, client);
     }
 
+    // 7. Enqueue Transactional Outbox Event for Asynchronous OCR Matching (Invariant 8)
+    // Client-supplied rawExtractedText is intentionally excluded to prevent forged ingress
+    await client.query(`
+      INSERT INTO integration_outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, status, idempotency_key
+      ) VALUES (
+        'ATTENDANCE_SESSION',
+        $1,
+        'PROCESS_ATTENDANCE_SHEET_OCR',
+        $2::jsonb,
+        'PENDING',
+        $3
+      )
+      ON CONFLICT (idempotency_key) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        status = 'PENDING',
+        updated_at = NOW();
+    `, [
+      session.session_id,
+      JSON.stringify({
+        sessionId: session.session_id,
+        courseId,
+        semesterId,
+        weekNumber: week_number,
+        subSession: sub_session,
+        sheetImageUrls: finalSheetImages,
+      }),
+      `ocr_session_${session.session_id}`,
+    ]);
+
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -445,7 +601,7 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
       message: `Week ${week_number} attendance sheet uploaded and transcribed.`,
       session,
       metrics: {
-        totalEnrolled: enrolledStudents.length,
+        totalEnrolled,
         presentCount,
         absentCount,
       },
@@ -464,6 +620,8 @@ router.post('/courses/:courseId/upload-scanned-sheet', async (req, res, next) =>
 router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
   const { courseId } = req.params;
   const week_number = req.body?.week_number ?? req.body?.weekNumber;
+  const rawSubSession = req.body?.sub_session ?? req.body?.subSession ?? 1;
+  const sub_session = Math.max(1, Math.min(6, parseInt(rawSubSession, 10) || 1));
   const session_date = req.body?.session_date ?? req.body?.sessionDate;
   const notes = req.body?.notes || 'Live Class Roll Call';
   const records = req.body?.records || [];
@@ -491,13 +649,13 @@ router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
 
     // Lock Guard: Reject if session is already finalized and locked
     const existing = await client.query(
-      `SELECT is_locked, session_mode, created_by FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 LIMIT 1 FOR UPDATE`,
-      [courseId, semesterId, week_number]
+      `SELECT is_locked, session_mode, created_by FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 AND sub_session = $4 LIMIT 1 FOR UPDATE`,
+      [courseId, semesterId, week_number, sub_session]
     );
     if (existing.rows[0]?.is_locked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
+        error: `Attendance session for week ${week_number} (session ${sub_session}) has already been approved and locked. Modifications are prohibited.`,
         code: 'SESSION_LOCKED',
       });
     }
@@ -529,11 +687,11 @@ router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
 
     const sessionRes = await client.query(`
       INSERT INTO attendance_sessions (
-        course_id, semester_id, week_number, session_date, session_mode,
+        course_id, semester_id, week_number, sub_session, session_date, session_mode,
         created_by, is_locked, locked_by, locked_at, notes
       )
-      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'ROLL_CALL', $5, $6, $7, $8, $9)
-      ON CONFLICT (course_id, semester_id, week_number)
+      VALUES ($1, $2, $3, $10, COALESCE($4::date, CURRENT_DATE), 'ROLL_CALL', $5, $6, $7, $8, $9)
+      ON CONFLICT (course_id, semester_id, week_number, sub_session)
       DO UPDATE SET
         session_mode = 'ROLL_CALL',
         notes = EXCLUDED.notes,
@@ -543,7 +701,7 @@ router.post('/courses/:courseId/sessions/roll-call', async (req, res, next) => {
         updated_at = NOW()
       WHERE attendance_sessions.is_locked = FALSE
       RETURNING *;
-    `, [courseId, semesterId, week_number, session_date || null, actorId, finalIsLocked, lockedBy, lockedAt, notes]);
+    `, [courseId, semesterId, week_number, session_date || null, actorId, finalIsLocked, lockedBy, lockedAt, notes, sub_session]);
 
     if (sessionRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -619,6 +777,8 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
   const { courseId } = req.params;
   const rawWeek = req.body?.week_number ?? req.body?.weekNumber ?? 1;
   const week_number = parseInt(rawWeek, 10);
+  const rawSubSession = req.body?.sub_session ?? req.body?.subSession ?? 1;
+  const sub_session = Math.max(1, Math.min(6, parseInt(rawSubSession, 10) || 1));
   const actorId = req.attendanceActor.userId;
 
   // 1. Week Bounds Validation
@@ -647,28 +807,28 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
     // 3. Lock Guard: Reject if session is already approved and locked
     const lockCheck = await pool.query(
       `SELECT session_id, is_locked FROM attendance_sessions
-       WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 LIMIT 1`,
-      [courseId, semesterId, week_number]
+       WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 AND sub_session = $4 LIMIT 1`,
+      [courseId, semesterId, week_number, sub_session]
     );
     if (lockCheck.rows[0]?.is_locked) {
       return res.status(409).json({
-        error: `Cannot generate passcode: Attendance session for week ${week_number} has already been approved and locked.`,
+        error: `Cannot generate passcode: Attendance session for week ${week_number} (session ${sub_session}) has already been approved and locked.`,
         code: 'SESSION_LOCKED',
       });
     }
 
     const sessionRes = await pool.query(`
       INSERT INTO attendance_sessions (
-        course_id, semester_id, week_number, session_date, session_mode, created_by, is_locked, notes
+        course_id, semester_id, week_number, sub_session, session_date, session_mode, created_by, is_locked, notes
       )
-      VALUES ($1, $2, $3, CURRENT_DATE, 'CODE_OTP', $4, FALSE, 'Mode 2 Dynamic Passcode Session')
-      ON CONFLICT (course_id, semester_id, week_number)
+      VALUES ($1, $2, $3, $5, CURRENT_DATE, 'CODE_OTP', $4, FALSE, 'Mode 2 Dynamic Passcode Session')
+      ON CONFLICT (course_id, semester_id, week_number, sub_session)
       DO UPDATE SET
         session_mode = 'CODE_OTP',
         updated_at = NOW()
       WHERE attendance_sessions.is_locked = FALSE
       RETURNING *;
-    `, [courseId, semesterId, week_number, actorId]);
+    `, [courseId, semesterId, week_number, actorId, sub_session]);
 
     if (sessionRes.rows.length === 0) {
       return res.status(409).json({
@@ -1059,8 +1219,12 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
     return res.status(400).json({ error: 'Passcode is required', code: 'OTP_REQUIRED' });
   }
 
+  if (!sessionId || !String(sessionId).trim()) {
+    return res.status(400).json({ error: 'Session ID is required for check-in', code: 'MISSING_SESSION_ID' });
+  }
+
   const cleanOtp = String(otp).trim();
-  const targetSessionId = sessionId && String(sessionId).trim() ? String(sessionId).trim() : null;
+  const targetSessionId = String(sessionId).trim();
   const targetTicketId = ticketId && String(ticketId).trim() ? String(ticketId).trim() : null;
 
   try {
@@ -1083,8 +1247,7 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
               (s.active_otp_hash IS NOT NULL AND s.active_otp_hash = $4) AS otp_matched
           FROM attendance_sessions s
           WHERE s.course_id = $2
-            AND ($1::uuid IS NULL OR s.session_id = $1::uuid)
-          ORDER BY s.created_at DESC
+            AND s.session_id = $1::uuid
           LIMIT 1
       ),
       verified_enrollment AS (
@@ -1129,8 +1292,9 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
               ar.attempt_count,
               ar.active_ticket_id,
               ar.active_ticket_expires_at,
+              (ar.status = 'PRESENT') AS is_already_present,
               (ar.active_ticket_expires_at IS NOT NULL AND ar.active_ticket_expires_at > NOW()) AS ticket_valid,
-              (ar.active_ticket_id IS NOT NULL AND $5::uuid IS NOT NULL AND ar.active_ticket_id = $5::uuid) AS ticket_matched
+              (ar.active_ticket_id IS NOT NULL AND $5::uuid IS NOT NULL AND ar.active_ticket_id = $5::uuid AND ar.session_id = ts.session_id) AS ticket_matched
           FROM attendance_records ar
           JOIN target_session ts ON ts.session_id = ar.session_id
           WHERE ar.student_id = $3
@@ -1140,38 +1304,50 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
           UPDATE attendance_records ar
           SET 
               status = CASE 
-                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE AND lr.is_locked_out = FALSE AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL) THEN 'PRESENT'
+                  WHEN lr.status = 'PRESENT' THEN 'PRESENT'
+                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE 
+                       AND lr.is_locked_out = FALSE 
+                       AND (
+                           ($5::uuid IS NULL AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL))
+                           OR ($5::uuid IS NOT NULL AND lr.ticket_matched = TRUE AND lr.ticket_valid = TRUE)
+                       ) THEN 'PRESENT'
                   ELSE ar.status
               END,
               verification_method = 'CODE_OTP',
               confidence_score = 1.000,
               marked_at = CASE 
-                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE AND lr.is_locked_out = FALSE AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL) THEN NOW()
+                  WHEN lr.status = 'PRESENT' THEN ar.marked_at
+                  WHEN ts.is_locked = FALSE AND ts.otp_valid = TRUE AND ts.otp_matched = TRUE 
+                       AND lr.is_locked_out = FALSE 
+                       AND (
+                           ($5::uuid IS NULL AND (lr.ticket_valid = TRUE OR lr.active_ticket_id IS NULL))
+                           OR ($5::uuid IS NOT NULL AND lr.ticket_matched = TRUE AND lr.ticket_valid = TRUE)
+                       ) THEN NOW()
                   ELSE ar.marked_at
               END,
               attempt_count = CASE 
-                  WHEN ar.status = 'PRESENT' THEN ar.attempt_count
+                  WHEN lr.status = 'PRESENT' OR ar.status = 'PRESENT' THEN ar.attempt_count
                   WHEN ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE) THEN ar.attempt_count + 1
                   ELSE ar.attempt_count
               END,
               is_locked_out = CASE 
-                  WHEN ar.status = 'PRESENT' THEN FALSE
+                  WHEN lr.status = 'PRESENT' OR ar.status = 'PRESENT' THEN FALSE
                   WHEN ar.is_locked_out = TRUE THEN TRUE
                   WHEN (ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE)) AND (ar.attempt_count + 1 >= 3) THEN TRUE
                   ELSE FALSE
               END,
               locked_out_at = CASE 
-                  WHEN ar.status = 'PRESENT' THEN NULL
+                  WHEN lr.status = 'PRESENT' OR ar.status = 'PRESENT' THEN NULL
                   WHEN ar.is_locked_out = TRUE THEN ar.locked_out_at
                   WHEN (ts.otp_matched = FALSE OR (lr.active_ticket_id IS NOT NULL AND lr.ticket_valid = FALSE)) AND (ar.attempt_count + 1 >= 3) THEN NOW()
                   ELSE ar.locked_out_at
               END,
               active_ticket_id = CASE
-                  WHEN ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
+                  WHEN lr.status = 'PRESENT' OR ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
                   ELSE ar.active_ticket_id
               END,
               active_ticket_expires_at = CASE
-                  WHEN ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
+                  WHEN lr.status = 'PRESENT' OR ts.otp_matched = TRUE OR (ar.attempt_count + 1 >= 3) THEN NULL
                   ELSE ar.active_ticket_expires_at
               END
           FROM locked_record lr
@@ -1192,8 +1368,10 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
           (SELECT otp_valid FROM target_session) AS otp_valid,
           (SELECT otp_matched FROM target_session) AS otp_matched,
           (SELECT student_id FROM verified_enrollment) AS student_id,
+          (SELECT is_already_present FROM locked_record) AS was_already_present,
           (SELECT is_locked_out FROM locked_record) AS was_locked_out,
           (SELECT ticket_valid FROM locked_record) AS was_ticket_valid,
+          (SELECT ticket_matched FROM locked_record) AS was_ticket_matched,
           (SELECT active_ticket_id FROM locked_record) AS prior_ticket_id,
           ua.id AS record_id,
           ua.status AS record_status,
@@ -1220,6 +1398,28 @@ router.post('/courses/:courseId/sessions/otp/check-in', async (req, res, next) =
       return res.status(404).json({
         error: 'No active attendance session found for this course.',
         code: 'SESSION_NOT_FOUND',
+      });
+    }
+
+    // Idempotent Short-Circuit: If attendance is already confirmed for this session, return 200 OK immediately
+    if (row.was_already_present || row.record_status === 'PRESENT' || row.was_idempotent_retry) {
+      return res.status(200).json({
+        status: 'VERIFIED',
+        idempotent: true,
+        message: 'Your attendance was already confirmed for this session.',
+        sessionId: row.session_id,
+        weekNumber: row.week_number,
+        sessionDate: row.session_date,
+        recordId: row.record_id,
+        markedAt: row.marked_at,
+      });
+    }
+
+    // Strict Ticket-Session Pinning (Refinement 3)
+    if (targetTicketId && !row.was_already_present && !row.was_ticket_matched) {
+      return res.status(403).json({
+        error: 'The provided ticket does not match the active lease for this session.',
+        code: 'TICKET_SESSION_MISMATCH',
       });
     }
     if (row.is_locked) {
@@ -1428,6 +1628,8 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
 router.post('/courses/:courseId/sessions/rep-direct', async (req, res, next) => {
   const { courseId } = req.params;
   const week_number = req.body?.week_number ?? req.body?.weekNumber;
+  const rawSubSession = req.body?.sub_session ?? req.body?.subSession ?? 1;
+  const sub_session = Math.max(1, Math.min(6, parseInt(rawSubSession, 10) || 1));
   const session_date = req.body?.session_date ?? req.body?.sessionDate;
   const notes = req.body?.notes || 'Course Rep Lab Direct Check-in';
   const records = req.body?.records || [];
@@ -1455,13 +1657,13 @@ router.post('/courses/:courseId/sessions/rep-direct', async (req, res, next) => 
 
     // Lock Guard: Reject if session is already finalized and locked
     const existing = await client.query(
-      `SELECT is_locked FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 LIMIT 1 FOR UPDATE`,
-      [courseId, semesterId, week_number]
+      `SELECT is_locked FROM attendance_sessions WHERE course_id = $1 AND semester_id = $2 AND week_number = $3 AND sub_session = $4 LIMIT 1 FOR UPDATE`,
+      [courseId, semesterId, week_number, sub_session]
     );
     if (existing.rows[0]?.is_locked) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        error: `Attendance session for week ${week_number} has already been approved and locked. Modifications are prohibited.`,
+        error: `Attendance session for week ${week_number} (session ${sub_session}) has already been approved and locked. Modifications are prohibited.`,
         code: 'SESSION_LOCKED',
       });
     }
@@ -1474,11 +1676,11 @@ router.post('/courses/:courseId/sessions/rep-direct', async (req, res, next) => 
 
     const sessionRes = await client.query(`
       INSERT INTO attendance_sessions (
-        course_id, semester_id, week_number, session_date, session_mode,
+        course_id, semester_id, week_number, sub_session, session_date, session_mode,
         created_by, is_locked, locked_by, locked_at, notes
       )
-      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), 'REP_DIRECT', $5, $6, $7, $8, $9)
-      ON CONFLICT (course_id, semester_id, week_number)
+      VALUES ($1, $2, $3, $10, COALESCE($4::date, CURRENT_DATE), 'REP_DIRECT', $5, $6, $7, $8, $9)
+      ON CONFLICT (course_id, semester_id, week_number, sub_session)
       DO UPDATE SET
         session_mode = 'REP_DIRECT',
         notes = EXCLUDED.notes,
@@ -1488,7 +1690,7 @@ router.post('/courses/:courseId/sessions/rep-direct', async (req, res, next) => 
         updated_at = NOW()
       WHERE attendance_sessions.is_locked = FALSE
       RETURNING *;
-    `, [courseId, semesterId, week_number, session_date || null, actorId, finalIsLocked, lockedBy, lockedAt, notes]);
+    `, [courseId, semesterId, week_number, session_date || null, actorId, finalIsLocked, lockedBy, lockedAt, notes, sub_session]);
 
     if (sessionRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -1626,6 +1828,7 @@ router.get('/courses/:courseId/sessions', async (req, res, next) => {
         s.course_id,
         s.semester_id,
         s.week_number,
+        COALESCE(s.sub_session, 1)::int AS sub_session,
         s.session_date,
         s.session_mode,
         s.notes,
@@ -1642,7 +1845,7 @@ router.get('/courses/:courseId/sessions', async (req, res, next) => {
       LEFT JOIN attendance_records r ON r.session_id = s.session_id
       WHERE s.course_id = $1 AND s.semester_id = $2
       GROUP BY s.session_id
-      ORDER BY s.week_number ASC;
+      ORDER BY s.week_number ASC, s.sub_session ASC;
     `, [courseId, semesterId]);
 
     // Redact raw photo signatures from enrolled students (only staff & reps see sheets)
@@ -1987,12 +2190,12 @@ router.get('/courses/:courseId/summary', async (req, res, next) => {
         COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::int AS sessions_attended,
         COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED')::int AS sessions_excused,
         CASE 
-          WHEN $3::int = 0 THEN 100.0
-          ELSE ROUND((COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::numeric / $3::int) * 100, 1)
+          WHEN GREATEST(0, $3::int - COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED')::int) = 0 THEN 100.0
+          ELSE ROUND((COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::numeric / GREATEST(1, $3::int - COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED')::int)::numeric) * 100, 1)
         END AS attendance_percentage,
         CASE 
-          WHEN $3::int = 0 THEN TRUE
-          WHEN ROUND((COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::numeric / $3::int) * 100, 1) >= 75.0 THEN TRUE
+          WHEN GREATEST(0, $3::int - COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED')::int) = 0 THEN TRUE
+          WHEN ROUND((COUNT(r.id) FILTER (WHERE r.status = 'PRESENT')::numeric / GREATEST(1, $3::int - COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED')::int)::numeric) * 100, 1) >= 75.0 THEN TRUE
           ELSE FALSE
         END AS is_exam_eligible
       FROM enrollments e

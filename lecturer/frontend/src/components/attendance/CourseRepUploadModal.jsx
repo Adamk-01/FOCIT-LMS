@@ -47,20 +47,22 @@ export function CourseRepUploadModal({
   onClose,
   courseId,
   courseCode,
+  sessionsPerWeek = 6,
   onUpload,
-  isUploading,
+  onSuccess,
+  isUploading = false,
 }) {
   const [weekNumber, setWeekNumber] = useState(1);
+  const [subSession, setSubSession] = useState(1);
   const [uploadedImages, setUploadedImages] = useState([]);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
-  const [showUrlInput, setShowUrlInput] = useState(false);
-  const [imageUrlsText, setImageUrlsText] = useState('');
-  const [matricNumbersText, setMatricNumbersText] = useState('');
   const [notes, setNotes] = useState('');
   const [uploadError, setUploadError] = useState(null);
   const fileInputRef = useRef(null);
 
   if (!isOpen) return null;
+
+  const maxSubSessions = Math.min(6, Math.max(1, sessionsPerWeek || 6));
 
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -71,30 +73,42 @@ export function CourseRepUploadModal({
       const newUploads = [];
       for (const f of files) {
         const blob = await compressImageToBlob(f);
-        const formData = new FormData();
-        formData.append('sheet', blob, f.name || 'sheet.jpg');
-        try {
-          const res = await apiClient.post(
-            `/attendance/courses/${encodeURIComponent(courseId)}/upload-sheet-image`,
-            formData,
-            { headers: { 'Content-Type': 'multipart/form-data' } }
-          );
-          if (res.data?.url) {
-            newUploads.push({
-              id: Math.random().toString(36).slice(2),
-              name: f.name,
-              url: res.data.url,
-            });
+
+        // Step 1: Request Mode 4 Direct Capability Ticket (HMAC Signed)
+        const ticketRes = await apiClient.post(
+          `/attendance/courses/${encodeURIComponent(courseId)}/upload-ticket`,
+          {
+            weekNumber: Number(weekNumber),
+            subSession: Number(subSession),
+            fileName: f.name || 'sheet.jpg',
+            mimeType: 'image/jpeg',
           }
-        } catch (uploadErr) {
-          const errMsg = uploadErr?.response?.data?.error || uploadErr?.message || 'Failed to upload sheet image';
-          setUploadError(errMsg);
+        );
+        const { objectKey, uploadUrl } = ticketRes.data;
+
+        // Step 2: Stream binary JPEG blob directly to presigned upload endpoint
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: blob,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Direct binary upload failed with status ${uploadResponse.status}`);
         }
+
+        newUploads.push({
+          id: Math.random().toString(36).slice(2),
+          name: f.name,
+          objectKey,
+          url: URL.createObjectURL(blob),
+        });
       }
       setUploadedImages((prev) => [...prev, ...newUploads]);
     } catch (err) {
-      console.error('File compression error:', err);
-      setUploadError('Failed to process image file: ' + err.message);
+      console.error('Sheet upload handshake error:', err);
+      const errMsg = err?.response?.data?.error || err?.message || 'Failed to stage attendance sheet image';
+      setUploadError(errMsg);
     } finally {
       setIsProcessingFiles(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -105,26 +119,32 @@ export function CourseRepUploadModal({
     setUploadedImages((prev) => prev.filter((img) => img.id !== id));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const manualUrls = imageUrlsText
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const objectKeys = uploadedImages.map((img) => img.objectKey).filter(Boolean);
+    if (objectKeys.length === 0) {
+      setUploadError('Please select and upload at least one physical attendance sheet photo.');
+      return;
+    }
 
-    const uploadedUrls = uploadedImages.map((img) => img.url).filter(Boolean);
-    const combined = [...uploadedUrls, ...manualUrls];
-
-    const finalImageUrls = combined.length > 0 
-      ? combined 
-      : [`https://placehold.co/600x800/0a1142/ffffff?text=${encodeURIComponent(courseCode || 'Course')}+Week+${weekNumber}+Attendance+Sheet`];
-
-    onUpload({
+    const payload = {
       weekNumber: Number(weekNumber),
-      sheetImageUrls: finalImageUrls,
-      rawExtractedText: matricNumbersText.trim(),
+      subSession: Number(subSession),
+      sheetImageUrls: objectKeys,
       notes: notes.trim(),
-    });
+    };
+
+    if (onUpload) {
+      onUpload(payload);
+    } else {
+      try {
+        await apiClient.post(`/attendance/courses/${encodeURIComponent(courseId)}/upload-scanned-sheet`, payload);
+        onSuccess?.();
+        onClose();
+      } catch (err) {
+        setUploadError(err?.response?.data?.error || err.message || 'Failed to submit attendance sheet');
+      }
+    }
   };
 
   return createPortal(
@@ -165,22 +185,49 @@ export function CourseRepUploadModal({
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              Academic Week Number *
-            </label>
-            <select
-              value={weekNumber}
-              onChange={(e) => setWeekNumber(Number(e.target.value))}
-              className="w-full px-4 py-2.5 text-xs font-semibold rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142] bg-white text-gray-800"
-            >
-              {Array.from({ length: 15 }, (_, i) => i + 1).map((w) => (
-                <option key={w} value={w}>
-                  Week {w} Lecture Session
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                Week Number *
+              </label>
+              <select
+                value={weekNumber}
+                disabled={uploadedImages.length > 0 || isProcessingFiles}
+                onChange={(e) => setWeekNumber(Number(e.target.value))}
+                className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142] bg-white text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {Array.from({ length: 15 }, (_, i) => i + 1).map((w) => (
+                  <option key={w} value={w}>
+                    Week {w}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                Sub-Session (1–{maxSubSessions}) *
+              </label>
+              <select
+                value={subSession}
+                disabled={uploadedImages.length > 0 || isProcessingFiles}
+                onChange={(e) => setSubSession(Number(e.target.value))}
+                className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142] bg-white text-gray-800 disabled:bg-gray-100 disabled:text-gray-500 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {Array.from({ length: maxSubSessions }, (_, i) => i + 1).map((s) => (
+                  <option key={s} value={s}>
+                    Session {s} {s === 1 ? '(Lecture)' : s === 2 ? '(Lab / Tut)' : `(Session ${s})`}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+
+          {uploadedImages.length > 0 && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-xl border border-amber-200">
+              🔒 Week and session slot are locked to the staged sheet images. Remove staged sheets if you need to select a different week or sub-session.
+            </p>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -199,7 +246,9 @@ export function CourseRepUploadModal({
             />
 
             <div
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                if (!isProcessingFiles) fileInputRef.current?.click();
+              }}
               className="border-2 border-dashed border-gray-300 rounded-2xl p-6 text-center cursor-pointer hover:border-[#0a1142] hover:bg-blue-50/20 transition-all flex flex-col items-center justify-center gap-2"
             >
               <div className="p-3 bg-gray-100 rounded-full text-gray-600">
@@ -210,10 +259,10 @@ export function CourseRepUploadModal({
                 )}
               </div>
               <p className="text-xs font-bold text-gray-700">
-                {isProcessingFiles ? 'Uploading Sheet...' : 'Take Photo or Choose Images'}
+                {isProcessingFiles ? 'Staging & Uploading Sheet...' : 'Take Photo or Choose Images'}
               </p>
               <p className="text-[11px] text-gray-500">
-                Supports multiple pages (JPEG, PNG, WebP)
+                Direct capability-ticket upload (Multi-page JPEG, PNG)
               </p>
             </div>
 
@@ -232,7 +281,7 @@ export function CourseRepUploadModal({
                         e.stopPropagation();
                         handleRemoveImage(img.id);
                       }}
-                      className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-90 hover:opacity-100 shadow-xs"
+                      className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-90 hover:opacity-100 shadow-xs cursor-pointer"
                     >
                       <X size={10} />
                     </button>
@@ -240,41 +289,6 @@ export function CourseRepUploadModal({
                 ))}
               </div>
             )}
-
-            {/* Optional URL toggle */}
-            <div className="mt-2 text-right">
-              <button
-                type="button"
-                onClick={() => setShowUrlInput(!showUrlInput)}
-                className="text-[11px] text-[#16258f] hover:underline"
-              >
-                {showUrlInput ? 'Hide manual URL input' : 'Paste external image URL instead'}
-              </button>
-            </div>
-
-            {showUrlInput && (
-              <textarea
-                rows={2}
-                value={imageUrlsText}
-                onChange={(e) => setImageUrlsText(e.target.value)}
-                placeholder="https://... (Optional manual image URLs)"
-                className="w-full mt-2 px-4 py-2 text-xs rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
-              />
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              Extracted Matric Numbers / Signatures *
-            </label>
-            <textarea
-              rows={4}
-              required
-              value={matricNumbersText}
-              onChange={(e) => setMatricNumbersText(e.target.value)}
-              placeholder="Paste matric numbers of attendees (separated by space, comma, or newline)&#10;e.g. 2021/CSC/001, 2021/CSC/002, 2021/CSC/005"
-              className="w-full px-4 py-2 text-xs font-mono rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#0a1142]"
-            />
           </div>
 
           <div>
@@ -301,13 +315,13 @@ export function CourseRepUploadModal({
             </button>
             <button
               type="submit"
-              disabled={isUploading || isProcessingFiles || !matricNumbersText.trim()}
-              className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-white bg-[#0a1142] rounded-xl hover:bg-[#16258f] transition disabled:opacity-50 shadow-md"
+              disabled={isUploading || isProcessingFiles || uploadedImages.length === 0}
+              className="inline-flex items-center gap-2 px-6 py-2.5 text-xs font-bold text-white bg-[#0a1142] rounded-xl hover:bg-[#16258f] transition disabled:opacity-50 shadow-md cursor-pointer disabled:cursor-not-allowed"
             >
               {isUploading ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  <span>Submitting to Lecturer...</span>
+                  <span>Transmitting Sheet...</span>
                 </>
               ) : (
                 <>

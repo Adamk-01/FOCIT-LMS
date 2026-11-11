@@ -72,7 +72,9 @@ export function StudentOtpCheckInModal({
     }
   }, [rawSessionDate]);
 
-  const draftStorageKey = `focit_otp_draft:${studentId}:${activeCourseId || 'any'}`;
+  const targetSessionIdentifier = sessionData?.sessionId || 'active';
+  const leaseStorageKey = `focit_otp_lease_${studentId}_${activeCourseId || 'any'}_${targetSessionIdentifier}`;
+  const draftStorageKey = `focit_otp_draft_${studentId}_${activeCourseId || 'any'}_${targetSessionIdentifier}`;
 
   // Form & State Machine
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
@@ -123,6 +125,41 @@ export function StudentOtpCheckInModal({
     if (!activeCourseId) return;
 
     let isCancelled = false;
+
+    // Check sessionStorage sandbox for an active, unexpired lease (Invariant #2)
+    try {
+      const savedLease = sessionStorage.getItem(leaseStorageKey);
+      if (savedLease) {
+        const parsed = JSON.parse(savedLease);
+        const deadline = parsed.expiresAt ? new Date(parsed.expiresAt).getTime() : 0;
+        if (parsed.ticketId && deadline > Date.now()) {
+          setTicketId(parsed.ticketId);
+          setTicketDeadlineMs(deadline);
+          setSecondsLeft(Math.max(0, Math.floor((deadline - Date.now()) / 1000)));
+          setAttemptNumber(parsed.attemptNumber || 1);
+          setAttemptsRemaining(parsed.attemptsRemaining ?? 2);
+          setIsAcquiringTicket(false);
+
+          try {
+            const savedDigits = sessionStorage.getItem(draftStorageKey);
+            if (savedDigits) {
+              const parsedDigits = JSON.parse(savedDigits);
+              if (Array.isArray(parsedDigits) && parsedDigits.length === 6) {
+                setDigits(parsedDigits);
+              }
+            }
+          } catch (_) {}
+
+          setTimeout(() => {
+            inputRefs.current[0]?.focus();
+          }, 80);
+          return;
+        } else {
+          sessionStorage.removeItem(leaseStorageKey);
+        }
+      }
+    } catch (_) {}
+
     setIsAcquiringTicket(true);
     setErrorMsg(null);
 
@@ -154,6 +191,18 @@ export function StudentOtpCheckInModal({
           const deadline = data.expiresAt ? new Date(data.expiresAt).getTime() : Date.now() + 180000;
           setTicketDeadlineMs(deadline);
           setSecondsLeft(Math.max(0, Math.floor((deadline - Date.now()) / 1000)));
+
+          // Persist valid active lease in sessionStorage sandbox (Invariant #2)
+          try {
+            sessionStorage.setItem(leaseStorageKey, JSON.stringify({
+              ticketId: data.ticketId,
+              expiresAt: data.expiresAt,
+              sessionId: sessionData?.sessionId,
+              courseId: activeCourseId,
+              attemptNumber: data.attemptNumber || 1,
+              attemptsRemaining: data.attemptsRemaining ?? 2,
+            }));
+          } catch (_) {}
 
           // Focus first empty digit
           setTimeout(() => {
@@ -190,7 +239,7 @@ export function StudentOtpCheckInModal({
     return () => {
       isCancelled = true;
     };
-  }, [isOpen, activeCourseId, sessionData?.sessionId]);
+  }, [isOpen, activeCourseId, sessionData?.sessionId, leaseStorageKey, draftStorageKey]);
 
   // 3. Monotonic Wall-Clock Countdown Engine (immune to mobile background throttling)
   useEffect(() => {
@@ -235,8 +284,12 @@ export function StudentOtpCheckInModal({
         ticketId: currentTicket,
       });
     }
+    try {
+      sessionStorage.removeItem(leaseStorageKey);
+      sessionStorage.removeItem(draftStorageKey);
+    } catch (_) {}
     onClose();
-  }, [activeCourseId, sessionData?.sessionId, isSuccess, isLockedOut, closeTicketMutation, onClose]);
+  }, [activeCourseId, sessionData?.sessionId, isSuccess, isLockedOut, closeTicketMutation, onClose, leaseStorageKey, draftStorageKey]);
 
   // 5. ESC Key Listener for Accessibility
   useEffect(() => {
@@ -332,6 +385,7 @@ export function StudentOtpCheckInModal({
           setSuccessInfo(data);
           try {
             sessionStorage.removeItem(draftStorageKey);
+            sessionStorage.removeItem(leaseStorageKey);
           } catch (_) {}
           if (onSuccess) onSuccess(data);
         },

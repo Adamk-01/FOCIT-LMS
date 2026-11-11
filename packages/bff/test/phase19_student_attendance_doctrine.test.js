@@ -29,6 +29,7 @@ test('Phase 19: Student Attendance Ecosystem & NUC BMAS Doctrine', async (t) => 
     FROM enrollments e
     JOIN students s ON e.student_id = s.student_id
     JOIN courses c ON e.course_id = c.course_id
+    WHERE e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
     LIMIT 1
   `);
 

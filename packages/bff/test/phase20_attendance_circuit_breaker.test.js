@@ -31,6 +31,7 @@ test('Phase 20: Attendance Monotonic Ingress Lease & 3-Attempt Circuit Breaker',
     FROM enrollments e
     JOIN students s ON e.student_id = s.student_id
     JOIN courses c ON e.course_id = c.course_id
+    WHERE e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
     LIMIT 1
   `);
 

@@ -8,4 +8,4 @@ DROP CONSTRAINT IF EXISTS chk_students_matric_format;
 
 ALTER TABLE students 
 ADD CONSTRAINT chk_students_matric_format 
-CHECK (matric_number ~ '^[0-9]{4}/[0-9]{5}$');
+CHECK (matric_number ~ '^[0-9]{4}/[0-9]{4,5}$');

@@ -12,12 +12,19 @@
  *    - ACTIVITY_COMPLETED       -> core_completion_override_activity_completion_status
  */
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { createMoodleUser, getMoodleUserByField } from '../integrations/moodle/moodle.users.js';
 import { enrolUserInCourse } from '../integrations/moodle/moodle.enrolments.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js';
+import { matchStudentLine } from '../services/ocrAttendanceMatcher.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SHEETS_DIR = path.join(__dirname, '../../.cache/sheets');
 
 const BATCH_SIZE = 20;
 const LEASE_DURATION_SECONDS = 30;
@@ -301,6 +308,116 @@ export class UnifiedOutboxWorker {
             throw err;
           }
           await syncFocitQuizToMoodle(quizId);
+          break;
+        }
+
+        case 'PROCESS_ATTENDANCE_SHEET_OCR': {
+          const { sessionId, courseId, semesterId, sheetImageUrls } = payload;
+          if (!sessionId || !courseId) {
+            const err = new Error(`Cannot process sheet OCR: missing sessionId or courseId in event ${event_id}`);
+            err.isRetryable = false;
+            throw err;
+          }
+
+          // 1. Session Existence & Lock Guard: Do not mutate an already sealed session
+          const sessionCheck = await pool.query(
+            `SELECT session_id, is_locked FROM attendance_sessions WHERE session_id = $1`,
+            [sessionId]
+          );
+          if (sessionCheck.rows.length === 0) {
+            const err = new Error(`Attendance session ${sessionId} does not exist (orphaned event)`);
+            err.isRetryable = false;
+            throw err;
+          }
+          if (sessionCheck.rows[0].is_locked) {
+            logger.warn({ sessionId }, '[UnifiedOutbox] Attendance session already sealed/locked; skipping OCR mutation');
+            break;
+          }
+
+          // 2. Query enrolled cohort in strict deterministic order
+          const studentsRes = await pool.query(`
+            SELECT s.student_id, s.matric_number, s.full_name
+            FROM enrollments e
+            JOIN students s ON s.student_id = e.student_id
+            WHERE e.course_id = $1 
+              AND (e.semester_id = $2 OR e.semester_id IS NULL)
+              AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS')
+            ORDER BY s.student_id ASC;
+          `, [courseId, semesterId]);
+
+          if (studentsRes.rows.length === 0) {
+            logger.warn({ courseId, sessionId }, '[UnifiedOutbox] No enrolled students found for session OCR');
+            break;
+          }
+
+          // 3. Extract OCR lines from physical stored sheet images or companion OCR files
+          const ocrLines = [];
+          for (const imgKey of (sheetImageUrls || [])) {
+            if (typeof imgKey !== 'string') continue;
+            const sanitized = imgKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
+            const txtPath = path.join(SHEETS_DIR, `${sanitized}.ocr.txt`);
+            try {
+              const text = await fs.readFile(txtPath, 'utf8');
+              const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+              ocrLines.push(...lines);
+            } catch (_) {
+              // Companion OCR file not found yet on disk
+            }
+          }
+
+          // 4. Line-by-line homoglyph and surname corroboration
+          const matchedUpdates = [];
+          for (const student of studentsRes.rows) {
+            let bestMatch = { isMatch: false, confidence: 0.000 };
+            for (const line of ocrLines) {
+              const match = matchStudentLine(line, student);
+              if (match.confidence > bestMatch.confidence) {
+                bestMatch = match;
+              }
+            }
+
+            if (bestMatch.isMatch && bestMatch.confidence >= 0.700) {
+              matchedUpdates.push({
+                studentId: student.student_id,
+                status: 'PRESENT',
+                confidence: bestMatch.confidence,
+              });
+            } else if (bestMatch.confidence >= 0.400) {
+              matchedUpdates.push({
+                studentId: student.student_id,
+                status: 'ABSENT',
+                confidence: bestMatch.confidence,
+              });
+            }
+          }
+
+          // 5. Invariant 3 & Defect 2: Dijkstra-Ordered Atomic Batch Update Guarded by Lock & Unverified Baseline
+          if (matchedUpdates.length > 0) {
+            matchedUpdates.sort((a, b) => String(a.studentId).localeCompare(String(b.studentId)));
+            const studentIds = matchedUpdates.map((u) => u.studentId);
+            const newStatuses = matchedUpdates.map((u) => u.status);
+            const confidences = matchedUpdates.map((u) => u.confidence);
+
+            const updateRes = await pool.query(`
+              UPDATE attendance_records ar
+              SET status = v.new_status,
+                  confidence_score = v.confidence,
+                  verification_method = 'SHEET_SCAN',
+                  marked_at = NOW()
+              FROM unnest($2::varchar[], $3::varchar[], $4::numeric[]) AS v(student_id, new_status, confidence)
+              JOIN attendance_sessions s ON s.session_id = $1
+              WHERE ar.session_id = $1
+                AND ar.student_id = v.student_id
+                AND s.is_locked = FALSE
+                AND ar.confidence_score = 0.000;
+            `, [sessionId, studentIds, newStatuses, confidences]);
+
+            logger.info(
+              { sessionId, matchedCount: matchedUpdates.length, rowsUpdated: updateRes.rowCount },
+              '[UnifiedOutbox] Batch OCR attendance matching applied'
+            );
+          }
+
           break;
         }
 

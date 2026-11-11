@@ -56,6 +56,19 @@ export function useAttendance(courseId) {
     },
   });
 
+  // 4b. Mode 4 Capability Upload Ticket Mutation
+  const requestUploadTicketMutation = useMutation({
+    mutationFn: async ({ weekNumber, subSession = 1, fileName, mimeType }) => {
+      const res = await apiClient.post(`/attendance/courses/${courseId}/upload-ticket`, {
+        weekNumber,
+        subSession,
+        fileName,
+        mimeType,
+      });
+      return res.data;
+    },
+  });
+
   // 5. Course Rep Upload Scanned Sheet mutation
   const uploadSheetMutation = useMutation({
     mutationFn: async (payload) => {
@@ -75,6 +88,7 @@ export function useAttendance(courseId) {
     isLoadingSummary: summaryQuery.isLoading,
     updateRecordsMutation,
     lockSessionMutation,
+    requestUploadTicketMutation,
     uploadSheetMutation,
     refetchAll: () => {
       sessionsQuery.refetch();

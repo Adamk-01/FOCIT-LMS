@@ -52,6 +52,8 @@ export class StudentAttendanceService {
               c.code AS course_code,
               c.title AS course_title,
               c.units,
+              COALESCE(c.sessions_per_week, 1)::int AS sessions_per_week,
+              COALESCE(c.total_planned_sessions, 15)::int AS total_planned_sessions,
               cr.student_id IS NOT NULL AS is_course_rep
           FROM enrollments e
           JOIN courses c ON c.course_id = e.course_id
@@ -69,6 +71,8 @@ export class StudentAttendanceService {
               ec.course_code,
               ec.course_title,
               ec.units,
+              ec.sessions_per_week,
+              ec.total_planned_sessions,
               ec.is_course_rep,
               COUNT(s.session_id) FILTER (WHERE s.is_locked = TRUE)::int AS total_locked_sessions,
               COUNT(r.id) FILTER (WHERE s.is_locked = TRUE AND r.status = 'PRESENT')::int AS attended_sessions,
@@ -89,21 +93,21 @@ export class StudentAttendanceService {
           LEFT JOIN attendance_records r 
                  ON r.session_id = s.session_id 
                 AND r.student_id = $1
-          GROUP BY ec.course_id, ec.course_code, ec.course_title, ec.units, ec.is_course_rep
+          GROUP BY ec.course_id, ec.course_code, ec.course_title, ec.units, ec.sessions_per_week, ec.total_planned_sessions, ec.is_course_rep
       ),
       calculated_metrics AS (
           SELECT 
               caa.*,
               -- 1. Denominator Exemption: Deduct approved EXCUSED sessions from audit baseline
               GREATEST(0, caa.total_locked_sessions - caa.excused_sessions)::int AS effective_locked_sessions,
-              -- 2. Semester Total Baseline with Excused Exemption
-              GREATEST(1, 15 - caa.excused_sessions)::int AS planned_semester_baseline,
-              -- 3. Remaining sessions in the 15-week semester
-              GREATEST(0, 15 - caa.total_locked_sessions)::int AS remaining_sessions,
-              -- 4. Minimum sessions needed to sit final exam: CEIL(0.75 * (15 - E))
-              CEIL(0.75 * GREATEST(1, 15 - caa.excused_sessions))::int AS exam_qualification_target,
-              -- 5. Maximum achievable attendance if student attends every remaining class: A + (15 - H)
-              (caa.attended_sessions + GREATEST(0, 15 - caa.total_locked_sessions))::int AS max_achievable_attendance,
+              -- 2. Dynamic Semester Total Baseline with Excused Exemption (Clamped at 0 for all-excused students)
+              GREATEST(0, GREATEST(caa.total_locked_sessions, caa.total_planned_sessions) - caa.excused_sessions)::int AS planned_semester_baseline,
+              -- 3. Remaining sessions in the semester (absorbs extra classes beyond planned)
+              GREATEST(0, caa.total_planned_sessions - caa.total_locked_sessions)::int AS remaining_sessions,
+              -- 4. Minimum sessions needed to sit final exam: CEIL(0.75 * planned_semester_baseline)
+              CEIL(0.75 * GREATEST(0, GREATEST(caa.total_locked_sessions, caa.total_planned_sessions) - caa.excused_sessions))::int AS exam_qualification_target,
+              -- 5. Maximum achievable attendance if student attends every remaining class: A + (planned - H)
+              (caa.attended_sessions + GREATEST(0, caa.total_planned_sessions - caa.total_locked_sessions))::int AS max_achievable_attendance,
               -- 6. Current Attendance Percentage: A / (H - E) (Defensive All-Excused Boundary)
               CASE 
                   WHEN (caa.total_locked_sessions - caa.excused_sessions) <= 0 THEN 100.0
@@ -339,6 +343,8 @@ export class StudentAttendanceService {
         c.title,
         c.units,
         c.level,
+        COALESCE(c.sessions_per_week, 1)::int AS sessions_per_week,
+        COALESCE(c.total_planned_sessions, 15)::int AS total_planned_sessions,
         cr.student_id IS NOT NULL AS is_course_rep
       FROM courses c
       LEFT JOIN course_representatives cr 
@@ -355,6 +361,7 @@ export class StudentAttendanceService {
       SELECT 
           s.session_id,
           s.week_number,
+          COALESCE(s.sub_session, 1)::int AS sub_session,
           s.session_date,
           s.session_mode,
           s.is_locked,
@@ -377,12 +384,13 @@ export class StudentAttendanceService {
             AND r.student_id = $1
       WHERE s.course_id = $2
         AND (s.semester_id = $3 OR s.semester_id IS NULL)
-      ORDER BY s.week_number ASC;
+      ORDER BY s.week_number ASC, s.sub_session ASC;
     `, [studentId, courseId, semesterId]);
 
     const sessions = sessionsRes.rows.map((row) => ({
       sessionId: row.session_id,
       weekNumber: row.week_number,
+      subSession: row.sub_session || 1,
       sessionDate: row.session_date,
       sessionMode: row.session_mode,
       isLocked: row.is_locked,
@@ -401,7 +409,7 @@ export class StudentAttendanceService {
       otpRemainingSeconds: row.is_otp_active ? row.otp_remaining_seconds : 0,
     }));
 
-    // 4. Calculate individual course 75% NUC stats with Denominator Exemption
+    // 4. Calculate individual course 75% NUC stats with Denominator Exemption & Dynamic Horizon
     const lockedSessions = sessions.filter((s) => s.isLocked);
     const totalLockedCount = lockedSessions.length;
     const attendedCount = lockedSessions.filter((s) => s.status === 'PRESENT').length;
@@ -413,9 +421,11 @@ export class StudentAttendanceService {
       ? 100.0
       : parseFloat(((attendedCount / effectiveLockedCount) * 100).toFixed(1));
 
-    const plannedSemesterBaseline = Math.max(1, 15 - excusedCount);
+    const totalPlannedSessions = courseMeta.total_planned_sessions || (courseMeta.sessions_per_week ? courseMeta.sessions_per_week * 15 : 15);
+    const plannedSemesterBaseline = Math.max(0, Math.max(totalLockedCount, totalPlannedSessions) - excusedCount);
     const examQualificationTarget = Math.ceil(0.75 * plannedSemesterBaseline);
-    const maxAchievable = attendedCount + Math.max(0, 15 - totalLockedCount);
+    const remainingSessions = Math.max(0, totalPlannedSessions - totalLockedCount);
+    const maxAchievable = attendedCount + remainingSessions;
     const canStillQualify = maxAchievable >= examQualificationTarget;
 
     const sessionsNeededForExam = canStillQualify
@@ -423,7 +433,7 @@ export class StudentAttendanceService {
       : null;
 
     const consecutiveToClearWarning = canStillQualify && effectiveLockedCount > 0
-      ? Math.min(15 - totalLockedCount, Math.max(0, 3 * effectiveLockedCount - 4 * attendedCount))
+      ? Math.min(remainingSessions, Math.max(0, 3 * effectiveLockedCount - 4 * attendedCount))
       : 0;
 
     return {
@@ -443,7 +453,7 @@ export class StudentAttendanceService {
         attendedSessions: attendedCount,
         excusedSessions: excusedCount,
         plannedSemesterBaseline,
-        remainingSessions: Math.max(0, 15 - totalLockedCount),
+        remainingSessions,
         attendancePercentage: percentage,
         examQualificationTarget,
         maxAchievableAttendance: maxAchievable,
