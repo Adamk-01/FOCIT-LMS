@@ -28,14 +28,16 @@ export function ResetPasswordModal({ isOpen, user, onClose, onReset, isSubmittin
     e.preventDefault();
     setErrorMsg(null);
     try {
-      const res = await onReset(user.id, customPassword.trim() || undefined);
+      const targetUserId = user.id || user.identifier || user.matricNumber || user.staffNumber;
+      const res = await onReset(targetUserId, customPassword.trim() || undefined);
       if (res?.temporaryPassword) {
         setNewPasswordResult(res.temporaryPassword);
       } else {
         handleClose();
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Failed to reset password');
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to reset password';
+      setErrorMsg(msg);
     }
   };
 
