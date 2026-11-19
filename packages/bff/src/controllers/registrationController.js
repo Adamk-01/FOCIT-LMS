@@ -635,6 +635,29 @@ export async function submitRegistration(req, res) {
           }).catch((e) => logger.warn({ err: e?.message, advisorId: adv.advisor_id }, '[Registration] Advisor notification failed'));
         }
       }
+
+      // 3. Dispatch specific notification to assigned lecturers of each chosen course
+      for (const course of validCourses) {
+        pool.query(
+          `SELECT hca.lecturer_id, sa.full_name
+           FROM hod_course_allocations hca
+           JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+           WHERE hca.course_id = $1 AND hca.semester_id = $2`,
+          [course.course_id, semesterId]
+        ).then(({ rows: assignedLecturers }) => {
+          for (const lec of assignedLecturers) {
+            createNotification({
+              userId: lec.lecturer_id,
+              category: 'REGISTRATION',
+              priority: 'NORMAL',
+              title: `Course Registration Request: ${course.code}`,
+              body: `${studentInfo?.full_name || studentId} (${studentInfo?.matric_number || studentId}, Level ${studentInfo?.level || ''}) applied to register for ${course.code} (${course.title}).`,
+              actionUrl: `/lecturer?courseId=${encodeURIComponent(course.course_id)}`,
+              metadata: { courseId: course.course_id, studentId, batchId: batch.id },
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
     } catch (notifErr) {
       logger.warn({ err: notifErr?.message, studentId }, '[Registration] Post-submission notification emission failed');
     }
