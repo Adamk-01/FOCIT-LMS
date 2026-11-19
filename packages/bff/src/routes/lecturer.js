@@ -968,6 +968,16 @@ router.post('/courses/:courseId/registrations/:itemId/reject', async (req, res, 
         [item.student_id, item.course_id, item.semester_id]
       );
 
+      // 5b. Purge any pending ENROLLMENT_SYNC outbox event to prevent post-rejection upstream sync
+      await client.query(
+        `DELETE FROM integration_outbox_events 
+         WHERE aggregate_type = 'COURSE_REGISTRATION'
+           AND event_type = 'ENROLLMENT_SYNC'
+           AND idempotency_key = $1
+           AND status = 'PENDING'`,
+        [`moodle_sync:${item.student_id}:${item.course_id}:${item.semester_id}`]
+      );
+
       await client.query('COMMIT');
 
       // 6. Post-commit Notification to Student

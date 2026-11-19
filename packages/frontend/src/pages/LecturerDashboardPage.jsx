@@ -12,9 +12,12 @@ import { FileSpreadsheet, UserCheck } from 'lucide-react';
 import { ContinuousAssessmentIngestModal } from '../components/roster/ContinuousAssessmentIngestModal';
 import { CourseRegistrationApprovalsPanel } from '../components/lecturer/CourseRegistrationApprovalsPanel';
 
+const VALID_TABS = ['courses', 'registrations', 'roster', 'assignments', 'attendance'];
+
 export function LecturerDashboardPage() {
   const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'courses';
+  const rawTab = searchParams.get('tab');
+  const initialTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'courses';
   const initialCourseId = searchParams.get('courseId') || '';
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -27,7 +30,7 @@ export function LecturerDashboardPage() {
   React.useEffect(() => {
     const tabParam = searchParams.get('tab');
     const courseIdParam = searchParams.get('courseId');
-    if (tabParam && tabParam !== activeTab) {
+    if (tabParam && VALID_TABS.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam);
     }
     if (courseIdParam && courseIdParam !== selectedCourseId) {

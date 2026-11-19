@@ -160,6 +160,17 @@ export class UnifiedOutboxWorker {
           const canonicalUsername = (matric_number || studentId).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
           
           let moodleUserId;
+
+          // 0. Check if mapping already exists in local database (avoids redundant provisioning on retry)
+          const existingMap = await pool.query(
+            `SELECT moodle_user_id FROM moodle_user_mappings WHERE focit_user_id = $1`,
+            [aggregate_id]
+          );
+          if (existingMap.rows.length > 0) {
+            moodleUserId = existingMap.rows[0].moodle_user_id;
+            break;
+          }
+
           let existingUser = null;
           try {
             existingUser = await getMoodleUserByField('username', canonicalUsername);
@@ -175,12 +186,22 @@ export class UnifiedOutboxWorker {
             moodleUserId = existingUser.id;
           } else {
             const parts = (full_name || 'Student User').split(' ');
-            moodleUserId = await createMoodleUser({
-              username: canonicalUsername,
-              firstname: parts[0] || 'Student',
-              lastname: parts.slice(1).join(' ') || 'User',
-              email: email || `${canonicalUsername}@focit.uniosun.edu.ng`,
-            });
+            try {
+              moodleUserId = await createMoodleUser({
+                username: canonicalUsername,
+                firstname: parts[0] || 'Student',
+                lastname: parts.slice(1).join(' ') || 'User',
+                email: email || `${canonicalUsername}@focit.uniosun.edu.ng`,
+              });
+            } catch (createErr) {
+              const errMsg = String(createErr?.message || '').toLowerCase();
+              if (errMsg.includes('already exists') || createErr?.errorCode === 'usernamealreadyexists') {
+                const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but web service token lacks read capabilities (core_user_get_users_by_field) to retrieve user ID.`);
+                configErr.isRetryable = false;
+                throw configErr;
+              }
+              throw createErr;
+            }
           }
 
           // Guard: If moodleUserId was previously mapped to a stale/different FOCIT identity, purge the obsolete mapping
@@ -220,6 +241,20 @@ export class UnifiedOutboxWorker {
               `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
             );
             semesterId = activeTermRes.rows[0]?.id || '2026_RAIN';
+          }
+
+          // Guard: Verify authoritative enrollment is active and not cancelled/rejected
+          const enrollmentCheck = await pool.query(
+            `SELECT 1 FROM enrollments 
+             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3 AND status = 'ENROLLED'`,
+            [studentId, courseId, semesterId]
+          );
+          if (enrollmentCheck.rows.length === 0) {
+            logger.info(
+              { studentId, courseId, semesterId },
+              '[UnifiedOutbox] Enrollment no longer active or was rejected. Skipping Moodle synchronization.'
+            );
+            break;
           }
 
           // 1. Resolve Moodle User ID

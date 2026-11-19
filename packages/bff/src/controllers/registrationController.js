@@ -873,13 +873,55 @@ export async function batchApproveRegistrations(req, res) {
       [studentIds]
     );
 
-    // 3. Batch Update Status to ADVISOR_APPROVED
+    // 2b. Validate Senate Minimum Credit Floor (15 units) for Non-Waiver Submissions Post-Lecturer Review
+    const unitsPerBatchRes = await client.query(
+      `SELECT b.id, b.student_id, b.dean_waiver, b.total_units AS batch_total_units,
+              COUNT(cri.id)::int AS item_count,
+              COALESCE(SUM(cri.units), 0)::int AS approved_units
+       FROM course_registration_batches b
+       LEFT JOIN course_registration_items cri ON cri.batch_id = b.id AND cri.status != 'REJECTED'
+       WHERE b.id = ANY($1::uuid[])
+       GROUP BY b.id, b.student_id, b.dean_waiver, b.total_units`,
+      [validBatchIds]
+    );
+
+    const approvedUnitsMap = new Map();
+    const underEnrolledBatches = [];
+
+    for (const row of unitsPerBatchRes.rows) {
+      const effectiveUnits = row.item_count > 0 ? row.approved_units : row.batch_total_units;
+      approvedUnitsMap.set(row.id, effectiveUnits);
+
+      if (effectiveUnits < 15 && !row.dean_waiver) {
+        underEnrolledBatches.push({
+          batchId: row.id,
+          studentId: row.student_id,
+          enrolledUnits: effectiveUnits,
+        });
+      }
+    }
+
+    if (underEnrolledBatches.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        error: 'One or more registration batches fall below the 15-unit Senate floor due to lecturer rejections. Students must register replacement courses or obtain an approved waiver.',
+        code: 'INSUFFICIENT_ENROLLED_UNITS',
+        underEnrolledBatches,
+      });
+    }
+
+    // 3. Batch Update Status to ADVISOR_APPROVED and update total_units to actually approved units
     await client.query(
-      `UPDATE course_registration_batches 
+      `UPDATE course_registration_batches b
        SET 
          status = 'ADVISOR_APPROVED', 
          advisor_id = $1, 
          advisor_approved_at = NOW(), 
+         total_units = COALESCE((
+           SELECT SUM(cri.units)::int 
+           FROM course_registration_items cri 
+           WHERE cri.batch_id = b.id AND cri.status != 'REJECTED'
+         ), b.total_units),
          version = version + 1, 
          updated_at = NOW()
        WHERE id = ANY($2::uuid[])`,
@@ -950,16 +992,17 @@ export async function batchApproveRegistrations(req, res) {
 
     await client.query('COMMIT');
 
-    // Post-commit: Notify each approved student
+    // Post-commit: Notify each approved student with actually approved units
     for (const b of validSubmissions) {
+      const actualUnits = approvedUnitsMap.get(b.id) ?? b.total_units;
       createNotification({
         studentId: b.student_id,
         category: 'REGISTRATION',
         priority: 'HIGH',
         title: 'Course Registration Approved',
-        body: `Your semester course registration (${b.total_units} Units) has been approved and endorsed by your Level Advisor. Official course enrollments are active.`,
+        body: `Your semester course registration (${actualUnits} Units) has been approved and endorsed by your Level Advisor. Official course enrollments are active.`,
         actionUrl: '/registration',
-        metadata: { batchId: b.id, status: 'ADVISOR_APPROVED', total_units: b.total_units },
+        metadata: { batchId: b.id, status: 'ADVISOR_APPROVED', total_units: actualUnits },
       }).catch((e) => logger.warn({ err: e?.message, studentId: b.student_id }, '[Advisor] Failed to notify student of approval'));
     }
 
@@ -967,6 +1010,11 @@ export async function batchApproveRegistrations(req, res) {
       status: 'SUCCESS',
       approvedCount: validBatchIds.length,
       approvedBatchIds: validBatchIds,
+      batches: validSubmissions.map(b => ({
+        id: b.id,
+        studentId: b.student_id,
+        approvedUnits: approvedUnitsMap.get(b.id) ?? b.total_units,
+      })),
     });
   } catch (err) {
     await client.query('ROLLBACK');
