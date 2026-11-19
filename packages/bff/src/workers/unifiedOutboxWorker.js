@@ -18,6 +18,7 @@ import { createMoodleUser, getMoodleUserByField } from '../integrations/moodle/m
 import { enrolUserInCourse } from '../integrations/moodle/moodle.enrolments.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js';
+import { createNotification } from '../routes/notifications.js';
 
 const BATCH_SIZE = 20;
 const LEASE_DURATION_SECONDS = 30;
@@ -349,6 +350,21 @@ export class UnifiedOutboxWorker {
           SET status = 'FAILED', locked_until = NULL, last_error = $2, updated_at = NOW()
           WHERE event_id = $1;
         `, [event_id, errorMessage]);
+
+        // Post-quarantine alert to Administrator
+        try {
+          await createNotification({
+            userId: 'admin1',
+            category: 'SYSTEM',
+            priority: 'URGENT',
+            title: `Outbox Sync Failure: ${event_type}`,
+            body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
+            actionUrl: '/admin/outbox',
+            metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
+          });
+        } catch (adminNotifErr) {
+          logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
+        }
       } else {
         // Exponential backoff for retryable errors
         const backoffSeconds = Math.min(300, Math.pow(2, ev.delivery_attempts) * 5);

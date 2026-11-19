@@ -8,6 +8,7 @@ import { Router } from 'express';
 import db from '../db/index.js';
 import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 import { logger } from '../lib/logger.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 
@@ -122,14 +123,15 @@ router.post('/allocations', async (req, res, next) => {
     const markAsPrimary = Boolean(isPrimary);
     const result = await db.transaction(async (client) => {
       const course = await client.query(
-        `SELECT course_id FROM courses WHERE course_id = $1 AND department_id = $2`,
+        `SELECT course_id, code, title FROM courses WHERE course_id = $1 AND department_id = $2`,
         [courseId, req.hodScope.department_id]
       );
       if (course.rowCount === 0) {
         const e = new Error('Course not found in your department'); e.status = 404; throw e;
       }
+      const courseRow = course.rows[0];
       const lecturer = await client.query(
-        `SELECT advisor_id FROM staff_advisors
+        `SELECT advisor_id, full_name, staff_number FROM staff_advisors
          WHERE advisor_id = $1 AND department_id = $2 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')`,
         [lecturerId, req.hodScope.department_id]
       );
@@ -166,8 +168,20 @@ router.post('/allocations', async (req, res, next) => {
         targetType: 'COURSE_ALLOCATION',
         metadata: { semesterId, lecturerId, isPrimary: markAsPrimary },
       });
-      return rows[0];
+      return { ...rows[0], _courseCode: courseRow.code, _courseTitle: courseRow.title };
     });
+
+    // Post-commit notification to assigned lecturer
+    await createNotification({
+      userId: lecturerId,
+      category: 'ACADEMIC',
+      priority: 'HIGH',
+      title: markAsPrimary ? `Lead Course Coordinator: ${result._courseCode}` : `Course Allocation: ${result._courseCode}`,
+      body: `You have been allocated to teach ${result._courseCode} (${result._courseTitle}) for semester ${semesterId} by HOD ${req.hodScope.full_name || 'Department HOD'}.`,
+      actionUrl: '/lecturer',
+      metadata: { courseId, semesterId, isPrimary: markAsPrimary, allocatedBy: req.hodScope.advisor_id },
+    }).catch((e) => logger.warn({ err: e?.message, lecturerId }, '[HOD] Failed to emit course allocation notification'));
+
     res.status(201).json(result);
   } catch (err) { next(err); }
 });
@@ -180,7 +194,7 @@ router.delete('/allocations/:allocationId', async (req, res, next) => {
   try {
     const result = await db.transaction(async (client) => {
       const checkRes = await client.query(
-        `SELECT hca.id, hca.course_id, hca.semester_id, hca.lecturer_id, hca.is_primary, c.department_id
+        `SELECT hca.id, hca.course_id, hca.semester_id, hca.lecturer_id, hca.is_primary, c.department_id, c.code, c.title
          FROM hod_course_allocations hca
          JOIN courses c ON c.course_id = hca.course_id
          WHERE hca.id = $1`,
@@ -205,8 +219,22 @@ router.delete('/allocations/:allocationId', async (req, res, next) => {
         metadata: { semesterId: alloc.semester_id, lecturerId: alloc.lecturer_id, wasPrimary: alloc.is_primary },
       });
 
-      return { success: true, deletedAllocationId: allocationId };
+      return { success: true, deletedAllocationId: allocationId, _alloc: alloc };
     });
+
+    // Post-commit notification on deallocation
+    if (result._alloc) {
+      await createNotification({
+        userId: result._alloc.lecturer_id,
+        category: 'ACADEMIC',
+        priority: 'NORMAL',
+        title: `Course Allocation Removed: ${result._alloc.code}`,
+        body: `Your allocation to teach ${result._alloc.code} (${result._alloc.title}) for semester ${result._alloc.semester_id} has been unassigned by Department HOD.`,
+        actionUrl: '/lecturer',
+        metadata: { courseId: result._alloc.course_id, semesterId: result._alloc.semester_id },
+      }).catch((e) => logger.warn({ err: e?.message, lecturerId: result._alloc.lecturer_id }, '[HOD] Failed to emit course deallocation notification'));
+    }
+
     res.json(result);
   } catch (err) { next(err); }
 });

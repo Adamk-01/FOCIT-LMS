@@ -171,6 +171,17 @@ export async function createStudentNotification({
   }
 }
 
+/**
+ * Universal polymorphic notification creator supporting both students and academic staff.
+ */
+export async function createNotification(params, externalClient = null) {
+  const recipientId = params.userId || params.studentId;
+  return createStudentNotification({
+    ...params,
+    studentId: recipientId,
+  }, externalClient);
+}
+
 // ============================================================================
 // 2. SSE STREAM ENDPOINT WITH MONOTONIC CATCH-UP & SOCKET REGISTRY
 // ============================================================================

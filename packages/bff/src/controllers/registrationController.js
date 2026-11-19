@@ -15,6 +15,7 @@
 import { pool } from '../db/index.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { createNotification } from '../routes/notifications.js';
 
 /**
  * 1. GET /api/registration/current
@@ -563,6 +564,56 @@ export async function submitRegistration(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Post-commit: Notify student and alert Level Advisor(s)
+    try {
+      const studentRes = await pool.query(
+        `SELECT s.student_id, s.matric_number, s.full_name, s.level, p.department_id, p.name AS programme_name
+         FROM students s
+         JOIN programmes p ON p.id = s.programme_id
+         WHERE s.student_id = $1`,
+        [studentId]
+      );
+      const studentInfo = studentRes.rows[0];
+
+      // Confirmation alert to submitting student
+      await createNotification({
+        studentId,
+        category: 'REGISTRATION',
+        priority: 'NORMAL',
+        title: 'Registration Submitted',
+        body: `Your course registration batch (${projectedUnits} Units) has been submitted for Level Advisor review.`,
+        actionUrl: '/registration',
+        metadata: { batchId: batch.id, total_units: projectedUnits, status: 'SUBMITTED' },
+      }).catch((e) => logger.warn({ err: e?.message, studentId }, '[Registration] Student submission notification failed'));
+
+      // Forward alert to department Level Advisor
+      if (studentInfo) {
+        const advisorRes = await pool.query(
+          `SELECT advisor_id FROM staff_advisors 
+           WHERE department_id = $1 
+             AND role IN ('LEVEL_ADVISOR', 'HOD')
+             AND (assigned_level = $2 OR assigned_level IS NULL)
+           ORDER BY (assigned_level = $2) DESC
+           LIMIT 2`,
+          [studentInfo.department_id, studentInfo.level]
+        );
+        for (const adv of advisorRes.rows) {
+          await createNotification({
+            userId: adv.advisor_id,
+            category: 'REGISTRATION',
+            priority: 'NORMAL',
+            title: 'New Registration Submitted for Endorsement',
+            body: `${studentInfo.full_name} (${studentInfo.matric_number}, Level ${studentInfo.level}) submitted a registration batch (${projectedUnits} Units) for review.`,
+            actionUrl: '/advisor/registrations',
+            metadata: { batchId: batch.id, studentId, matricNumber: studentInfo.matric_number, total_units: projectedUnits },
+          }).catch((e) => logger.warn({ err: e?.message, advisorId: adv.advisor_id }, '[Registration] Advisor notification failed'));
+        }
+      }
+    } catch (notifErr) {
+      logger.warn({ err: notifErr?.message, studentId }, '[Registration] Post-submission notification emission failed');
+    }
+
     return res.status(200).json({
       status: 'SUCCESS',
       message: 'Course registration successfully submitted for Level Advisor endorsement',
@@ -843,6 +894,20 @@ export async function batchApproveRegistrations(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Post-commit: Notify each approved student
+    for (const b of validSubmissions) {
+      createNotification({
+        studentId: b.student_id,
+        category: 'REGISTRATION',
+        priority: 'HIGH',
+        title: 'Course Registration Approved',
+        body: `Your semester course registration (${b.total_units} Units) has been approved and endorsed by your Level Advisor. Official course enrollments are active.`,
+        actionUrl: '/registration',
+        metadata: { batchId: b.id, status: 'ADVISOR_APPROVED', total_units: b.total_units },
+      }).catch((e) => logger.warn({ err: e?.message, studentId: b.student_id }, '[Advisor] Failed to notify student of approval'));
+    }
+
     return res.status(200).json({
       status: 'SUCCESS',
       approvedCount: validBatchIds.length,
@@ -982,6 +1047,18 @@ export async function rejectRegistration(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Post-commit: Notify student of rejection with Level Advisor remarks
+    createNotification({
+      studentId: batch.student_id,
+      category: 'REGISTRATION',
+      priority: 'URGENT',
+      title: 'Registration Requires Revision',
+      body: `Your course registration was returned by your Level Advisor with remarks: "${remarks.trim()}". Please revise your selection and resubmit.`,
+      actionUrl: '/registration',
+      metadata: { batchId: batch.id, status: 'REJECTED', remarks: remarks.trim() },
+    }).catch((e) => logger.warn({ err: e?.message, studentId: batch.student_id }, '[Advisor] Failed to notify student of rejection'));
+
     return res.status(200).json({
       status: 'SUCCESS',
       message: 'Registration returned to student with remarks. Course capacities released.',
