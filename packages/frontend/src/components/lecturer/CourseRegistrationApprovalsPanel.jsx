@@ -338,7 +338,7 @@ export function CourseRegistrationApprovalsPanel({ courses = [], selectedCourseI
                       <span className="font-semibold">{reg.level} Level</span> • {reg.programme_name}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="font-bold text-gray-900">{reg.current_gpa ? Number(reg.current_gpa).toFixed(2) : '3.50'}</span>
+                      <span className="font-bold text-gray-900">{reg.current_gpa !== undefined && reg.current_gpa !== null ? Number(reg.current_gpa).toFixed(2) : 'N/A'}</span>
                     </td>
                     <td className="py-3.5 px-4 text-gray-500 text-[11px]">
                       {new Date(reg.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}

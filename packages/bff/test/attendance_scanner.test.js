@@ -59,19 +59,19 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
       ON CONFLICT (student_id) DO UPDATE SET matric_number = EXCLUDED.matric_number, level = 200, account_status = 'ACTIVE';
     `);
 
-    await pool.query(`
-      INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status)
-      VALUES 
-        ('student1', 'CSC204', '2026_RAIN', 'CSC 204', 'ENROLLED'),
-        ('student2', 'CSC204', '2026_RAIN', 'CSC 204', 'ENROLLED')
-      ON CONFLICT DO NOTHING;
-    `);
-
     // Appoint student1 as Course Rep and allocate lecturer1 to CSC204
     const termRes = await pool.query(
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
     );
     activeSemId = termRes.rows[0]?.id || '2026_RAIN';
+
+    await pool.query(`
+      INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status)
+      VALUES 
+        ('student1', 'CSC204', $1, 'CSC 204', 'ENROLLED'),
+        ('student2', 'CSC204', $1, 'CSC 204', 'ENROLLED')
+      ON CONFLICT DO NOTHING;
+    `, [activeSemId]);
 
     // Snapshot existing allocation state for CSC204 to preserve & restore during teardown
     const allocSnapshot = await pool.query(
@@ -122,7 +122,8 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     // Finding 11: Make test suite repeatable on a persistent database
     await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
     await pool.query("DELETE FROM quiz_questions WHERE question_id = 'qq_csc204_test_1'").catch(() => {});
-    await pool.query("DELETE FROM quizzes WHERE course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST'").catch(() => {});
+    await pool.query("DELETE FROM quizzes WHERE quiz_id = 'practice_csc204' OR (course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST')").catch(() => {});
+    await pool.query("DELETE FROM enrollments WHERE course_id = 'CSC204' AND student_id IN ('student1', 'student2')").catch(() => {});
     await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
 
     // Restore prior allocation state cleanly to preserve original database integrity

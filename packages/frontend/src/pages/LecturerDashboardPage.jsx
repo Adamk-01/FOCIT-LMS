@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   useLecturerOverview,
   useLecturerCourses,
@@ -13,11 +13,27 @@ import { ContinuousAssessmentIngestModal } from '../components/roster/Continuous
 import { CourseRegistrationApprovalsPanel } from '../components/lecturer/CourseRegistrationApprovalsPanel';
 
 export function LecturerDashboardPage() {
-  const [activeTab, setActiveTab] = useState('courses');
-  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'courses';
+  const initialCourseId = searchParams.get('courseId') || '';
+
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
 
   const { data: overview, isLoading: overviewLoading } = useLecturerOverview();
   const { data: courses = [], isLoading: coursesLoading } = useLecturerCourses();
+
+  // Sync state if URL search parameters change
+  React.useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const courseIdParam = searchParams.get('courseId');
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+    if (courseIdParam && courseIdParam !== selectedCourseId) {
+      setSelectedCourseId(courseIdParam);
+    }
+  }, [searchParams]);
 
   // Automatically select first course when courses load if none selected
   React.useEffect(() => {

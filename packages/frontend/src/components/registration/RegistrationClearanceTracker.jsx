@@ -125,7 +125,7 @@ export function RegistrationClearanceTracker({
                       Declined {c.rejected_by_name ? `by ${c.rejected_by_name}` : ''}
                     </span>
                     {c.rejection_reason && (
-                      <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 max-w-xs truncate">
+                      <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 max-w-xs break-words" title={c.rejection_reason}>
                         "{c.rejection_reason}"
                       </p>
                     )}

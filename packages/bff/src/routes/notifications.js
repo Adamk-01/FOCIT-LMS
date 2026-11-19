@@ -190,28 +190,30 @@ export async function createNotification(params, externalClient = null) {
  * Matches both canonical database entity IDs (student_id, advisor_id) and login usernames/matric numbers.
  */
 export function resolveNotificationUserIds(req) {
-  const primaryId = req.user?.id || req.user?.student_id;
-  const alternateId = req.user?.username;
-  const userIds = [];
-  if (primaryId) userIds.push(String(primaryId));
-  if (alternateId && !userIds.includes(String(alternateId))) {
-    userIds.push(String(alternateId));
-  }
-  return userIds.length > 0 ? userIds : ['student1'];
+  const set = new Set();
+  if (req.user?.id) set.add(String(req.user.id));
+  if (req.user?.student_id) set.add(String(req.user.student_id));
+  if (req.user?.advisor_id) set.add(String(req.user.advisor_id));
+  if (req.user?.username) set.add(String(req.user.username));
+  return Array.from(set).filter(Boolean).sort();
 }
 
 router.get('/stream', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
-  const primaryKey = userIds[0];
-
-  // 1. Concurrency Ceiling Guard (Prevent campus terminal tab flooding)
-  let primarySockets = activeStudentSockets.get(primaryKey);
-  if (!primarySockets) {
-    primarySockets = new Set();
-    activeStudentSockets.set(primaryKey, primarySockets);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
   }
 
-  if (primarySockets.size >= 10) {
+  // 1. Concurrency Ceiling Guard (Prevent campus terminal tab flooding across all user aliases)
+  let currentMax = 0;
+  for (const uId of userIds) {
+    const s = activeStudentSockets.get(uId);
+    if (s && s.size > currentMax) {
+      currentMax = s.size;
+    }
+  }
+
+  if (currentMax >= 10) {
     return res.status(429).json({
       error: 'Too many concurrent notification streams. Maximum 10 active tabs allowed.',
       code: 'MAX_STREAMS_EXCEEDED'
@@ -295,6 +297,9 @@ router.get('/stream', async (req, res) => {
 // ============================================================================
 router.get('/', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { 
     cursor = null, 
     limit = 20, 
@@ -381,6 +386,9 @@ router.get('/', async (req, res) => {
 // ============================================================================
 router.patch('/:id/read', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { id } = req.params;
 
   try {
@@ -423,6 +431,9 @@ router.patch('/:id/read', async (req, res) => {
 // ============================================================================
 router.post('/read-all', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { read_up_to = new Date().toISOString() } = req.body;
 
   try {
@@ -451,6 +462,9 @@ router.post('/read-all', async (req, res) => {
 // ============================================================================
 router.delete('/clear-all', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
 
   try {
     const { rows } = await pool.query(`
@@ -476,6 +490,9 @@ router.delete('/clear-all', async (req, res) => {
 // ============================================================================
 router.delete('/:id', async (req, res) => {
   const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { id } = req.params;
 
   try {

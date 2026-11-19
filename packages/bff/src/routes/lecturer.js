@@ -744,6 +744,7 @@ router.get('/courses/:courseId/registrations', async (req, res, next) => {
       JOIN departments d ON d.id = p.department_id
       WHERE cri.course_id = $1
         AND b.semester_id = $2
+        AND b.status != 'DRAFT'
       ORDER BY 
         CASE WHEN cri.status = 'PENDING_LECTURER' THEN 1 ELSE 2 END ASC,
         cri.created_at ASC
@@ -799,21 +800,31 @@ router.post('/courses/:courseId/registrations/:itemId/accept', async (req, res, 
       // 2. Lock item row
       const itemRes = await client.query(
         `SELECT cri.id, cri.batch_id, cri.course_id, cri.units, cri.status,
-                b.student_id, b.semester_id, c.code AS course_code, c.title AS course_title
+                b.student_id, b.semester_id, b.status AS batch_status, c.code AS course_code, c.title AS course_title
          FROM course_registration_items cri
          JOIN course_registration_batches b ON b.id = cri.batch_id
          JOIN courses c ON c.course_id = cri.course_id
-         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3 AND b.status != 'DRAFT'
          FOR UPDATE`,
         [itemId, courseId, targetSemesterId]
       );
 
       if (itemRes.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Course registration item not found', code: 'ITEM_NOT_FOUND' });
+        return res.status(404).json({ error: 'Course registration item not found or batch is an unsubmitted draft', code: 'ITEM_NOT_FOUND' });
       }
 
       const item = itemRes.rows[0];
+
+      // Validate acceptance transitions: reject already approved or rejected items
+      if (item.status === 'APPROVED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Course registration item has already been approved', code: 'ALREADY_APPROVED' });
+      }
+      if (item.status === 'REJECTED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Cannot accept a previously rejected course registration item', code: 'INVALID_STATUS_TRANSITION' });
+      }
 
       // 3. Mark as APPROVED by lecturer
       await client.query(
@@ -915,21 +926,27 @@ router.post('/courses/:courseId/registrations/:itemId/reject', async (req, res, 
       // 2. Lock item row
       const itemRes = await client.query(
         `SELECT cri.id, cri.batch_id, cri.course_id, cri.units, cri.status,
-                b.student_id, b.semester_id, c.code AS course_code, c.title AS course_title
+                b.student_id, b.semester_id, b.status AS batch_status, c.code AS course_code, c.title AS course_title
          FROM course_registration_items cri
          JOIN course_registration_batches b ON b.id = cri.batch_id
          JOIN courses c ON c.course_id = cri.course_id
-         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3 AND b.status != 'DRAFT'
          FOR UPDATE`,
         [itemId, courseId, targetSemesterId]
       );
 
       if (itemRes.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Course registration item not found', code: 'ITEM_NOT_FOUND' });
+        return res.status(404).json({ error: 'Course registration item not found or batch is an unsubmitted draft', code: 'ITEM_NOT_FOUND' });
       }
 
       const item = itemRes.rows[0];
+
+      // Validate rejection: only reject items that are not already rejected
+      if (item.status === 'REJECTED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Course registration item has already been rejected', code: 'ALREADY_REJECTED' });
+      }
 
       // 3. Mark as REJECTED
       await client.query(
@@ -1019,10 +1036,22 @@ router.post('/courses/:courseId/registrations/batch-accept', async (req, res, ne
          FROM course_registration_items cri
          JOIN course_registration_batches b ON b.id = cri.batch_id
          JOIN courses c ON c.course_id = cri.course_id
-         WHERE cri.id = ANY($1::uuid[]) AND cri.course_id = $2 AND b.semester_id = $3
+         WHERE cri.id = ANY($1::uuid[]) 
+           AND cri.course_id = $2 
+           AND b.semester_id = $3
+           AND b.status != 'DRAFT'
+           AND cri.status = 'PENDING_LECTURER'
          FOR UPDATE`,
         [itemIds, courseId, targetSemesterId]
       );
+
+      if (itemsRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'No pending registration items found for acceptance',
+          code: 'NO_PENDING_REGISTRATIONS',
+        });
+      }
 
       for (const item of itemsRes.rows) {
         await client.query(
@@ -1038,6 +1067,17 @@ router.post('/courses/:courseId/registrations/batch-accept', async (req, res, ne
            ON CONFLICT (student_id, course_id, semester_id)
            DO UPDATE SET status = 'ENROLLED', approved_by_lecturer_id = EXCLUDED.approved_by_lecturer_id, enrolled_at = NOW()`,
           [item.student_id, item.course_id, item.course_code, item.semester_id, lecturerId]
+        );
+
+        await client.query(
+          `INSERT INTO integration_outbox_events (aggregate_type, aggregate_id, event_type, payload, idempotency_key)
+           VALUES ('COURSE_REGISTRATION', $1, 'ENROLLMENT_SYNC', $2, $3)
+           ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            item.batch_id,
+            JSON.stringify({ student_id: item.student_id, course_id: item.course_id, course_code: item.course_code, semester_id: item.semester_id }),
+            `moodle_sync:${item.student_id}:${item.course_id}:${item.semester_id}`
+          ]
         );
       }
 

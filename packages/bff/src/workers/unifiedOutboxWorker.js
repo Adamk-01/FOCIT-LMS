@@ -160,7 +160,17 @@ export class UnifiedOutboxWorker {
           const canonicalUsername = (matric_number || studentId).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
           
           let moodleUserId;
-          const existingUser = await getMoodleUserByField('username', canonicalUsername);
+          let existingUser = null;
+          try {
+            existingUser = await getMoodleUserByField('username', canonicalUsername);
+          } catch (lookupErr) {
+            if (lookupErr?.errorCode === 'accessexception' || lookupErr?.errorCode === 'webservice_access_exception') {
+              logger.warn({ err: lookupErr.message, canonicalUsername }, '[UnifiedOutbox] User lookup access restricted, attempting direct provisioning');
+            } else {
+              throw lookupErr;
+            }
+          }
+
           if (existingUser?.id) {
             moodleUserId = existingUser.id;
           } else {
@@ -371,7 +381,7 @@ export class UnifiedOutboxWorker {
                 body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
                 actionUrl: '/admin/outbox',
                 metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
-              }).catch(() => {});
+              }).catch((err) => logger.warn({ err: err?.message, adminId }, '[UnifiedOutbox] Admin notification failed'));
             }
           } catch (adminNotifErr) {
             logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');

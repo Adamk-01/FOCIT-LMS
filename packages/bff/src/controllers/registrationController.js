@@ -345,7 +345,7 @@ export async function submitRegistration(req, res) {
   // Deduplicate and apply Dijkstra Resource Ordering
   const courseIds = [...new Set(rawCourseIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -572,6 +572,7 @@ export async function submitRegistration(req, res) {
     let studentInfo = null;
     let targetAdvisors = [];
     try {
+      await client.query('SAVEPOINT advisor_lookup');
       const studentRes = await client.query(
         `SELECT s.student_id, s.matric_number, s.full_name, s.level, p.department_id, p.name AS programme_name
          FROM students s
@@ -602,7 +603,9 @@ export async function submitRegistration(req, res) {
         );
         targetAdvisors = advisorRes.rows;
       }
+      await client.query('RELEASE SAVEPOINT advisor_lookup');
     } catch (lookupErr) {
+      await client.query('ROLLBACK TO SAVEPOINT advisor_lookup').catch(() => {});
       logger.warn({ err: lookupErr?.message, studentId }, '[Registration] Advisor lookup warning');
     }
 
@@ -834,7 +837,7 @@ export async function batchApproveRegistrations(req, res) {
   // Dijkstra Lexicographical Sort on UUIDs to form a DAG wait-for graph
   const batchIds = [...new Set(rawBatchIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -883,7 +886,7 @@ export async function batchApproveRegistrations(req, res) {
       [advisorId, validBatchIds]
     );
 
-    // 4. Commit Authoritative Enrollments in Bulk
+    // 4. Commit Authoritative Enrollments in Bulk (excluding lecturer-rejected courses)
     await client.query(
       `
       INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status)
@@ -896,14 +899,14 @@ export async function batchApproveRegistrations(req, res) {
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id
       JOIN courses c ON c.course_id = cri.course_id
-      WHERE b.id = ANY($1::uuid[])
+      WHERE b.id = ANY($1::uuid[]) AND cri.status != 'REJECTED'
       ON CONFLICT (student_id, course_id, semester_id) 
       DO UPDATE SET course_code = EXCLUDED.course_code, status = 'ENROLLED', enrolled_at = NOW();
       `,
       [validBatchIds]
     );
 
-    // 5. Enqueue Integration Outbox Events for Upstream Background Sync (Doctrine 8)
+    // 5. Enqueue Integration Outbox Events for Upstream Background Sync (Doctrine 8, excluding rejected courses)
     await client.query(
       `
       INSERT INTO integration_outbox_events (
@@ -924,7 +927,7 @@ export async function batchApproveRegistrations(req, res) {
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id
       JOIN courses c ON c.course_id = cri.course_id
-      WHERE b.id = ANY($1::uuid[])
+      WHERE b.id = ANY($1::uuid[]) AND cri.status != 'REJECTED'
       ON CONFLICT (idempotency_key) DO NOTHING;
       `,
       [validBatchIds]
@@ -1009,7 +1012,7 @@ export async function rejectRegistration(req, res) {
     });
   }
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
