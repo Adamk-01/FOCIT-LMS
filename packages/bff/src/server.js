@@ -217,7 +217,7 @@ const server = app.listen(config.port, HOST, () => {
 
   logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
 
-  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS !== 'false';
+  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production';
   if (shouldRunEmbeddedWorkers) {
     // Start Unified Transactional Outbox Worker
     unifiedOutboxWorker.start();

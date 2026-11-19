@@ -86,9 +86,14 @@ export async function getCurrentRegistrationState(req, res) {
 
     // 4. Fetch Staged Items in Current Batch
     const itemsRes = await pool.query(
-      `SELECT cri.id, cri.course_id, cri.units, cri.category, c.code, c.title
+      `SELECT cri.id, cri.course_id, cri.units, cri.category, cri.status, cri.approved_at, cri.rejection_reason,
+              c.code, c.title,
+              sa_app.full_name AS approved_by_name,
+              sa_rej.full_name AS rejected_by_name
        FROM course_registration_items cri
        JOIN courses c ON c.course_id = cri.course_id
+       LEFT JOIN staff_advisors sa_app ON sa_app.advisor_id = cri.approved_by
+       LEFT JOIN staff_advisors sa_rej ON sa_rej.advisor_id = cri.rejected_by
        WHERE cri.batch_id = $1
        ORDER BY cri.category ASC, c.code ASC`,
       [batch.id]
@@ -178,7 +183,7 @@ export async function saveRegistrationDraft(req, res) {
   // Deduplicate course IDs at ingress
   const courseIds = [...new Set(rawCourseIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -538,11 +543,11 @@ export async function submitRegistration(req, res) {
     validCourses.forEach((c, idx) => {
       const offset = idx * 3 + 2;
       params.push(c.course_id, c.units, c.category);
-      insertValues.push(`($1, $${offset}, $${offset + 1}, $${offset + 2})`);
+      insertValues.push(`($1, $${offset}, $${offset + 1}, $${offset + 2}, 'PENDING_LECTURER')`);
     });
 
     await client.query(
-      `INSERT INTO course_registration_items (batch_id, course_id, units, category)
+      `INSERT INTO course_registration_items (batch_id, course_id, units, category, status)
        VALUES ${insertValues.join(', ')}`,
       params
     );
@@ -563,21 +568,51 @@ export async function submitRegistration(req, res) {
       [batch.id, studentId, batch.status, JSON.stringify({ courses: courseIds, total_units: projectedUnits })]
     );
 
-    await client.query('COMMIT');
-
-    // Post-commit: Notify student and alert Level Advisor(s)
+    // Read student and advisor details using the checked-out client before committing and releasing
+    let studentInfo = null;
+    let targetAdvisors = [];
     try {
-      const studentRes = await pool.query(
+      const studentRes = await client.query(
         `SELECT s.student_id, s.matric_number, s.full_name, s.level, p.department_id, p.name AS programme_name
          FROM students s
          JOIN programmes p ON p.id = s.programme_id
          WHERE s.student_id = $1`,
         [studentId]
       );
-      const studentInfo = studentRes.rows[0];
+      studentInfo = studentRes.rows[0];
 
-      // Confirmation alert to submitting student
-      await createNotification({
+      if (studentInfo) {
+        // Deterministic Advisor Priority:
+        // Prioritize dedicated level cohort advisors first (assigned_level = student_level),
+        // placing general department fallbacks (assigned_level IS NULL) last.
+        const advisorRes = await client.query(
+          `SELECT advisor_id FROM staff_advisors 
+           WHERE department_id = $1 
+             AND role IN ('LEVEL_ADVISOR', 'HOD')
+             AND (assigned_level = $2 OR assigned_level IS NULL)
+           ORDER BY 
+             CASE 
+               WHEN assigned_level = $2 THEN 1 
+               WHEN assigned_level IS NULL THEN 2 
+               ELSE 3 
+             END ASC,
+             advisor_id ASC
+           LIMIT 2`,
+          [studentInfo.department_id, studentInfo.level]
+        );
+        targetAdvisors = advisorRes.rows;
+      }
+    } catch (lookupErr) {
+      logger.warn({ err: lookupErr?.message, studentId }, '[Registration] Advisor lookup warning');
+    }
+
+    await client.query('COMMIT');
+    client.release();
+    client = null;
+
+    // Post-commit: Asynchronously dispatch student and advisor notifications without holding database connection
+    try {
+      createNotification({
         studentId,
         category: 'REGISTRATION',
         priority: 'NORMAL',
@@ -587,19 +622,9 @@ export async function submitRegistration(req, res) {
         metadata: { batchId: batch.id, total_units: projectedUnits, status: 'SUBMITTED' },
       }).catch((e) => logger.warn({ err: e?.message, studentId }, '[Registration] Student submission notification failed'));
 
-      // Forward alert to department Level Advisor
-      if (studentInfo) {
-        const advisorRes = await pool.query(
-          `SELECT advisor_id FROM staff_advisors 
-           WHERE department_id = $1 
-             AND role IN ('LEVEL_ADVISOR', 'HOD')
-             AND (assigned_level = $2 OR assigned_level IS NULL)
-           ORDER BY (assigned_level = $2) DESC
-           LIMIT 2`,
-          [studentInfo.department_id, studentInfo.level]
-        );
-        for (const adv of advisorRes.rows) {
-          await createNotification({
+      if (studentInfo && targetAdvisors.length > 0) {
+        for (const adv of targetAdvisors) {
+          createNotification({
             userId: adv.advisor_id,
             category: 'REGISTRATION',
             priority: 'NORMAL',
@@ -621,11 +646,15 @@ export async function submitRegistration(req, res) {
       items: validCourses,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+    }
     logger.error({ err, studentId }, '[Registration] Failed to submit registration');
     return res.status(500).json({ error: 'Failed to commit registration', code: 'DB_ERROR' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 

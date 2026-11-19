@@ -351,20 +351,32 @@ export class UnifiedOutboxWorker {
           WHERE event_id = $1;
         `, [event_id, errorMessage]);
 
-        // Post-quarantine alert to Administrator
-        try {
-          await createNotification({
-            userId: 'admin1',
-            category: 'SYSTEM',
-            priority: 'URGENT',
-            title: `Outbox Sync Failure: ${event_type}`,
-            body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
-            actionUrl: '/admin/outbox',
-            metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
-          });
-        } catch (adminNotifErr) {
-          logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
-        }
+        // Post-quarantine alert to Administrator (non-blocking, dynamic recipient resolution)
+        // Decoupled from event loop to avoid delaying remaining batch events beyond their lease duration
+        (async () => {
+          try {
+            const adminRes = await pool.query(
+              `SELECT advisor_id FROM staff_advisors 
+               WHERE role IN ('ADMIN', 'SYSTEM_ADMIN') AND account_status = 'ACTIVE' 
+               ORDER BY (role = 'SYSTEM_ADMIN') DESC, created_at ASC 
+               LIMIT 3`
+            );
+            const targetAdmins = adminRes.rows.length > 0 ? adminRes.rows.map(r => r.advisor_id) : ['admin1'];
+            for (const adminId of targetAdmins) {
+              await createNotification({
+                userId: adminId,
+                category: 'SYSTEM',
+                priority: 'URGENT',
+                title: `Outbox Sync Failure: ${event_type}`,
+                body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
+                actionUrl: '/admin/outbox',
+                metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
+              }).catch(() => {});
+            }
+          } catch (adminNotifErr) {
+            logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
+          }
+        })();
       } else {
         // Exponential backoff for retryable errors
         const backoffSeconds = Math.min(300, Math.pow(2, ev.delivery_attempts) * 5);
