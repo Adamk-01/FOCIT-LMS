@@ -69,21 +69,6 @@ describe('Lecturer Workspace & Class Roster Verification', () => {
     );
   });
 
-  after(async () => {
-    // Restore prior allocation state cleanly to preserve original database integrity
-    if (capturedSemId) {
-      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [capturedSemId]).catch(() => {});
-      for (const alloc of priorAllocations) {
-        await pool.query(
-          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
-           VALUES ('CSC204', $1, $2, $3, $4)
-           ON CONFLICT (course_id, semester_id, lecturer_id) 
-           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
-          [capturedSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
-        ).catch(() => {});
-      }
-    }
-  });
 
   test('Security Guard: Rejects non-staff users with 403 FORBIDDEN_NOT_LECTURER', async () => {
     const req = {
@@ -170,6 +155,28 @@ describe('Lecturer Workspace & Class Roster Verification', () => {
   });
 
   after(async () => {
+    // Restore prior allocation state cleanly to preserve original database integrity
+    if (capturedSemId) {
+      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [capturedSemId]).catch(() => {});
+      for (const alloc of priorAllocations) {
+        await pool.query(
+          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+           VALUES ('CSC204', $1, $2, $3, $4)
+           ON CONFLICT (course_id, semester_id, lecturer_id) 
+           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
+          [capturedSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
+        ).catch(() => {});
+      }
+    }
+    try {
+      const { redisSubscriber, redisPublisher } = await import('../src/routes/notifications.js');
+      if (redisSubscriber?.disconnect) redisSubscriber.disconnect();
+      if (redisPublisher?.disconnect) redisPublisher.disconnect();
+    } catch {}
+    try {
+      const { redis } = await import('../src/lib/redis.js');
+      if (redis?.disconnect) redis.disconnect();
+    } catch {}
     await pool.end();
   });
 });

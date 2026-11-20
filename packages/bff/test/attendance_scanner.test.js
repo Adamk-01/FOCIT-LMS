@@ -115,32 +115,6 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     `);
   });
 
-  after(async () => {
-    if (server) {
-      server.close();
-    }
-    // Finding 11: Make test suite repeatable on a persistent database
-    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
-    await pool.query("DELETE FROM quiz_questions WHERE question_id = 'qq_csc204_test_1'").catch(() => {});
-    await pool.query("DELETE FROM quizzes WHERE quiz_id = 'practice_csc204' OR (course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST')").catch(() => {});
-    await pool.query("DELETE FROM enrollments WHERE course_id = 'CSC204' AND student_id IN ('student1', 'student2')").catch(() => {});
-    await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
-
-    // Restore prior allocation state cleanly to preserve original database integrity
-    if (activeSemId) {
-      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [activeSemId]).catch(() => {});
-      for (const alloc of priorAllocations) {
-        await pool.query(
-          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
-           VALUES ('CSC204', $1, $2, $3, $4)
-           ON CONFLICT (course_id, semester_id, lecturer_id) 
-           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
-          [activeSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
-        ).catch(() => {});
-      }
-    }
-  });
-
   test('Mode 4 Upload: Course Rep submits snapped sheet and OCR text', async () => {
     const res = await fetch(`${baseUrl}/api/attendance/courses/${courseId}/upload-scanned-sheet`, {
       method: 'POST',
@@ -326,13 +300,41 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
 
   after(async () => {
     if (server) {
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => server.close(resolve)).catch(() => {});
     }
+
+    // Teardown fixture data
+    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
+    await pool.query("DELETE FROM quiz_questions WHERE question_id = 'qq_csc204_test_1'").catch(() => {});
+    await pool.query("DELETE FROM quizzes WHERE quiz_id = 'practice_csc204' OR (course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST')").catch(() => {});
+    await pool.query("DELETE FROM enrollments WHERE course_id = 'CSC204' AND student_id IN ('student1', 'student2')").catch(() => {});
+    await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
+
+    // Restore prior allocation state cleanly to preserve original database integrity
+    if (activeSemId) {
+      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [activeSemId]).catch(() => {});
+      for (const alloc of priorAllocations) {
+        await pool.query(
+          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+           VALUES ('CSC204', $1, $2, $3, $4)
+           ON CONFLICT (course_id, semester_id, lecturer_id) 
+           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
+          [activeSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
+        ).catch(() => {});
+      }
+    }
+
     try {
       const { redisSubscriber, redisPublisher } = await import('../src/routes/notifications.js');
       if (redisSubscriber?.disconnect) redisSubscriber.disconnect();
       if (redisPublisher?.disconnect) redisPublisher.disconnect();
     } catch {}
+
+    try {
+      const { redis } = await import('../src/lib/redis.js');
+      if (redis?.disconnect) redis.disconnect();
+    } catch {}
+
     await pool.end();
   });
 });
