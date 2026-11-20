@@ -265,10 +265,7 @@ export class UnifiedOutboxWorker {
           const batchId = payload.batch_id || (ev.aggregate_type === 'COURSE_REGISTRATION' ? ev.aggregate_id : null);
 
           // 1. Check registration item status first (authoritative clearance by lecturer)
-          // Prioritize:
-          // a) Exact batch matching the outbox event (if specified in payload/aggregate)
-          // b) Active APPROVED item over an older REJECTED or PENDING_LECTURER item
-          // c) Newest registration item by creation timestamp
+          // Chronology rule: When no specific batch_id is provided, newest batch submission takes precedence
           const itemCheck = await pool.query(
             `SELECT cri.status, cri.created_at, b.id AS batch_id, b.status AS batch_status
              FROM course_registration_items cri
@@ -276,7 +273,6 @@ export class UnifiedOutboxWorker {
              WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
              ORDER BY 
                CASE WHEN $4::text IS NOT NULL AND b.id::text = $4::text THEN 0 ELSE 1 END,
-               CASE WHEN cri.status = 'APPROVED' THEN 0 WHEN cri.status = 'PENDING_LECTURER' THEN 1 ELSE 2 END,
                b.created_at DESC, 
                cri.created_at DESC
              LIMIT 1`,
@@ -287,7 +283,7 @@ export class UnifiedOutboxWorker {
           if (itemStatus === 'REJECTED') {
             logger.info(
               { studentId, courseId, semesterId },
-              '[UnifiedOutbox] Course item was explicitly rejected by lecturer. Discarding Moodle synchronization event.'
+              '[UnifiedOutbox] Course item was explicitly rejected by lecturer in current batch. Discarding Moodle synchronization event.'
             );
             break; // Discard event permanently as COMPLETED
           }
@@ -312,7 +308,8 @@ export class UnifiedOutboxWorker {
             return; // Exit turn without marking COMPLETED
           }
 
-          // 2. Verify authoritative enrollment status
+          // 2. Verify authoritative enrollment status in ledger
+          // Doctrine: PostgreSQL enrollments table is the authoritative ledger. If no active enrollment exists, do not sync.
           const enrollmentCheck = await pool.query(
             `SELECT status FROM enrollments 
              WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
@@ -320,15 +317,13 @@ export class UnifiedOutboxWorker {
           );
           const currentStatus = enrollmentCheck.rows[0]?.status;
 
-          // If no active enrollment exists and no approved registration item exists, discard event
+          // If no active enrollment exists in the authoritative ledger, discard event
           if (!currentStatus || !ACTIVE_ENROLLMENT_STATUSES.includes(currentStatus)) {
-            if (itemStatus !== 'APPROVED') {
-              logger.info(
-                { studentId, courseId, semesterId, currentStatus, itemStatus },
-                '[UnifiedOutbox] Enrollment no longer active or unapproved. Discarding Moodle synchronization event.'
-              );
-              break;
-            }
+            logger.info(
+              { studentId, courseId, semesterId, currentStatus, itemStatus },
+              '[UnifiedOutbox] No active authoritative enrollment found in ledger. Discarding Moodle synchronization event.'
+            );
+            break;
           }
 
           // 1. Resolve Moodle User ID
@@ -474,38 +469,39 @@ export class UnifiedOutboxWorker {
           { event_id, event_type, isRetryable, attempts: ev.delivery_attempts, err: errorMessage },
           '[UnifiedOutbox] Poison pill quarantined: marking event as FAILED'
         );
-        await pool.query(`
+        const quarantineResult = await pool.query(`
           UPDATE integration_outbox_events
           SET status = 'FAILED', locked_until = NULL, last_error = $2, worker_id = NULL, updated_at = NOW()
           WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $3;
         `, [event_id, errorMessage, this.workerId]);
 
-        // Post-quarantine alert to Administrator (non-blocking, dynamic recipient resolution)
-        // Decoupled from event loop to avoid delaying remaining batch events beyond their lease duration
-        (async () => {
-          try {
-            const adminRes = await pool.query(
-              `SELECT advisor_id FROM staff_advisors 
-               WHERE role IN ('ADMIN', 'SYSTEM_ADMIN') AND account_status = 'ACTIVE' 
-               ORDER BY (role = 'SYSTEM_ADMIN') DESC, created_at ASC 
-               LIMIT 3`
-            );
-            const targetAdmins = adminRes.rows.length > 0 ? adminRes.rows.map(r => r.advisor_id) : ['admin1'];
-            for (const adminId of targetAdmins) {
-              await createNotification({
-                userId: adminId,
-                category: 'SYSTEM',
-                priority: 'URGENT',
-                title: `Outbox Sync Failure: ${event_type}`,
-                body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
-                actionUrl: '/admin/outbox',
-                metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
-              }).catch((err) => logger.warn({ err: err?.message, adminId }, '[UnifiedOutbox] Admin notification failed'));
+        // Post-quarantine alert to Administrator ONLY when this worker's quarantine update took effect
+        if (quarantineResult.rowCount > 0) {
+          (async () => {
+            try {
+              const adminRes = await pool.query(
+                `SELECT advisor_id FROM staff_advisors 
+                 WHERE role IN ('ADMIN', 'SYSTEM_ADMIN') AND account_status = 'ACTIVE' 
+                 ORDER BY (role = 'SYSTEM_ADMIN') DESC, created_at ASC 
+                 LIMIT 3`
+              );
+              const targetAdmins = adminRes.rows.length > 0 ? adminRes.rows.map(r => r.advisor_id) : ['admin1'];
+              for (const adminId of targetAdmins) {
+                await createNotification({
+                  userId: adminId,
+                  category: 'SYSTEM',
+                  priority: 'URGENT',
+                  title: `Outbox Sync Failure: ${event_type}`,
+                  body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
+                  actionUrl: '/admin/outbox',
+                  metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
+                }).catch((err) => logger.warn({ err: err?.message, adminId }, '[UnifiedOutbox] Admin notification failed'));
+              }
+            } catch (adminNotifErr) {
+              logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
             }
-          } catch (adminNotifErr) {
-            logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
-          }
-        })();
+          })();
+        }
       } else {
         // Exponential backoff for retryable errors
         const backoffSeconds = Math.min(300, Math.pow(2, ev.delivery_attempts) * 5);
