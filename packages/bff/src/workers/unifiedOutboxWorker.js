@@ -260,13 +260,16 @@ export class UnifiedOutboxWorker {
             semesterId = activeTermRes.rows[0]?.id || '2026_RAIN';
           }
 
-          // Guard: Verify authoritative enrollment is active and not cancelled/rejected
+          // Guard: Verify authoritative enrollment is active and recognized across academic lifecycle statuses
+          const ACTIVE_ENROLLMENT_STATUSES = ['ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED'];
           const enrollmentCheck = await pool.query(
             `SELECT status FROM enrollments 
              WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
             [studentId, courseId, semesterId]
           );
-          if (enrollmentCheck.rows.length === 0 || enrollmentCheck.rows[0].status !== 'ENROLLED') {
+          const currentStatus = enrollmentCheck.rows[0]?.status;
+
+          if (!currentStatus || !ACTIVE_ENROLLMENT_STATUSES.includes(currentStatus)) {
             // Check whether the student's item was explicitly rejected or is still awaiting lecturer clearance
             const itemCheck = await pool.query(
               `SELECT cri.status 
@@ -286,15 +289,18 @@ export class UnifiedOutboxWorker {
               break; // Discard event permanently as COMPLETED
             }
 
-            // If item is still awaiting lecturer approval (PENDING_LECTURER), do NOT mark complete!
-            // Postpone with a 30s lease delay so it can synchronize once approved
+            // If item is still awaiting lecturer clearance (e.g. PENDING_LECTURER), do NOT mark complete!
+            // Crucial: Decrement delivery_attempts back so waiting for human clearance does not consume the failure budget!
             logger.info(
               { studentId, courseId, semesterId, itemStatus },
-              '[UnifiedOutbox] Enrollment pending lecturer clearance. Postponing outbox synchronization.'
+              '[UnifiedOutbox] Enrollment pending lecturer clearance. Postponing outbox synchronization without consuming failure budget.'
             );
             await pool.query(
               `UPDATE integration_outbox_events 
-               SET status = 'PENDING', locked_until = NOW() + INTERVAL '30 seconds', updated_at = NOW()
+               SET status = 'PENDING',
+                   delivery_attempts = GREATEST(0, delivery_attempts - 1),
+                   locked_until = NOW() + INTERVAL '60 seconds',
+                   updated_at = NOW()
                WHERE event_id = $1`,
               [event_id]
             );
