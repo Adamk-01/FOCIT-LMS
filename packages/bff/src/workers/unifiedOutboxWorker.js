@@ -262,15 +262,25 @@ export class UnifiedOutboxWorker {
 
           // Guard: Verify authoritative registration clearance and active enrollment status
           const ACTIVE_ENROLLMENT_STATUSES = ['ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED'];
+          const batchId = payload.batch_id || (ev.aggregate_type === 'COURSE_REGISTRATION' ? ev.aggregate_id : null);
 
           // 1. Check registration item status first (authoritative clearance by lecturer)
+          // Prioritize:
+          // a) Exact batch matching the outbox event (if specified in payload/aggregate)
+          // b) Active APPROVED item over an older REJECTED or PENDING_LECTURER item
+          // c) Newest registration item by creation timestamp
           const itemCheck = await pool.query(
-            `SELECT cri.status 
+            `SELECT cri.status, cri.created_at, b.id AS batch_id, b.status AS batch_status
              FROM course_registration_items cri
              JOIN course_registration_batches b ON b.id = cri.batch_id
              WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+             ORDER BY 
+               CASE WHEN $4::text IS NOT NULL AND b.id::text = $4::text THEN 0 ELSE 1 END,
+               CASE WHEN cri.status = 'APPROVED' THEN 0 WHEN cri.status = 'PENDING_LECTURER' THEN 1 ELSE 2 END,
+               b.created_at DESC, 
+               cri.created_at DESC
              LIMIT 1`,
-            [studentId, courseId, semesterId]
+            [studentId, courseId, semesterId, batchId]
           );
           const itemStatus = itemCheck.rows[0]?.status;
 
@@ -294,9 +304,10 @@ export class UnifiedOutboxWorker {
                SET status = 'PENDING',
                    delivery_attempts = GREATEST(0, delivery_attempts - 1),
                    locked_until = NOW() + INTERVAL '60 seconds',
+                   worker_id = NULL,
                    updated_at = NOW()
-               WHERE event_id = $1`,
-              [event_id]
+               WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $2`,
+              [event_id, this.workerId]
             );
             return; // Exit turn without marking COMPLETED
           }
@@ -426,17 +437,27 @@ export class UnifiedOutboxWorker {
       }
 
       // Mark COMPLETED upon success and clear any previous transient error
-      await pool.query(`
+      // Guard against race conditions: Only update if the event is still in PROCESSING status assigned to this worker.
+      // If a concurrent thread (e.g. lecturer approval) re-armed the event to PENDING, do not overwrite it with COMPLETED!
+      const updateResult = await pool.query(`
         UPDATE integration_outbox_events
         SET 
           status = 'COMPLETED',
           locked_until = NULL,
           last_error = NULL,
+          worker_id = NULL,
           updated_at = NOW()
-        WHERE event_id = $1;
-      `, [event_id]);
+        WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $2;
+      `, [event_id, this.workerId]);
 
-      logger.info({ event_id, event_type }, '[UnifiedOutbox] Event processed successfully');
+      if (updateResult.rowCount === 0) {
+        logger.info(
+          { event_id, event_type },
+          '[UnifiedOutbox] Event was reactivated or lease was reclaimed concurrently; leaving status untouched'
+        );
+      } else {
+        logger.info({ event_id, event_type }, '[UnifiedOutbox] Event processed successfully');
+      }
 
     } catch (err) {
       const isRetryable = err?.isRetryable !== false;
@@ -455,9 +476,9 @@ export class UnifiedOutboxWorker {
         );
         await pool.query(`
           UPDATE integration_outbox_events
-          SET status = 'FAILED', locked_until = NULL, last_error = $2, updated_at = NOW()
-          WHERE event_id = $1;
-        `, [event_id, errorMessage]);
+          SET status = 'FAILED', locked_until = NULL, last_error = $2, worker_id = NULL, updated_at = NOW()
+          WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $3;
+        `, [event_id, errorMessage, this.workerId]);
 
         // Post-quarantine alert to Administrator (non-blocking, dynamic recipient resolution)
         // Decoupled from event loop to avoid delaying remaining batch events beyond their lease duration
