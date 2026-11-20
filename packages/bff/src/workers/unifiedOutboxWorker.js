@@ -260,36 +260,30 @@ export class UnifiedOutboxWorker {
             semesterId = activeTermRes.rows[0]?.id || '2026_RAIN';
           }
 
-          // Guard: Verify authoritative enrollment is active and recognized across academic lifecycle statuses
+          // Guard: Verify authoritative registration clearance and active enrollment status
           const ACTIVE_ENROLLMENT_STATUSES = ['ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED'];
-          const enrollmentCheck = await pool.query(
-            `SELECT status FROM enrollments 
-             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
+
+          // 1. Check registration item status first (authoritative clearance by lecturer)
+          const itemCheck = await pool.query(
+            `SELECT cri.status 
+             FROM course_registration_items cri
+             JOIN course_registration_batches b ON b.id = cri.batch_id
+             WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+             LIMIT 1`,
             [studentId, courseId, semesterId]
           );
-          const currentStatus = enrollmentCheck.rows[0]?.status;
+          const itemStatus = itemCheck.rows[0]?.status;
 
-          if (!currentStatus || !ACTIVE_ENROLLMENT_STATUSES.includes(currentStatus)) {
-            // Check whether the student's item was explicitly rejected or is still awaiting lecturer clearance
-            const itemCheck = await pool.query(
-              `SELECT cri.status 
-               FROM course_registration_items cri
-               JOIN course_registration_batches b ON b.id = cri.batch_id
-               WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
-               LIMIT 1`,
-              [studentId, courseId, semesterId]
+          if (itemStatus === 'REJECTED') {
+            logger.info(
+              { studentId, courseId, semesterId },
+              '[UnifiedOutbox] Course item was explicitly rejected by lecturer. Discarding Moodle synchronization event.'
             );
-            const itemStatus = itemCheck.rows[0]?.status;
+            break; // Discard event permanently as COMPLETED
+          }
 
-            if (itemStatus === 'REJECTED') {
-              logger.info(
-                { studentId, courseId, semesterId },
-                '[UnifiedOutbox] Course item was explicitly rejected by lecturer. Discarding Moodle synchronization event.'
-              );
-              break; // Discard event permanently as COMPLETED
-            }
-
-            // If item is still awaiting lecturer clearance (e.g. PENDING_LECTURER), do NOT mark complete!
+          if (itemStatus === 'PENDING_LECTURER') {
+            // If item is still awaiting lecturer clearance, do NOT mark complete!
             // Crucial: Decrement delivery_attempts back so waiting for human clearance does not consume the failure budget!
             logger.info(
               { studentId, courseId, semesterId, itemStatus },
@@ -305,6 +299,25 @@ export class UnifiedOutboxWorker {
               [event_id]
             );
             return; // Exit turn without marking COMPLETED
+          }
+
+          // 2. Verify authoritative enrollment status
+          const enrollmentCheck = await pool.query(
+            `SELECT status FROM enrollments 
+             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
+            [studentId, courseId, semesterId]
+          );
+          const currentStatus = enrollmentCheck.rows[0]?.status;
+
+          // If no active enrollment exists and no approved registration item exists, discard event
+          if (!currentStatus || !ACTIVE_ENROLLMENT_STATUSES.includes(currentStatus)) {
+            if (itemStatus !== 'APPROVED') {
+              logger.info(
+                { studentId, courseId, semesterId, currentStatus, itemStatus },
+                '[UnifiedOutbox] Enrollment no longer active or unapproved. Discarding Moodle synchronization event.'
+              );
+              break;
+            }
           }
 
           // 1. Resolve Moodle User ID
