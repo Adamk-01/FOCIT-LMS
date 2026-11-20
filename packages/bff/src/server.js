@@ -217,7 +217,9 @@ const server = app.listen(config.port, HOST, () => {
 
   logger.info({ port: config.port, env: config.nodeEnv }, 'BFF Proxy HTTP server initialized');
 
-  const shouldRunEmbeddedWorkers = process.env.RUN_EMBEDDED_WORKERS !== 'false';
+  const isExplicitlyDisabled = process.env.RUN_EMBEDDED_WORKERS === 'false';
+  const isExplicitlyEnabled = process.env.RUN_EMBEDDED_WORKERS === 'true';
+  const shouldRunEmbeddedWorkers = isExplicitlyEnabled || (!isExplicitlyDisabled && config.nodeEnv !== 'production');
   if (shouldRunEmbeddedWorkers) {
     // Start Unified Transactional Outbox Worker
     unifiedOutboxWorker.start();
@@ -233,7 +235,7 @@ setupGracefulShutdown({
   server,
   pool,
   redis,
-  workers: (process.env.RUN_EMBEDDED_WORKERS === 'true' || config.nodeEnv !== 'production')
+  workers: (process.env.RUN_EMBEDDED_WORKERS === 'true' || (process.env.RUN_EMBEDDED_WORKERS !== 'false' && config.nodeEnv !== 'production'))
     ? [unifiedOutboxWorker, notificationBroadcaster, quizSweeperWorker]
     : [],
   options: {

@@ -171,20 +171,49 @@ export async function createStudentNotification({
   }
 }
 
+/**
+ * Universal polymorphic notification creator supporting both students and academic staff.
+ */
+export async function createNotification(params, externalClient = null) {
+  const recipientId = params.userId || params.studentId;
+  return createStudentNotification({
+    ...params,
+    studentId: recipientId,
+  }, externalClient);
+}
+
 // ============================================================================
 // 2. SSE STREAM ENDPOINT WITH MONOTONIC CATCH-UP & SOCKET REGISTRY
 // ============================================================================
-router.get('/stream', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+/**
+ * Canonical notification recipient resolver:
+ * Matches both canonical database entity IDs (student_id, advisor_id) and login usernames/matric numbers.
+ */
+export function resolveNotificationUserIds(req) {
+  const set = new Set();
+  if (req.user?.id) set.add(String(req.user.id));
+  if (req.user?.student_id) set.add(String(req.user.student_id));
+  if (req.user?.advisor_id) set.add(String(req.user.advisor_id));
+  if (req.user?.username) set.add(String(req.user.username));
+  return Array.from(set).filter(Boolean).sort();
+}
 
-  // 1. Concurrency Ceiling Guard (Prevent campus terminal tab flooding)
-  let studentSockets = activeStudentSockets.get(studentId);
-  if (!studentSockets) {
-    studentSockets = new Set();
-    activeStudentSockets.set(studentId, studentSockets);
+router.get('/stream', async (req, res) => {
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
   }
 
-  if (studentSockets.size >= 10) {
+  // 1. Concurrency Ceiling Guard (Prevent campus terminal tab flooding across all user aliases)
+  let currentMax = 0;
+  for (const uId of userIds) {
+    const s = activeStudentSockets.get(uId);
+    if (s && s.size > currentMax) {
+      currentMax = s.size;
+    }
+  }
+
+  if (currentMax >= 10) {
     return res.status(429).json({
       error: 'Too many concurrent notification streams. Maximum 10 active tabs allowed.',
       code: 'MAX_STREAMS_EXCEEDED'
@@ -199,7 +228,15 @@ router.get('/stream', async (req, res) => {
     'X-Accel-Buffering': 'no', // Bypasses Nginx proxy buffering
   });
 
-  studentSockets.add(res);
+  // Register socket under all resolved recipient aliases (canonical ID and username)
+  for (const uId of userIds) {
+    let sockSet = activeStudentSockets.get(uId);
+    if (!sockSet) {
+      sockSet = new Set();
+      activeStudentSockets.set(uId, sockSet);
+    }
+    sockSet.add(res);
+  }
 
   // 3. Monotonic Sequence Catch-Up with Bounded 10-Sequence Lookback
   const lastEventId = req.headers['last-event-id'];
@@ -209,11 +246,11 @@ router.get('/stream', async (req, res) => {
       const { rows: missedEvents } = await pool.query(`
         SELECT id, sequence_id, category, priority, title, body, action_url, metadata, is_read, created_at
         FROM student_notifications
-        WHERE student_id = $1 
+        WHERE student_id = ANY($1::varchar[]) 
           AND sequence_id > GREATEST(0::bigint, $2::bigint - 10)
         ORDER BY sequence_id ASC
         LIMIT 100
-      `, [studentId, lastSeq.toString()]);
+      `, [userIds, lastSeq.toString()]);
 
       for (const event of missedEvents) {
         const notifKey = String(event.sequence_id || event.id || '');
@@ -226,7 +263,7 @@ router.get('/stream', async (req, res) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (catchUpErr) {
-      logger.error({ err: catchUpErr.message, studentId }, '[SSE] Catch-up query error');
+      logger.error({ err: catchUpErr.message, userIds }, '[SSE] Catch-up query error');
     }
   }
 
@@ -242,11 +279,13 @@ router.get('/stream', async (req, res) => {
   // 5. Deterministic Garbage Collection & Teardown
   req.on('close', () => {
     clearInterval(heartbeatTimer);
-    const set = activeStudentSockets.get(studentId);
-    if (set) {
-      set.delete(res);
-      if (set.size === 0) {
-        activeStudentSockets.delete(studentId); // Reclaim V8 memory heap
+    for (const uId of userIds) {
+      const set = activeStudentSockets.get(uId);
+      if (set) {
+        set.delete(res);
+        if (set.size === 0) {
+          activeStudentSockets.delete(uId); // Reclaim V8 memory heap
+        }
       }
     }
     res.end();
@@ -257,7 +296,10 @@ router.get('/stream', async (req, res) => {
 // 3. KEYSET-PAGINATED NOTIFICATIONS FETCH (With Partial Index Acceleration)
 // ============================================================================
 router.get('/', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { 
     cursor = null, 
     limit = 20, 
@@ -275,15 +317,15 @@ router.get('/', async (req, res) => {
     const unreadCountPromise = pool.query(`
       SELECT COUNT(*)::int AS unread_count 
       FROM student_notifications 
-      WHERE student_id = $1 AND is_read = FALSE
-    `, [studentId]);
+      WHERE student_id = ANY($1::varchar[]) AND is_read = FALSE
+    `, [userIds]);
 
     let listQuery = `
       SELECT id, sequence_id, category, priority, title, body, action_url, metadata, is_read, created_at
       FROM student_notifications
-      WHERE student_id = $1
+      WHERE student_id = ANY($1::varchar[])
     `;
-    const listParams = [studentId];
+    const listParams = [userIds];
     let paramIdx = 2;
 
     if (isUnreadOnly) {
@@ -334,7 +376,7 @@ router.get('/', async (req, res) => {
       }))
     });
   } catch (err) {
-    logger.error({ err: err.message, studentId }, '[Notifications] List query error');
+    logger.error({ err: err.message, userIds }, '[Notifications] List query error');
     return res.status(500).json({ error: 'Failed to retrieve notifications' });
   }
 });
@@ -343,7 +385,10 @@ router.get('/', async (req, res) => {
 // 4. ATOMIC SINGLE NOTIFICATION READ MUTATION
 // ============================================================================
 router.patch('/:id/read', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { id } = req.params;
 
   try {
@@ -351,9 +396,9 @@ router.patch('/:id/read', async (req, res) => {
       UPDATE student_notifications
       SET is_read = TRUE,
           read_at = NOW()
-      WHERE id = $1 AND student_id = $2
+      WHERE id = $1 AND student_id = ANY($2::varchar[])
       RETURNING id, sequence_id, student_id, category, priority, title, body, action_url, metadata, is_read, read_at, created_at
-    `, [id, studentId]);
+    `, [id, userIds]);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Notification not found or access denied', code: 'NOT_FOUND' });
@@ -376,7 +421,7 @@ router.patch('/:id/read', async (req, res) => {
       }
     });
   } catch (err) {
-    logger.error({ err: err.message, id, studentId }, '[Notifications] Read update error');
+    logger.error({ err: err.message, id, userIds }, '[Notifications] Read update error');
     return res.status(500).json({ error: 'Failed to update notification state' });
   }
 });
@@ -385,7 +430,10 @@ router.patch('/:id/read', async (req, res) => {
 // 5. SNAPSHOT-BOUNDED READ-ALL MUTATION (Eliminates Dropped Alerts)
 // ============================================================================
 router.post('/read-all', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { read_up_to = new Date().toISOString() } = req.body;
 
   try {
@@ -393,18 +441,18 @@ router.post('/read-all', async (req, res) => {
       UPDATE student_notifications
       SET is_read = TRUE,
           read_at = NOW()
-      WHERE student_id = $1 
+      WHERE student_id = ANY($1::varchar[]) 
         AND NOT is_read
         AND created_at <= $2::timestamptz
       RETURNING id
-    `, [studentId, read_up_to]);
+    `, [userIds, read_up_to]);
 
     return res.status(200).json({
       updated_count: rows.length,
       read_up_to: read_up_to,
     });
   } catch (err) {
-    logger.error({ err: err.message, studentId }, '[Notifications] Bulk read error');
+    logger.error({ err: err.message, userIds }, '[Notifications] Bulk read error');
     return res.status(500).json({ error: 'Failed to mark all notifications as read' });
   }
 });
@@ -413,23 +461,26 @@ router.post('/read-all', async (req, res) => {
 // 6. CLEAR ALL NOTIFICATIONS FOR AUTHENTICATED STUDENT
 // ============================================================================
 router.delete('/clear-all', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
 
   try {
     const { rows } = await pool.query(`
       DELETE FROM student_notifications
-      WHERE student_id = $1
+      WHERE student_id = ANY($1::varchar[])
       RETURNING id
-    `, [studentId]);
+    `, [userIds]);
 
-    logger.info({ studentId, clearedCount: rows.length }, '[Notifications] All notifications cleared');
+    logger.info({ userIds, clearedCount: rows.length }, '[Notifications] All notifications cleared');
 
     return res.status(200).json({
       cleared_count: rows.length,
       message: 'All notifications successfully cleared.',
     });
   } catch (err) {
-    logger.error({ err: err.message, studentId }, '[Notifications] Clear-all error');
+    logger.error({ err: err.message, userIds }, '[Notifications] Clear-all error');
     return res.status(500).json({ error: 'Failed to clear notifications' });
   }
 });
@@ -438,15 +489,18 @@ router.delete('/clear-all', async (req, res) => {
 // 7. CLEAR / DISMISS SINGLE NOTIFICATION (Slide Right Dismissal)
 // ============================================================================
 router.delete('/:id', async (req, res) => {
-  const studentId = req.user?.username || req.user?.id || 'student1';
+  const userIds = resolveNotificationUserIds(req);
+  if (userIds.length === 0) {
+    return res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' });
+  }
   const { id } = req.params;
 
   try {
     const { rows } = await pool.query(`
       DELETE FROM student_notifications
-      WHERE id = $1 AND student_id = $2
+      WHERE id = $1 AND student_id = ANY($2::varchar[])
       RETURNING id, is_read
-    `, [id, studentId]);
+    `, [id, userIds]);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Notification not found or access denied', code: 'NOT_FOUND' });
@@ -460,7 +514,7 @@ router.delete('/:id', async (req, res) => {
       message: 'Notification dismissed successfully.',
     });
   } catch (err) {
-    logger.error({ err: err.message, id, studentId }, '[Notifications] Dismiss error');
+    logger.error({ err: err.message, id, userIds }, '[Notifications] Dismiss error');
     return res.status(500).json({ error: 'Failed to dismiss notification' });
   }
 });

@@ -1169,7 +1169,7 @@ export async function resetUserPassword(req, res, next) {
     // 1. Resolve user in students or staff_advisors
     let isStudent = true;
     const studentRes = await pool.query(
-      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1 OR matric_number = $1 OR username = $1`,
+      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1 OR matric_number = $1 OR username = $1 OR email = $1`,
       [cleanId]
     );
 
