@@ -843,11 +843,12 @@ router.post('/courses/:courseId/registrations/:itemId/accept', async (req, res, 
         [item.student_id, item.course_id, item.course_code, item.semester_id, lecturerId]
       );
 
-      // 5. Enqueue Outbox Event for Moodle Sync
+      // 5. Enqueue Outbox Event for Moodle Sync (re-arms to PENDING if previously existing)
       await client.query(
         `INSERT INTO integration_outbox_events (aggregate_type, aggregate_id, event_type, payload, idempotency_key)
          VALUES ('COURSE_REGISTRATION', $1, 'ENROLLMENT_SYNC', $2, $3)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
+         ON CONFLICT (idempotency_key) 
+         DO UPDATE SET status = 'PENDING', locked_until = NULL, last_error = NULL, updated_at = NOW()`,
         [
           item.batch_id,
           JSON.stringify({ student_id: item.student_id, course_id: item.course_id, course_code: item.course_code, semester_id: item.semester_id }),
@@ -1082,7 +1083,8 @@ router.post('/courses/:courseId/registrations/batch-accept', async (req, res, ne
         await client.query(
           `INSERT INTO integration_outbox_events (aggregate_type, aggregate_id, event_type, payload, idempotency_key)
            VALUES ('COURSE_REGISTRATION', $1, 'ENROLLMENT_SYNC', $2, $3)
-           ON CONFLICT (idempotency_key) DO NOTHING`,
+           ON CONFLICT (idempotency_key) 
+           DO UPDATE SET status = 'PENDING', locked_until = NULL, last_error = NULL, updated_at = NOW()`,
           [
             item.batch_id,
             JSON.stringify({ student_id: item.student_id, course_id: item.course_id, course_code: item.course_code, semester_id: item.semester_id }),

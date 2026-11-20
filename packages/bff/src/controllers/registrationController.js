@@ -863,7 +863,7 @@ export async function batchApproveRegistrations(req, res) {
     const validBatchIds = validSubmissions.map(b => b.id).sort();
     const studentIds = [...new Set(validSubmissions.map(b => b.student_id))].sort();
 
-    // 2. Lock Student Tuples in Deterministic Ascending Order
+    // 2. Lock Student Tuples and Registration Items in Deterministic Ascending Order
     await client.query(
       `SELECT student_id 
        FROM students 
@@ -873,13 +873,24 @@ export async function batchApproveRegistrations(req, res) {
       [studentIds]
     );
 
+    // Row-lock all batch items to ensure concurrent lecturer rejections cannot commit during approval
+    await client.query(
+      `SELECT id 
+       FROM course_registration_items 
+       WHERE batch_id = ANY($1::uuid[]) 
+       ORDER BY id ASC 
+       FOR UPDATE`,
+      [validBatchIds]
+    );
+
     // 2b. Validate Senate Minimum Credit Floor (15 units) for Non-Waiver Submissions Post-Lecturer Review
     const unitsPerBatchRes = await client.query(
       `SELECT b.id, b.student_id, b.dean_waiver, b.total_units AS batch_total_units,
-              COUNT(cri.id)::int AS item_count,
-              COALESCE(SUM(cri.units), 0)::int AS approved_units
+              COUNT(cri.id)::int AS total_item_count,
+              COUNT(CASE WHEN cri.status != 'REJECTED' THEN 1 END)::int AS active_item_count,
+              COALESCE(SUM(CASE WHEN cri.status != 'REJECTED' THEN cri.units ELSE 0 END), 0)::int AS approved_units
        FROM course_registration_batches b
-       LEFT JOIN course_registration_items cri ON cri.batch_id = b.id AND cri.status != 'REJECTED'
+       LEFT JOIN course_registration_items cri ON cri.batch_id = b.id
        WHERE b.id = ANY($1::uuid[])
        GROUP BY b.id, b.student_id, b.dean_waiver, b.total_units`,
       [validBatchIds]
@@ -889,7 +900,10 @@ export async function batchApproveRegistrations(req, res) {
     const underEnrolledBatches = [];
 
     for (const row of unitsPerBatchRes.rows) {
-      const effectiveUnits = row.item_count > 0 ? row.approved_units : row.batch_total_units;
+      // Distinguish all-rejected batches from fixture batches with no items:
+      // If the batch has no items at all (e.g. synthetic test fixtures), fall back to batch_total_units.
+      // If the batch has items, but all of them were rejected (active_item_count === 0), effectiveUnits is 0.
+      const effectiveUnits = row.total_item_count === 0 ? row.batch_total_units : row.approved_units;
       approvedUnitsMap.set(row.id, effectiveUnits);
 
       if (effectiveUnits < 15 && !row.dean_waiver) {
@@ -917,11 +931,14 @@ export async function batchApproveRegistrations(req, res) {
          status = 'ADVISOR_APPROVED', 
          advisor_id = $1, 
          advisor_approved_at = NOW(), 
-         total_units = COALESCE((
-           SELECT SUM(cri.units)::int 
-           FROM course_registration_items cri 
-           WHERE cri.batch_id = b.id AND cri.status != 'REJECTED'
-         ), b.total_units),
+         total_units = CASE 
+           WHEN (SELECT COUNT(*) FROM course_registration_items cri WHERE cri.batch_id = b.id) = 0 THEN b.total_units
+           ELSE COALESCE((
+             SELECT SUM(cri.units)::int 
+             FROM course_registration_items cri 
+             WHERE cri.batch_id = b.id AND cri.status != 'REJECTED'
+           ), 0)
+         END,
          version = version + 1, 
          updated_at = NOW()
        WHERE id = ANY($2::uuid[])`,

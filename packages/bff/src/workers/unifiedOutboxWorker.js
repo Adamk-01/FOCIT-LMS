@@ -196,11 +196,28 @@ export class UnifiedOutboxWorker {
             } catch (createErr) {
               const errMsg = String(createErr?.message || '').toLowerCase();
               if (errMsg.includes('already exists') || createErr?.errorCode === 'usernamealreadyexists') {
-                const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but web service token lacks read capabilities (core_user_get_users_by_field) to retrieve user ID.`);
-                configErr.isRetryable = false;
-                throw configErr;
+                // Reconcile concurrent creation: Another worker or retry may have just created the user in Moodle
+                try {
+                  const reconciledUser = await getMoodleUserByField('username', canonicalUsername);
+                  if (reconciledUser?.id) {
+                    moodleUserId = reconciledUser.id;
+                    logger.info({ canonicalUsername, moodleUserId }, '[UnifiedOutbox] Successfully reconciled existing Moodle user ID on duplicate collision');
+                  } else {
+                    const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but reconciliation lookup returned null.`);
+                    configErr.isRetryable = false;
+                    throw configErr;
+                  }
+                } catch (reconcileErr) {
+                  if (reconcileErr?.errorCode === 'accessexception' || reconcileErr?.errorCode === 'webservice_access_exception') {
+                    const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but web service token lacks read capabilities (core_user_get_users_by_field) to retrieve user ID.`);
+                    configErr.isRetryable = false;
+                    throw configErr;
+                  }
+                  throw reconcileErr;
+                }
+              } else {
+                throw createErr;
               }
-              throw createErr;
             }
           }
 
@@ -245,16 +262,43 @@ export class UnifiedOutboxWorker {
 
           // Guard: Verify authoritative enrollment is active and not cancelled/rejected
           const enrollmentCheck = await pool.query(
-            `SELECT 1 FROM enrollments 
-             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3 AND status = 'ENROLLED'`,
+            `SELECT status FROM enrollments 
+             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
             [studentId, courseId, semesterId]
           );
-          if (enrollmentCheck.rows.length === 0) {
-            logger.info(
-              { studentId, courseId, semesterId },
-              '[UnifiedOutbox] Enrollment no longer active or was rejected. Skipping Moodle synchronization.'
+          if (enrollmentCheck.rows.length === 0 || enrollmentCheck.rows[0].status !== 'ENROLLED') {
+            // Check whether the student's item was explicitly rejected or is still awaiting lecturer clearance
+            const itemCheck = await pool.query(
+              `SELECT cri.status 
+               FROM course_registration_items cri
+               JOIN course_registration_batches b ON b.id = cri.batch_id
+               WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+               LIMIT 1`,
+              [studentId, courseId, semesterId]
             );
-            break;
+            const itemStatus = itemCheck.rows[0]?.status;
+
+            if (itemStatus === 'REJECTED') {
+              logger.info(
+                { studentId, courseId, semesterId },
+                '[UnifiedOutbox] Course item was explicitly rejected by lecturer. Discarding Moodle synchronization event.'
+              );
+              break; // Discard event permanently as COMPLETED
+            }
+
+            // If item is still awaiting lecturer approval (PENDING_LECTURER), do NOT mark complete!
+            // Postpone with a 30s lease delay so it can synchronize once approved
+            logger.info(
+              { studentId, courseId, semesterId, itemStatus },
+              '[UnifiedOutbox] Enrollment pending lecturer clearance. Postponing outbox synchronization.'
+            );
+            await pool.query(
+              `UPDATE integration_outbox_events 
+               SET status = 'PENDING', locked_until = NOW() + INTERVAL '30 seconds', updated_at = NOW()
+               WHERE event_id = $1`,
+              [event_id]
+            );
+            return; // Exit turn without marking COMPLETED
           }
 
           // 1. Resolve Moodle User ID
