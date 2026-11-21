@@ -367,14 +367,27 @@ router.get('/analytics', async (req, res, next) => {
       [deptId]
     );
 
-    // 3. At-Risk Students
+    // 3. At-Risk Students (F5 Hardening: Bounded limit + forensic audit trail)
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit, 10) || 25), 50);
     const { rows: atRisk } = await db.query(
       `SELECT s.full_name, s.matric_number, s.level, s.current_gpa, p.code AS programme_code
        FROM students s JOIN programmes p ON p.id = s.programme_id
        WHERE p.department_id = $1 AND s.current_gpa < 1.50
-       ORDER BY s.current_gpa ASC LIMIT 100`,
-      [deptId]
+       ORDER BY s.current_gpa ASC LIMIT $2`,
+      [deptId, limit]
     );
+
+    // Record access to student academic GPA cohort records in immutable audit ledger (F5 Hardening)
+    await recordIdentityAuditLog(db, {
+      eventType: 'HOD_ANALYTICS_INSPECTED',
+      actorId: req.user?.id || req.hodScope.advisor_id,
+      actorRole: req.user?.role || req.hodScope.role || 'HOD',
+      targetId: String(deptId),
+      targetType: 'DEPARTMENT_ANALYTICS',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      metadata: { departmentId: deptId, atRiskReturned: atRisk.length },
+    }).catch((err) => logger.warn({ err }, '[HOD] Failed to record analytics audit log'));
 
     res.json({
       summary,

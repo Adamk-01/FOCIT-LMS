@@ -22,6 +22,7 @@ import { Router } from 'express';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { createNotification } from './notifications.js';
+import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 
 const router = Router();
 
@@ -487,6 +488,18 @@ router.get('/courses/:courseId/roster/export', async (req, res, next) => {
 
     const csvContent = csvRows.join('\r\n');
     const safeCode = course.code.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // Record roster data export in immutable audit ledger (F8 Hardening)
+    await recordIdentityAuditLog(pool, {
+      eventType: 'COURSE_ROSTER_EXPORT',
+      actorId: req.user?.id || req.lecturerScope.advisor_id,
+      actorRole: req.user?.role || req.lecturerScope.role || 'LECTURER',
+      targetId: courseId,
+      targetType: 'COURSE_ROSTER',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      metadata: { courseId, semesterId: targetSemesterId, recordCount: students.length, format: 'CSV' },
+    }).catch((err) => logger.warn({ err }, '[Lecturer] Failed to record roster export audit log'));
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${safeCode}_Official_Roster.csv"`);

@@ -144,10 +144,9 @@ export async function getDashboardOverview(req, res, next) {
     // 3. Redis Health
     const redisStatus = redis.status === 'ready' || redis.status === 'connect' ? 'UP' : 'DEGRADED';
 
-    // 4. Moodle Health Ping
+    // 4. Moodle Health Ping (F4 Hardening: Redact internal URL)
     let moodleHealth = {
       status: 'UNKNOWN',
-      baseUrl: config.moodle.baseUrl,
       latencyMs: null,
     };
     try {
@@ -1315,19 +1314,15 @@ export async function getMoodleHealth(req, res, next) {
       latencyMs = Date.now() - start;
     }
 
+    // F4 Remediation: Redact upstream base URL, token configuration, and internal pool metrics
     return res.status(200).json({
       success: true,
       data: {
         service: 'Moodle Learning Engine',
         status,
-        baseUrl: config.moodle.baseUrl,
         statusCode,
         latencyMs,
-        tokenConfigured: Boolean(config.moodle.wsToken),
-        connectionPool: {
-          maxConnections: config.pool.maxConnections,
-          connectTimeoutMs: config.pool.connectTimeoutMs,
-        },
+        lastChecked: new Date().toISOString(),
       },
     });
   } catch (err) {

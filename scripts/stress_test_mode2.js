@@ -22,6 +22,12 @@ import { Agent } from 'undici';
 import { pool } from '../packages/bff/src/db/index.js';
 import config from '../packages/bff/src/config.js';
 
+// Defense Guard (F17 Remediation): Prevent benchmark/stress script from running against production databases
+if (process.env.NODE_ENV === 'production' || config.nodeEnv === 'production') {
+  console.error('[FATAL] Stress testing and database fixture generation is strictly prohibited in production environments.');
+  process.exit(1);
+}
+
 const BFF_BASE_URL = process.env.BFF_BASE_URL || `http://localhost:${config.port || 3000}/api`;
 const TEST_COURSE_ID = process.env.TEST_COURSE_ID || 'GST202';
 const TEST_OTP = process.env.TEST_OTP || '482910';
@@ -152,8 +158,11 @@ async function runStressTest() {
     ON CONFLICT (student_id, course_id, semester_id) DO UPDATE SET status = 'ENROLLED';
   `);
 
-  // 5. Create Active Mode 2 Attendance Session with matching canonical HMAC
-  const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret || 'focit_otp_hmac_secret_2026';
+  // 5. Create Active Mode 2 Attendance Session with matching canonical HMAC (F17 Hardened)
+  const hmacSecret = process.env.OTP_HMAC_SECRET || config.jwt?.secret;
+  if (!hmacSecret) {
+    throw new Error('[StressTest] Missing required OTP HMAC secret (set OTP_HMAC_SECRET or configure config.jwt.secret)');
+  }
   const canonicalHash = crypto
     .createHmac('sha256', hmacSecret)
     .update(`${TEST_COURSE_ID}:${TEST_OTP}`)
