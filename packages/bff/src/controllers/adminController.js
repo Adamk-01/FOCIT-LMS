@@ -144,10 +144,9 @@ export async function getDashboardOverview(req, res, next) {
     // 3. Redis Health
     const redisStatus = redis.status === 'ready' || redis.status === 'connect' ? 'UP' : 'DEGRADED';
 
-    // 4. Moodle Health Ping
+    // 4. Moodle Health Ping (F4 Hardening: Redact internal URL)
     let moodleHealth = {
       status: 'UNKNOWN',
-      baseUrl: config.moodle.baseUrl,
       latencyMs: null,
     };
     try {
@@ -950,7 +949,7 @@ export async function updateUserDetails(req, res, next) {
     const staffRes = await pool.query(
       `SELECT advisor_id, staff_number, full_name, email, department_id, assigned_level, role, account_status 
        FROM staff_advisors 
-       WHERE advisor_id = $1`,
+       WHERE advisor_id = $1 OR staff_number = $1`,
       [searchId]
     );
 
@@ -1199,7 +1198,7 @@ export async function resetUserPassword(req, res, next) {
     let target = studentRes.rows[0];
     if (!target) {
       const staffRes = await pool.query(
-        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1`,
+        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1`,
         [cleanId]
       );
       if (staffRes.rows[0]) {
@@ -1315,19 +1314,15 @@ export async function getMoodleHealth(req, res, next) {
       latencyMs = Date.now() - start;
     }
 
+    // F4 Remediation: Redact upstream base URL, token configuration, and internal pool metrics
     return res.status(200).json({
       success: true,
       data: {
         service: 'Moodle Learning Engine',
         status,
-        baseUrl: config.moodle.baseUrl,
         statusCode,
         latencyMs,
-        tokenConfigured: Boolean(config.moodle.wsToken),
-        connectionPool: {
-          maxConnections: config.pool.maxConnections,
-          connectTimeoutMs: config.pool.connectTimeoutMs,
-        },
+        lastChecked: new Date().toISOString(),
       },
     });
   } catch (err) {

@@ -39,9 +39,8 @@ export function globalConcurrencyGate(req, res, next) {
   next();
 }
 
-// ─── Tier 2: Per-User Sliding Window ──────────────────────────
-// In-memory sliding window rate limiter keyed by userId.
-// Production: swap Map for Redis with INCR + EXPIRE.
+// ─── Tier 2: Per-User Distributed Rate Limiting (F13 Remediation) ───
+// Distributed atomic sliding window rate limiter backed by Redis (with in-memory Map fallback).
 
 /** @type {Map<string, { count: number, resetTime: number }>} */
 const userWindows = new Map();
@@ -65,19 +64,66 @@ setInterval(() => {
  * @returns {import('express').RequestHandler}
  */
 export function perUserRateLimit(maxRequests, windowMs = 60_000, endpointType = 'general') {
-  return (req, res, next) => {
+  const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
+
+  return async (req, res, next) => {
     if (!req.user?.id) {
-      // If auth middleware hasn't run yet, skip (shouldn't happen).
       return next();
     }
 
-    const key = `${req.user.id}:${endpointType}`;
+    const userId = req.user.id;
+    const redisKey = `rl:user:${endpointType}:${userId}`;
     const now = Date.now();
-    const record = userWindows.get(key);
+
+    // 1. Distributed Redis Rate Limiting (F13 Hardening)
+    if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
+      try {
+        const pipeline = redis.pipeline();
+        pipeline.incr(redisKey);
+        pipeline.ttl(redisKey);
+        const results = await pipeline.exec();
+
+        const count = results?.[0]?.[1] || 1;
+        let ttl = results?.[1]?.[1] || -1;
+
+        if (count === 1 || ttl === -1) {
+          await redis.expire(redisKey, windowSeconds);
+          ttl = windowSeconds;
+        }
+
+        const remaining = Math.max(0, maxRequests - count);
+        const resetTimeSec = Math.ceil(now / 1000) + (ttl > 0 ? ttl : windowSeconds);
+
+        res.set({
+          'X-RateLimit-Limit': String(maxRequests),
+          'X-RateLimit-Remaining': String(remaining),
+          'X-RateLimit-Reset': String(resetTimeSec),
+        });
+
+        if (count > maxRequests) {
+          const retryAfter = ttl > 0 ? ttl : windowSeconds;
+          return res.status(429)
+            .set('Retry-After', String(retryAfter))
+            .json({
+              error: `Too many requests for ${endpointType}. Please slow down.`,
+              code: 'RATE_LIMIT_USER_EXCEEDED',
+              retryAfter,
+            });
+        }
+
+        return next();
+      } catch (err) {
+        logger.warn({ err: err?.message || err, userId }, '[RateLimiter] Redis perUserRateLimit failed, falling back to memory store');
+      }
+    }
+
+    // 2. In-memory fallback if Redis is offline
+    const memoryKey = `${userId}:${endpointType}`;
+    const record = userWindows.get(memoryKey);
 
     // Window expired or first request — start new window
     if (!record || now > record.resetTime) {
-      userWindows.set(key, { count: 1, resetTime: now + windowMs });
+      userWindows.set(memoryKey, { count: 1, resetTime: now + windowMs });
       res.set({
         'X-RateLimit-Limit': String(maxRequests),
         'X-RateLimit-Remaining': String(maxRequests - 1),
@@ -159,18 +205,32 @@ export function downloadDedup(req, res, next) {
   next();
 }
 
+/** @type {Map<string, { count: number, resetTime: number }>} */
+const memoryLoginWindows = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of memoryLoginWindows) {
+    if (now > record.resetTime) {
+      memoryLoginWindows.delete(key);
+    }
+  }
+}, 60_000).unref();
+
 /**
  * Unauthenticated Login Sliding Window Rate Limiter (F14 Remediation)
  * Protects POST /api/auth/login against credential stuffing & CPU scrypt DoS.
  * Limit: Max 25 attempts per IP and max 5 attempts per candidate studentId per 15 minutes.
  */
 export async function loginRateLimiter(req, res, next) {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+  const rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+  const ip = String(rawIp).split(',')[0].trim();
   const candidateId = (req.body?.studentId || '').toString().trim().toUpperCase().replace(/\s+/g, '');
 
   const ipKey = `rl:login:ip:${ip}`;
   const userKey = candidateId ? `rl:login:user:${candidateId}` : null;
   const WINDOW_SECONDS = 900; // 15 minutes
+  const WINDOW_MS = WINDOW_SECONDS * 1000;
+  const now = Date.now();
 
   try {
     if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
@@ -198,9 +258,33 @@ export async function loginRateLimiter(req, res, next) {
             retryAfter,
           });
       }
+      return next();
     }
   } catch (err) {
-    logger.warn({ err: err?.message || err }, '[RateLimiter] Redis login rate limit check bypassed');
+    logger.warn({ err: err?.message || err }, '[RateLimiter] Redis login rate limit check failed, falling back to memory store');
+  }
+
+  // Resilient in-memory fallback if Redis is offline
+  const memIpRec = memoryLoginWindows.get(ipKey);
+  const memUserRec = userKey ? memoryLoginWindows.get(userKey) : null;
+
+  const currentIpCount = (!memIpRec || now > memIpRec.resetTime) ? 1 : memIpRec.count + 1;
+  const currentUserCount = userKey ? ((!memUserRec || now > memUserRec.resetTime) ? 1 : memUserRec.count + 1) : 1;
+
+  memoryLoginWindows.set(ipKey, { count: currentIpCount, resetTime: (!memIpRec || now > memIpRec.resetTime) ? now + WINDOW_MS : memIpRec.resetTime });
+  if (userKey) {
+    memoryLoginWindows.set(userKey, { count: currentUserCount, resetTime: (!memUserRec || now > memUserRec.resetTime) ? now + WINDOW_MS : memUserRec.resetTime });
+  }
+
+  if (currentIpCount > 25 || currentUserCount > 5) {
+    logger.warn({ ip, candidateId, currentIpCount, currentUserCount }, '[RateLimiter] In-memory login rate limit triggered');
+    return res.status(429)
+      .set('Retry-After', String(WINDOW_SECONDS))
+      .json({
+        error: 'Too many login attempts. Please wait 15 minutes before trying again.',
+        code: 'AUTH_RATE_LIMIT_EXCEEDED',
+        retryAfter: WINDOW_SECONDS,
+      });
   }
 
   next();
