@@ -1052,6 +1052,7 @@ router.post('/courses/:courseId/registrations/batch-accept', async (req, res, ne
            AND b.semester_id = $3
            AND b.status != 'DRAFT'
            AND cri.status = 'PENDING_LECTURER'
+         ORDER BY cri.id ASC
          FOR UPDATE`,
         [itemIds, courseId, targetSemesterId]
       );
