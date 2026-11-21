@@ -36,7 +36,14 @@ function isValidSubmissionUrl(rawUrl) {
   try {
     const parsed = new URL(clean);
     if (parsed.protocol !== 'https:') return false;
-    return TRUSTED_SUBMISSION_DOMAINS.some(
+    const allowed = [...TRUSTED_SUBMISSION_DOMAINS];
+    if (config.frontendOrigin) {
+      try {
+        const configuredHost = new URL(config.frontendOrigin).hostname;
+        if (configuredHost) allowed.push(configuredHost);
+      } catch (_) {}
+    }
+    return allowed.some(
       (d) => parsed.hostname === d || parsed.hostname.endsWith(`.${d}`)
     );
   } catch {

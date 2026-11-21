@@ -205,18 +205,32 @@ export function downloadDedup(req, res, next) {
   next();
 }
 
+/** @type {Map<string, { count: number, resetTime: number }>} */
+const memoryLoginWindows = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of memoryLoginWindows) {
+    if (now > record.resetTime) {
+      memoryLoginWindows.delete(key);
+    }
+  }
+}, 60_000).unref();
+
 /**
  * Unauthenticated Login Sliding Window Rate Limiter (F14 Remediation)
  * Protects POST /api/auth/login against credential stuffing & CPU scrypt DoS.
  * Limit: Max 25 attempts per IP and max 5 attempts per candidate studentId per 15 minutes.
  */
 export async function loginRateLimiter(req, res, next) {
-  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+  const rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+  const ip = String(rawIp).split(',')[0].trim();
   const candidateId = (req.body?.studentId || '').toString().trim().toUpperCase().replace(/\s+/g, '');
 
   const ipKey = `rl:login:ip:${ip}`;
   const userKey = candidateId ? `rl:login:user:${candidateId}` : null;
   const WINDOW_SECONDS = 900; // 15 minutes
+  const WINDOW_MS = WINDOW_SECONDS * 1000;
+  const now = Date.now();
 
   try {
     if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
@@ -244,9 +258,33 @@ export async function loginRateLimiter(req, res, next) {
             retryAfter,
           });
       }
+      return next();
     }
   } catch (err) {
-    logger.warn({ err: err?.message || err }, '[RateLimiter] Redis login rate limit check bypassed');
+    logger.warn({ err: err?.message || err }, '[RateLimiter] Redis login rate limit check failed, falling back to memory store');
+  }
+
+  // Resilient in-memory fallback if Redis is offline
+  const memIpRec = memoryLoginWindows.get(ipKey);
+  const memUserRec = userKey ? memoryLoginWindows.get(userKey) : null;
+
+  const currentIpCount = (!memIpRec || now > memIpRec.resetTime) ? 1 : memIpRec.count + 1;
+  const currentUserCount = userKey ? ((!memUserRec || now > memUserRec.resetTime) ? 1 : memUserRec.count + 1) : 1;
+
+  memoryLoginWindows.set(ipKey, { count: currentIpCount, resetTime: (!memIpRec || now > memIpRec.resetTime) ? now + WINDOW_MS : memIpRec.resetTime });
+  if (userKey) {
+    memoryLoginWindows.set(userKey, { count: currentUserCount, resetTime: (!memUserRec || now > memUserRec.resetTime) ? now + WINDOW_MS : memUserRec.resetTime });
+  }
+
+  if (currentIpCount > 25 || currentUserCount > 5) {
+    logger.warn({ ip, candidateId, currentIpCount, currentUserCount }, '[RateLimiter] In-memory login rate limit triggered');
+    return res.status(429)
+      .set('Retry-After', String(WINDOW_SECONDS))
+      .json({
+        error: 'Too many login attempts. Please wait 15 minutes before trying again.',
+        code: 'AUTH_RATE_LIMIT_EXCEEDED',
+        retryAfter: WINDOW_SECONDS,
+      });
   }
 
   next();

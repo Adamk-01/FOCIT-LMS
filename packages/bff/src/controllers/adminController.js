@@ -949,7 +949,7 @@ export async function updateUserDetails(req, res, next) {
     const staffRes = await pool.query(
       `SELECT advisor_id, staff_number, full_name, email, department_id, assigned_level, role, account_status 
        FROM staff_advisors 
-       WHERE advisor_id = $1`,
+       WHERE advisor_id = $1 OR staff_number = $1`,
       [searchId]
     );
 
@@ -1198,7 +1198,7 @@ export async function resetUserPassword(req, res, next) {
     let target = studentRes.rows[0];
     if (!target) {
       const staffRes = await pool.query(
-        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1`,
+        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1`,
         [cleanId]
       );
       if (staffRes.rows[0]) {
