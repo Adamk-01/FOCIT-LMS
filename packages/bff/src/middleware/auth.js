@@ -158,27 +158,16 @@ export async function authMiddleware(req, res, next) {
       });
     }
 
-    // Edge Case: CSRF / Nonce mismatch using constant-time evaluation
-    const isProduction = process.env.NODE_ENV === 'production' || config.nodeEnv === 'production';
-    const isDevelopment = !isProduction && (config.nodeEnv === 'development' || process.env.NODE_ENV === 'development');
-    const allowPermissiveDevSync = isDevelopment && process.env.ALLOW_DEV_NONCE_SYNC === 'true';
+    // Edge Case: CSRF / Nonce mismatch using constant-time evaluation (F11 Hardened)
     if (!safeTimingCompare(storedNonce, clientNonce)) {
-      if (allowPermissiveDevSync) {
-        logger.warn(
-          { userId: payload.sub, sessionId },
-          '[AuthBarrier] Local dev mode: Self-healing tab session nonce mismatch'
-        );
-        res.setHeader('X-Session-Nonce-Sync', storedNonce);
-      } else {
-        logger.warn(
-          { userId: payload.sub, sessionId },
-          '[AuthBarrier] Ephemeral session nonce mismatch detected'
-        );
-        return res.status(401).json({
-          error: 'Invalid session nonce: request origin unverified',
-          code: 'AUTH_NONCE_MISMATCH',
-        });
-      }
+      logger.warn(
+        { userId: payload.sub, sessionId },
+        '[AuthBarrier] Ephemeral session nonce mismatch detected'
+      );
+      return res.status(401).json({
+        error: 'Invalid session nonce: request origin unverified',
+        code: 'AUTH_NONCE_MISMATCH',
+      });
     }
 
     // 4. Zero-Trust Scoping: The RESET_ONLY Session Barrier

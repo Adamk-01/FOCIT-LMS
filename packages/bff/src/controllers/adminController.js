@@ -19,6 +19,24 @@ import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 
 /**
+ * Resolves authoritative actor identity for admin actions (F3 Hardening).
+ * Fails fast with AUTH_REQUIRED instead of defaulting to a hardcoded 'admin1' string.
+ */
+function getAuthoritativeAdminActor(req) {
+  const actorId = req.user?.id || req.user?.student_id || req.user?.username;
+  if (!actorId) {
+    const error = new Error('Authoritative administrator identity required for privileged audit operations');
+    error.status = 401;
+    error.code = 'AUTH_REQUIRED';
+    throw error;
+  }
+  return {
+    actorId,
+    actorRole: req.user?.role || 'ADMIN'
+  };
+}
+
+/**
  * Safely and reliably purges all active Redis sessions belonging to a specific user.
  * Combines direct indexed set lookup (user_sessions:<userId>) and cursor-based SCAN fallback.
  *
@@ -522,11 +540,12 @@ export async function createUser(req, res, next) {
       );
     }
 
-    // Append to immutable security audit ledger
+    // Append to immutable security audit ledger (F3 Hardened)
+    const auditActor = getAuthoritativeAdminActor(req);
     await recordIdentityAuditLog(client, {
       eventType: 'ADMIN_USER_PROVISIONED',
-      actorId: req.user?.id || 'admin1',
-      actorRole: req.user?.role || 'ADMIN',
+      actorId: auditActor.actorId,
+      actorRole: auditActor.actorRole,
       targetId: createdId,
       targetType: 'USER_ACCOUNT',
       ipAddress: req.ip,
@@ -618,13 +637,13 @@ export async function updateUserStatus(req, res, next) {
   const searchId = id.trim();
 
   try {
-    // 1. Resolve target user from staff_advisors or students to obtain canonical identifiers
+    // 1. Resolve target user strictly by canonical internal primary key or institutional staff number (F2 Hardening: disallow email lookups)
     let userType = null;
     let resolvedUser = null;
 
     const staffRes = await pool.query(
       `SELECT advisor_id, staff_number, email, role, account_status FROM staff_advisors 
-       WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+       WHERE advisor_id = $1 OR staff_number = $1`,
       [searchId]
     );
 
@@ -634,7 +653,7 @@ export async function updateUserStatus(req, res, next) {
     } else {
       const studentRes = await pool.query(
         `SELECT student_id, matric_number, username, email, account_status FROM students 
-         WHERE student_id = $1 OR matric_number = $1 OR username = $1 OR email = $1`,
+         WHERE student_id = $1`,
         [searchId]
       );
       if (studentRes.rows.length > 0) {
@@ -716,11 +735,12 @@ export async function updateUserStatus(req, res, next) {
       }
     }
 
-    // 5. Record audit event
+    // 5. Record audit event (F3 Hardened)
+    const auditActor = getAuthoritativeAdminActor(req);
     await recordIdentityAuditLog(pool, {
       eventType: 'ADMIN_USER_STATUS_CHANGED',
-      actorId: req.user?.id || 'admin1',
-      actorRole: req.user?.role || 'ADMIN',
+      actorId: auditActor.actorId,
+      actorRole: auditActor.actorRole,
       targetId: canonicalId,
       targetType: userType === 'STAFF' ? 'STAFF_ADVISOR' : 'STUDENT',
       ipAddress: req.ip,
@@ -860,11 +880,12 @@ export async function updateUserRole(req, res, next) {
       logger.warn({ advisorId: targetStaff.advisor_id, error: sessionPurgeResult.error }, '[AdminController] Failed to purge active sessions following role change');
     }
 
-    // 5. Record audit event
+    // 5. Record audit event (F3 Hardened)
+    const auditActor = getAuthoritativeAdminActor(req);
     await recordIdentityAuditLog(pool, {
       eventType: 'ADMIN_USER_ROLE_CHANGED',
-      actorId: req.user?.id || 'admin1',
-      actorRole: req.user?.role || 'ADMIN',
+      actorId: auditActor.actorId,
+      actorRole: auditActor.actorRole,
       targetId: targetStaff.advisor_id,
       targetType: 'STAFF_ADVISOR',
       ipAddress: req.ip,
@@ -922,14 +943,14 @@ export async function updateUserDetails(req, res, next) {
   const searchId = id.trim();
 
   try {
-    // 1. Resolve user from staff_advisors or students
+    // 1. Resolve user strictly by canonical internal ID (F2 Hardening)
     let userType = null;
     let targetUser = null;
 
     const staffRes = await pool.query(
       `SELECT advisor_id, staff_number, full_name, email, department_id, assigned_level, role, account_status 
        FROM staff_advisors 
-       WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+       WHERE advisor_id = $1`,
       [searchId]
     );
 
@@ -940,7 +961,7 @@ export async function updateUserDetails(req, res, next) {
       const studentRes = await pool.query(
         `SELECT student_id, matric_number, full_name, email, programme_id, level, account_status 
          FROM students 
-         WHERE student_id = $1 OR matric_number = $1 OR username = $1 OR email = $1`,
+         WHERE student_id = $1`,
         [searchId]
       );
       if (studentRes.rowCount > 0) {
@@ -1038,11 +1059,12 @@ export async function updateUserDetails(req, res, next) {
         sessionPurged = purgeRes.success;
       }
 
-      // Audit ledger entry
+      // Audit ledger entry (F3 Hardened)
+      const staffAuditActor = getAuthoritativeAdminActor(req);
       await recordIdentityAuditLog(pool, {
         eventType: 'ADMIN_USER_UPDATED',
-        actorId: req.user?.id || 'admin1',
-        actorRole: req.user?.role || 'ADMIN',
+        actorId: staffAuditActor.actorId,
+        actorRole: staffAuditActor.actorRole,
         targetId: targetUser.advisor_id,
         targetType: 'STAFF_ADVISOR',
         ipAddress: req.ip,
@@ -1098,10 +1120,11 @@ export async function updateUserDetails(req, res, next) {
 
       const updatedRecord = updateRes.rows[0];
 
+      const studentAuditActor = getAuthoritativeAdminActor(req);
       await recordIdentityAuditLog(pool, {
         eventType: 'ADMIN_USER_UPDATED',
-        actorId: req.user?.id || 'admin1',
-        actorRole: req.user?.role || 'ADMIN',
+        actorId: studentAuditActor.actorId,
+        actorRole: studentAuditActor.actorRole,
         targetId: targetUser.student_id,
         targetType: 'STUDENT',
         ipAddress: req.ip,
@@ -1166,17 +1189,17 @@ export async function resetUserPassword(req, res, next) {
 
     const cleanId = String(id).trim();
 
-    // 1. Resolve user in students or staff_advisors
+    // 1. Resolve user strictly by canonical internal ID (F2 Hardening)
     let isStudent = true;
     const studentRes = await pool.query(
-      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1 OR matric_number = $1 OR username = $1 OR email = $1`,
+      `SELECT student_id, matric_number, username, full_name, email FROM students WHERE student_id = $1`,
       [cleanId]
     );
 
     let target = studentRes.rows[0];
     if (!target) {
       const staffRes = await pool.query(
-        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1 OR staff_number = $1 OR email = $1`,
+        `SELECT advisor_id AS student_id, staff_number AS matric_number, advisor_id AS username, full_name, email, role FROM staff_advisors WHERE advisor_id = $1`,
         [cleanId]
       );
       if (staffRes.rows[0]) {
@@ -1227,11 +1250,12 @@ export async function resetUserPassword(req, res, next) {
     // Purge active sessions in Redis
     await purgeUserSessions(target.student_id);
 
-    // Audit log
+    // Audit log (F3 Hardened)
+    const resetAuditActor = getAuthoritativeAdminActor(req);
     await recordIdentityAuditLog(pool, {
       eventType: 'ADMIN_PASSWORD_RESET',
-      actorId: req.user?.username || req.user?.id || 'admin1',
-      actorRole: req.user?.role || 'ADMIN',
+      actorId: resetAuditActor.actorId,
+      actorRole: resetAuditActor.actorRole,
       targetId: target.student_id,
       targetType: 'CREDENTIALS',
       ipAddress: req.ip || req.headers['x-forwarded-for'] || '127.0.0.1',

@@ -96,16 +96,25 @@ router.get('/profile', async (req, res) => {
       ).catch((err) => logger.warn({ err }, '[Profile] Lazy profile init collision ignored'));
     }
 
-    const gpaTelemetry = evaluateGpaStanding(studentProfile);
-    const enrichedProfile = {
-      ...studentProfile,
-      current_gpa: gpaTelemetry.current_gpa,
-      gpa_exempt: gpaTelemetry.gpa_exempt,
-      standing_label: gpaTelemetry.standing_label,
-      exemption_reason: gpaTelemetry.exemption_reason,
+    // Response DTO (F1 Hardening): Exclude sensitive academic standing, medical exemption, and personal PII
+    const safeProfile = {
+      student_id: studentProfile.student_id,
+      full_name: studentProfile.full_name,
+      matric_number: studentProfile.matric_number,
+      username: studentProfile.username,
+      institutional_email: studentProfile.institutional_email,
+      alternate_email: studentProfile.alternate_email || null,
+      programme_name: studentProfile.programme_name,
+      department_name: studentProfile.department_name,
+      level: studentProfile.level,
+      completed_units: studentProfile.completed_units,
+      avatar_url: studentProfile.avatar_url || null,
+      bio: studentProfile.bio || '',
+      preferences: studentProfile.preferences || {},
+      version: studentProfile.version || 1,
     };
 
-    return res.status(200).json(enrichedProfile);
+    return res.status(200).json(safeProfile);
   } catch (err) {
     logger.error({ err, studentId }, '[Profile] Failed to fetch student profile');
     return res.status(500).json({ error: 'Failed to retrieve profile data', code: 'INTERNAL_ERROR' });

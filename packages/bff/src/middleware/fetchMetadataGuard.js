@@ -39,11 +39,16 @@ function isTrustedOrigin(incomingOrigin, req) {
 
   const trustedOrigins = new Set([
     normalizedConfigured,
-    'http://localhost:5173',
-    'http://localhost:5180',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:5180'
+    'https://focit-lms-indol.vercel.app',
   ]);
+
+  // Gate localhost origins strictly behind non-production check (F4 & F12)
+  if (config.nodeEnv !== 'production') {
+    trustedOrigins.add('http://localhost:5173');
+    trustedOrigins.add('http://localhost:5180');
+    trustedOrigins.add('http://127.0.0.1:5173');
+    trustedOrigins.add('http://127.0.0.1:5180');
+  }
 
   // 1. Direct match with configured frontend or trusted dev ports
   if (trustedOrigins.has(normalizedIncoming)) return true;

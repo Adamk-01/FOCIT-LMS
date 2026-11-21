@@ -11,6 +11,8 @@
 
 import { getMoodlePoolStats } from '../lib/moodlePool.js';
 import config from '../config.js';
+import { redis } from '../lib/redis.js';
+import { logger } from '../lib/logger.js';
 
 // ─── Tier 1: Global Concurrency Gate ──────────────────────────
 // If the Undici pool's pending queue exceeds threshold,
@@ -153,6 +155,53 @@ export function downloadDedup(req, res, next) {
 
   res.on('finish', cleanup);
   res.on('close', cleanup);
+
+  next();
+}
+
+/**
+ * Unauthenticated Login Sliding Window Rate Limiter (F14 Remediation)
+ * Protects POST /api/auth/login against credential stuffing & CPU scrypt DoS.
+ * Limit: Max 25 attempts per IP and max 5 attempts per candidate studentId per 15 minutes.
+ */
+export async function loginRateLimiter(req, res, next) {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+  const candidateId = (req.body?.studentId || '').toString().trim().toUpperCase().replace(/\s+/g, '');
+
+  const ipKey = `rl:login:ip:${ip}`;
+  const userKey = candidateId ? `rl:login:user:${candidateId}` : null;
+  const WINDOW_SECONDS = 900; // 15 minutes
+
+  try {
+    if (redis && (redis.status === 'ready' || redis.status === 'connect')) {
+      const pipeline = redis.pipeline();
+      pipeline.incr(ipKey);
+      if (userKey) pipeline.incr(userKey);
+      const results = await pipeline.exec();
+
+      const ipCount = results?.[0]?.[1] || 1;
+      const userCount = userKey ? (results?.[1]?.[1] || 1) : 1;
+
+      if (ipCount === 1) await redis.expire(ipKey, WINDOW_SECONDS);
+      if (userKey && userCount === 1) await redis.expire(userKey, WINDOW_SECONDS);
+
+      if (ipCount > 25 || userCount > 5) {
+        logger.warn({ ip, candidateId, ipCount, userCount }, '[RateLimiter] Login brute-force rate limit triggered');
+        const ttl = await redis.ttl(userCount > 5 ? userKey : ipKey);
+        const retryAfter = ttl > 0 ? ttl : WINDOW_SECONDS;
+
+        return res.status(429)
+          .set('Retry-After', String(retryAfter))
+          .json({
+            error: 'Too many login attempts. Please wait 15 minutes before trying again.',
+            code: 'AUTH_RATE_LIMIT_EXCEEDED',
+            retryAfter,
+          });
+      }
+    }
+  } catch (err) {
+    logger.warn({ err: err?.message || err }, '[RateLimiter] Redis login rate limit check bypassed');
+  }
 
   next();
 }

@@ -31,7 +31,7 @@ import config from './config.js';
 import { logger } from './lib/logger.js';
 import { fetchMetadataGuard } from './middleware/fetchMetadataGuard.js';
 import { authMiddleware } from './middleware/auth.js';
-import { globalConcurrencyGate } from './middleware/rateLimiter.js';
+import { globalConcurrencyGate, loginRateLimiter } from './middleware/rateLimiter.js';
 import { createBulkheadGate } from './middleware/bulkheadGate.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import authRouter from './routes/auth.js';
@@ -82,19 +82,24 @@ app.use(pinoHttp({
   }
 }));
 
-// ─── 1. CORS ─────────────────────────────────────────────────
+// ─── 1. CORS (F16 & F4 / F12 Remediation) ─────────────────────
 const allowedOrigins = [
   config.frontendOrigin,
-  'http://localhost:5173',
-  'http://localhost:5180',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5180'
+  'https://focit-lms-indol.vercel.app',
 ];
+
+if (config.nodeEnv !== 'production') {
+  allowedOrigins.push(
+    'http://localhost:5173',
+    'http://localhost:5180',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5180'
+  );
+}
 
 app.use(cors({
   origin: (origin, callback) => {
-    const isAppVercelOrigin = typeof origin === 'string' && /^https:\/\/focit(-[a-z0-9-]+)?\.vercel\.app$/.test(origin);
-    if (!origin || allowedOrigins.includes(origin) || isAppVercelOrigin) {
+    if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error(`CORS blocked for origin: ${origin}`));
@@ -118,7 +123,6 @@ app.use(cors({
     'X-RateLimit-Remaining',
     'X-RateLimit-Reset',
     'Retry-After',
-    'X-Session-Nonce-Sync',
   ],
 }));
 
@@ -141,6 +145,8 @@ app.use('/api', fetchMetadataGuard);
 const staffBulkheadGate = createBulkheadGate(5, 'STAFF');
 
 // ─── 7. Authentication Routes (Handshake, Logout, Status) ────
+// Unauthenticated login brute-force rate limiter (F14)
+app.use('/api/auth/login', loginRateLimiter);
 app.use('/api/auth', authRouter);
 
 // ─── 8. Authentication Barrier for Protected API Endpoints ──
