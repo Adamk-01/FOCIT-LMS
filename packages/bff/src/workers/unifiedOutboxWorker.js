@@ -22,6 +22,7 @@ import { enrolUserInCourse } from '../integrations/moodle/moodle.enrolments.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js';
 import { matchStudentLine } from '../services/ocrAttendanceMatcher.js';
+import { createNotification } from '../routes/notifications.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHEETS_DIR = path.join(__dirname, '../../.cache/sheets');
@@ -166,17 +167,65 @@ export class UnifiedOutboxWorker {
           const canonicalUsername = (matric_number || studentId).toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
           
           let moodleUserId;
-          const existingUser = await getMoodleUserByField('username', canonicalUsername);
+
+          // 0. Check if mapping already exists in local database (avoids redundant provisioning on retry)
+          const existingMap = await pool.query(
+            `SELECT moodle_user_id FROM moodle_user_mappings WHERE focit_user_id = $1`,
+            [aggregate_id]
+          );
+          if (existingMap.rows.length > 0) {
+            moodleUserId = existingMap.rows[0].moodle_user_id;
+            break;
+          }
+
+          let existingUser = null;
+          try {
+            existingUser = await getMoodleUserByField('username', canonicalUsername);
+          } catch (lookupErr) {
+            if (lookupErr?.errorCode === 'accessexception' || lookupErr?.errorCode === 'webservice_access_exception') {
+              logger.warn({ err: lookupErr.message, canonicalUsername }, '[UnifiedOutbox] User lookup access restricted, attempting direct provisioning');
+            } else {
+              throw lookupErr;
+            }
+          }
+
           if (existingUser?.id) {
             moodleUserId = existingUser.id;
           } else {
             const parts = (full_name || 'Student User').split(' ');
-            moodleUserId = await createMoodleUser({
-              username: canonicalUsername,
-              firstname: parts[0] || 'Student',
-              lastname: parts.slice(1).join(' ') || 'User',
-              email: email || `${canonicalUsername}@focit.uniosun.edu.ng`,
-            });
+            try {
+              moodleUserId = await createMoodleUser({
+                username: canonicalUsername,
+                firstname: parts[0] || 'Student',
+                lastname: parts.slice(1).join(' ') || 'User',
+                email: email || `${canonicalUsername}@focit.uniosun.edu.ng`,
+              });
+            } catch (createErr) {
+              const errMsg = String(createErr?.message || '').toLowerCase();
+              if (errMsg.includes('already exists') || createErr?.errorCode === 'usernamealreadyexists') {
+                // Reconcile concurrent creation: Another worker or retry may have just created the user in Moodle
+                try {
+                  const reconciledUser = await getMoodleUserByField('username', canonicalUsername);
+                  if (reconciledUser?.id) {
+                    moodleUserId = reconciledUser.id;
+                    logger.info({ canonicalUsername, moodleUserId }, '[UnifiedOutbox] Successfully reconciled existing Moodle user ID on duplicate collision');
+                  } else {
+                    const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but reconciliation lookup returned null.`);
+                    configErr.isRetryable = false;
+                    throw configErr;
+                  }
+                } catch (reconcileErr) {
+                  if (reconcileErr?.errorCode === 'accessexception' || reconcileErr?.errorCode === 'webservice_access_exception') {
+                    const configErr = new Error(`Moodle user "${canonicalUsername}" already exists, but web service token lacks read capabilities (core_user_get_users_by_field) to retrieve user ID.`);
+                    configErr.isRetryable = false;
+                    throw configErr;
+                  }
+                  throw reconcileErr;
+                }
+              } else {
+                throw createErr;
+              }
+            }
           }
 
           // Guard: If moodleUserId was previously mapped to a stale/different FOCIT identity, purge the obsolete mapping
@@ -201,6 +250,14 @@ export class UnifiedOutboxWorker {
         case 'ENROLLMENT_SYNC': {
           const studentId = payload.student_id || aggregate_id;
           const courseId = payload.course_id;
+
+          // Guard: Check if student exists in database (auto-quarantine orphaned events)
+          const studentCheck = await pool.query('SELECT 1 FROM students WHERE student_id = $1', [studentId]);
+          if (studentCheck.rows.length === 0) {
+            const orphanError = new Error(`Student ${studentId} does not exist in FOCIT database (orphaned event)`);
+            orphanError.isRetryable = false;
+            throw orphanError;
+          }
           let semesterId = payload.semester_id;
 
           if (!semesterId) {
@@ -208,6 +265,72 @@ export class UnifiedOutboxWorker {
               `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
             );
             semesterId = activeTermRes.rows[0]?.id || '2026_RAIN';
+          }
+
+          // Guard: Verify authoritative registration clearance and active enrollment status
+          const ACTIVE_ENROLLMENT_STATUSES = ['ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED'];
+          const batchId = payload.batch_id || (ev.aggregate_type === 'COURSE_REGISTRATION' ? ev.aggregate_id : null);
+
+          // 1. Check registration item status first (authoritative clearance by lecturer)
+          // Chronology rule: When no specific batch_id is provided, newest batch submission takes precedence
+          const itemCheck = await pool.query(
+            `SELECT cri.status, cri.created_at, b.id AS batch_id, b.status AS batch_status
+             FROM course_registration_items cri
+             JOIN course_registration_batches b ON b.id = cri.batch_id
+             WHERE b.student_id = $1 AND cri.course_id = $2 AND b.semester_id = $3
+             ORDER BY 
+               CASE WHEN $4::text IS NOT NULL AND b.id::text = $4::text THEN 0 ELSE 1 END,
+               b.created_at DESC, 
+               cri.created_at DESC
+             LIMIT 1`,
+            [studentId, courseId, semesterId, batchId]
+          );
+          const itemStatus = itemCheck.rows[0]?.status;
+
+          if (itemStatus === 'REJECTED') {
+            logger.info(
+              { studentId, courseId, semesterId },
+              '[UnifiedOutbox] Course item was explicitly rejected by lecturer in current batch. Discarding Moodle synchronization event.'
+            );
+            break; // Discard event permanently as COMPLETED
+          }
+
+          if (itemStatus === 'PENDING_LECTURER') {
+            // If item is still awaiting lecturer clearance, do NOT mark complete!
+            // Crucial: Decrement delivery_attempts back so waiting for human clearance does not consume the failure budget!
+            logger.info(
+              { studentId, courseId, semesterId, itemStatus },
+              '[UnifiedOutbox] Enrollment pending lecturer clearance. Postponing outbox synchronization without consuming failure budget.'
+            );
+            await pool.query(
+              `UPDATE integration_outbox_events 
+               SET status = 'PENDING',
+                   delivery_attempts = GREATEST(0, delivery_attempts - 1),
+                   locked_until = NOW() + INTERVAL '60 seconds',
+                   worker_id = NULL,
+                   updated_at = NOW()
+               WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $2`,
+              [event_id, this.workerId]
+            );
+            return; // Exit turn without marking COMPLETED
+          }
+
+          // 2. Verify authoritative enrollment status in ledger
+          // Doctrine: PostgreSQL enrollments table is the authoritative ledger. If no active enrollment exists, do not sync.
+          const enrollmentCheck = await pool.query(
+            `SELECT status FROM enrollments 
+             WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
+            [studentId, courseId, semesterId]
+          );
+          const currentStatus = enrollmentCheck.rows[0]?.status;
+
+          // If no active enrollment exists in the authoritative ledger, discard event
+          if (!currentStatus || !ACTIVE_ENROLLMENT_STATUSES.includes(currentStatus)) {
+            logger.info(
+              { studentId, courseId, semesterId, currentStatus, itemStatus },
+              '[UnifiedOutbox] No active authoritative enrollment found in ledger. Discarding Moodle synchronization event.'
+            );
+            break;
           }
 
           // 1. Resolve Moodle User ID
@@ -426,17 +549,27 @@ export class UnifiedOutboxWorker {
       }
 
       // Mark COMPLETED upon success and clear any previous transient error
-      await pool.query(`
+      // Guard against race conditions: Only update if the event is still in PROCESSING status assigned to this worker.
+      // If a concurrent thread (e.g. lecturer approval) re-armed the event to PENDING, do not overwrite it with COMPLETED!
+      const updateResult = await pool.query(`
         UPDATE integration_outbox_events
         SET 
           status = 'COMPLETED',
           locked_until = NULL,
           last_error = NULL,
+          worker_id = NULL,
           updated_at = NOW()
-        WHERE event_id = $1;
-      `, [event_id]);
+        WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $2;
+      `, [event_id, this.workerId]);
 
-      logger.info({ event_id, event_type }, '[UnifiedOutbox] Event processed successfully');
+      if (updateResult.rowCount === 0) {
+        logger.info(
+          { event_id, event_type },
+          '[UnifiedOutbox] Event was reactivated or lease was reclaimed concurrently; leaving status untouched'
+        );
+      } else {
+        logger.info({ event_id, event_type }, '[UnifiedOutbox] Event processed successfully');
+      }
 
     } catch (err) {
       const isRetryable = err?.isRetryable !== false;
@@ -453,11 +586,39 @@ export class UnifiedOutboxWorker {
           { event_id, event_type, isRetryable, attempts: ev.delivery_attempts, err: errorMessage },
           '[UnifiedOutbox] Poison pill quarantined: marking event as FAILED'
         );
-        await pool.query(`
+        const quarantineResult = await pool.query(`
           UPDATE integration_outbox_events
-          SET status = 'FAILED', locked_until = NULL, last_error = $2, updated_at = NOW()
-          WHERE event_id = $1;
-        `, [event_id, errorMessage]);
+          SET status = 'FAILED', locked_until = NULL, last_error = $2, worker_id = NULL, updated_at = NOW()
+          WHERE event_id = $1 AND status = 'PROCESSING' AND worker_id = $3;
+        `, [event_id, errorMessage, this.workerId]);
+
+        // Post-quarantine alert to Administrator ONLY when this worker's quarantine update took effect
+        if (quarantineResult.rowCount > 0) {
+          (async () => {
+            try {
+              const adminRes = await pool.query(
+                `SELECT advisor_id FROM staff_advisors 
+                 WHERE role IN ('ADMIN', 'SYSTEM_ADMIN') AND account_status = 'ACTIVE' 
+                 ORDER BY (role = 'SYSTEM_ADMIN') DESC, created_at ASC 
+                 LIMIT 3`
+              );
+              const targetAdmins = adminRes.rows.length > 0 ? adminRes.rows.map(r => r.advisor_id) : ['admin1'];
+              for (const adminId of targetAdmins) {
+                await createNotification({
+                  userId: adminId,
+                  category: 'SYSTEM',
+                  priority: 'URGENT',
+                  title: `Outbox Sync Failure: ${event_type}`,
+                  body: `Moodle background provisioning failed for ${ev.aggregate_type || 'OUTBOX'} (${ev.aggregate_id || event_id}): ${errorMessage.slice(0, 150)}`,
+                  actionUrl: '/admin/outbox',
+                  metadata: { eventId: event_id, eventType: event_type, attempts: ev.delivery_attempts },
+                }).catch((err) => logger.warn({ err: err?.message, adminId }, '[UnifiedOutbox] Admin notification failed'));
+              }
+            } catch (adminNotifErr) {
+              logger.warn({ err: adminNotifErr?.message }, '[UnifiedOutbox] Failed to alert admin of outbox quarantine');
+            }
+          })();
+        }
       } else {
         // Exponential backoff for retryable errors
         const backoffSeconds = Math.min(300, Math.pow(2, ev.delivery_attempts) * 5);

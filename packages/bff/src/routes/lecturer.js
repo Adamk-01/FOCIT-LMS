@@ -21,6 +21,7 @@ function escapeCsvField(val) {
 import { Router } from 'express';
 import { pool } from '../db/index.js';
 import { logger } from '../lib/logger.js';
+import { createNotification } from './notifications.js';
 
 const router = Router();
 
@@ -157,7 +158,15 @@ router.get('/courses', async (req, res, next) => {
           WHERE e.course_id = c.course_id 
             AND e.semester_id = $2 
             AND e.status IN ('ENROLLED', 'CONFIRMED', 'ACTIVE', 'APPROVED', 'IN_PROGRESS', 'COMPLETED')
-        ) AS verified_enrolled_students
+        ) AS verified_enrolled_students,
+        (
+          SELECT COUNT(*)::int
+          FROM course_registration_items cri
+          JOIN course_registration_batches b ON b.id = cri.batch_id
+          WHERE cri.course_id = c.course_id
+            AND b.semester_id = $2
+            AND cri.status = 'PENDING_LECTURER'
+        ) AS pending_registrations_count
       FROM courses c
       JOIN departments d ON d.id = c.department_id
       JOIN hod_course_allocations hca ON hca.course_id = c.course_id AND hca.semester_id = $2
@@ -647,6 +656,470 @@ router.post('/courses/:courseId/grades/ingest', async (req, res, next) => {
     next(err);
   } finally {
     client.release();
+  }
+});
+
+// ─── 8. Course Registration Approval Desk (Assigned Lecturers Only) ──────────
+
+/**
+ * Strict verification that caller is officially allocated to this course (Primary or Co-Lecturer).
+ * Explicitly rejects Admin, HOD, and unassigned staff with zero bypass.
+ */
+async function verifyAssignedCourseLecturer(courseId, lecturerId, semesterId) {
+  const query = `
+    SELECT hca.id, hca.is_primary, sa.full_name, sa.staff_number
+    FROM hod_course_allocations hca
+    JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+    WHERE hca.course_id = $1 
+      AND hca.semester_id = $2 
+      AND hca.lecturer_id = $3
+    LIMIT 1
+  `;
+  const { rows } = await pool.query(query, [courseId, semesterId, lecturerId]);
+  return rows[0] || null;
+}
+
+/**
+ * GET /api/lecturer/courses/:courseId/registrations
+ * Retrieves pending student course registration applications for an assigned course.
+ * Strict Guard: Caller must be an allocated primary or co-lecturer.
+ */
+router.get('/courses/:courseId/registrations', async (req, res, next) => {
+  const { courseId } = req.params;
+  const lecturerId = req.lecturerScope.advisor_id;
+  const { semesterId } = req.query;
+
+  try {
+    const termRes = await pool.query(
+      `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+    );
+    const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    // 1. Strict Assigned Lecturer Invariant (No Admin or HOD bypass)
+    const assignment = await verifyAssignedCourseLecturer(courseId, lecturerId, targetSemesterId);
+    if (!assignment) {
+      return res.status(403).json({
+        error: 'Access denied: Only primary or secondary lecturers officially assigned to this course can view or manage course registrations. Admins, HODs, and unallocated staff are prohibited.',
+        code: 'FORBIDDEN_NOT_ASSIGNED_LECTURER',
+      });
+    }
+
+    // 2. Fetch Course Metadata
+    const courseRes = await pool.query(
+      `SELECT course_id, code, title, units, level, enrolled_count, max_capacity FROM courses WHERE course_id = $1 LIMIT 1`,
+      [courseId]
+    );
+    if (courseRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Course not found', code: 'COURSE_NOT_FOUND' });
+    }
+
+    // 3. Query Registrations Queue
+    const query = `
+      SELECT 
+        cri.id AS item_id,
+        cri.batch_id,
+        cri.course_id,
+        cri.units,
+        cri.category,
+        cri.status,
+        cri.approved_by,
+        cri.approved_at,
+        cri.rejected_by,
+        cri.rejected_at,
+        cri.rejection_reason,
+        cri.created_at,
+        s.student_id,
+        s.matric_number,
+        s.full_name,
+        s.email,
+        s.level,
+        s.current_gpa,
+        p.name AS programme_name,
+        p.code AS programme_code,
+        d.name AS department_name
+      FROM course_registration_items cri
+      JOIN course_registration_batches b ON b.id = cri.batch_id
+      JOIN students s ON s.student_id = b.student_id
+      JOIN programmes p ON p.id = s.programme_id
+      JOIN departments d ON d.id = p.department_id
+      WHERE cri.course_id = $1
+        AND b.semester_id = $2
+        AND b.status != 'DRAFT'
+      ORDER BY 
+        CASE WHEN cri.status = 'PENDING_LECTURER' THEN 1 ELSE 2 END ASC,
+        cri.created_at ASC
+    `;
+
+    const { rows } = await pool.query(query, [courseId, targetSemesterId]);
+
+    const pendingCount = rows.filter(r => r.status === 'PENDING_LECTURER').length;
+    const approvedCount = rows.filter(r => r.status === 'APPROVED').length;
+    const rejectedCount = rows.filter(r => r.status === 'REJECTED').length;
+
+    return res.status(200).json({
+      course: courseRes.rows[0],
+      assignment,
+      semesterId: targetSemesterId,
+      counts: { pending: pendingCount, approved: approvedCount, rejected: rejectedCount, total: rows.length },
+      registrations: rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/lecturer/courses/:courseId/registrations/:itemId/accept
+ * Assigned lecturer accepts a student's course registration.
+ * Creates/activates enrollment record and dispatches student notification.
+ */
+router.post('/courses/:courseId/registrations/:itemId/accept', async (req, res, next) => {
+  const { courseId, itemId } = req.params;
+  const lecturerId = req.lecturerScope.advisor_id;
+  const { semesterId } = req.query;
+
+  try {
+    const termRes = await pool.query(
+      `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+    );
+    const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    // 1. Strict Assigned Lecturer Check
+    const assignment = await verifyAssignedCourseLecturer(courseId, lecturerId, targetSemesterId);
+    if (!assignment) {
+      return res.status(403).json({
+        error: 'Access denied: Only primary or secondary lecturers officially assigned to this course can accept student registrations.',
+        code: 'FORBIDDEN_NOT_ASSIGNED_LECTURER',
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 2. Lock item row
+      const itemRes = await client.query(
+        `SELECT cri.id, cri.batch_id, cri.course_id, cri.units, cri.status,
+                b.student_id, b.semester_id, b.status AS batch_status, c.code AS course_code, c.title AS course_title
+         FROM course_registration_items cri
+         JOIN course_registration_batches b ON b.id = cri.batch_id
+         JOIN courses c ON c.course_id = cri.course_id
+         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3 AND b.status != 'DRAFT'
+         FOR UPDATE`,
+        [itemId, courseId, targetSemesterId]
+      );
+
+      if (itemRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Course registration item not found or batch is an unsubmitted draft', code: 'ITEM_NOT_FOUND' });
+      }
+
+      const item = itemRes.rows[0];
+
+      // Validate acceptance transitions: reject already approved or rejected items
+      if (item.status === 'APPROVED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Course registration item has already been approved', code: 'ALREADY_APPROVED' });
+      }
+      if (item.status === 'REJECTED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Cannot accept a previously rejected course registration item', code: 'INVALID_STATUS_TRANSITION' });
+      }
+
+      // 3. Mark as APPROVED by lecturer
+      await client.query(
+        `UPDATE course_registration_items 
+         SET status = 'APPROVED', approved_by = $1, approved_at = NOW(), rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL
+         WHERE id = $2`,
+        [lecturerId, itemId]
+      );
+
+      // 4. Upsert into enrollments
+      await client.query(
+        `INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status, approved_by_lecturer_id, enrolled_at)
+         VALUES ($1, $2, $3, $4, 'ENROLLED', $5, NOW())
+         ON CONFLICT (student_id, course_id, semester_id)
+         DO UPDATE SET status = 'ENROLLED', approved_by_lecturer_id = EXCLUDED.approved_by_lecturer_id, enrolled_at = NOW()`,
+        [item.student_id, item.course_id, item.course_code, item.semester_id, lecturerId]
+      );
+
+      // 5. Enqueue Outbox Event for Moodle Sync (re-arms to PENDING if previously existing)
+      await client.query(
+        `INSERT INTO integration_outbox_events (aggregate_type, aggregate_id, event_type, payload, idempotency_key)
+         VALUES ('COURSE_REGISTRATION', $1, 'ENROLLMENT_SYNC', $2, $3)
+         ON CONFLICT (idempotency_key) 
+         DO UPDATE SET status = 'PENDING', locked_until = NULL, last_error = NULL, updated_at = NOW()`,
+        [
+          item.batch_id,
+          JSON.stringify({ student_id: item.student_id, course_id: item.course_id, course_code: item.course_code, semester_id: item.semester_id }),
+          `moodle_sync:${item.student_id}:${item.course_id}:${item.semester_id}`
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      // 6. Post-commit Notification to Student
+      createNotification({
+        studentId: item.student_id,
+        category: 'REGISTRATION',
+        priority: 'HIGH',
+        title: `Registration Accepted: ${item.course_code}`,
+        body: `Your course registration for ${item.course_code} (${item.course_title}) has been approved by your course lecturer (${assignment.full_name}). Official enrollment is active.`,
+        actionUrl: '/registration',
+        metadata: { courseId: item.course_id, status: 'APPROVED', approvedBy: lecturerId },
+      }).catch((e) => logger.warn({ err: e?.message }, '[LecturerRegistration] Failed to notify student'));
+
+      return res.status(200).json({
+        status: 'SUCCESS',
+        message: `Successfully accepted registration for ${item.course_code}`,
+        itemId,
+        courseId,
+        studentId: item.student_id,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/lecturer/courses/:courseId/registrations/:itemId/reject
+ * Assigned lecturer rejects a student's course registration.
+ * Releases seat capacity and notifies the student with the reason.
+ */
+router.post('/courses/:courseId/registrations/:itemId/reject', async (req, res, next) => {
+  const { courseId, itemId } = req.params;
+  const lecturerId = req.lecturerScope.advisor_id;
+  const { reason } = req.body || {};
+  const { semesterId } = req.query;
+
+  if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+    return res.status(400).json({
+      error: 'A descriptive rejection reason (minimum 3 characters) is required',
+      code: 'REJECTION_REASON_REQUIRED',
+    });
+  }
+
+  try {
+    const termRes = await pool.query(
+      `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+    );
+    const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    // 1. Strict Assigned Lecturer Check
+    const assignment = await verifyAssignedCourseLecturer(courseId, lecturerId, targetSemesterId);
+    if (!assignment) {
+      return res.status(403).json({
+        error: 'Access denied: Only primary or secondary lecturers officially assigned to this course can reject student registrations.',
+        code: 'FORBIDDEN_NOT_ASSIGNED_LECTURER',
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 2. Lock item row
+      const itemRes = await client.query(
+        `SELECT cri.id, cri.batch_id, cri.course_id, cri.units, cri.status,
+                b.student_id, b.semester_id, b.status AS batch_status, c.code AS course_code, c.title AS course_title
+         FROM course_registration_items cri
+         JOIN course_registration_batches b ON b.id = cri.batch_id
+         JOIN courses c ON c.course_id = cri.course_id
+         WHERE cri.id = $1 AND cri.course_id = $2 AND b.semester_id = $3 AND b.status != 'DRAFT'
+         FOR UPDATE`,
+        [itemId, courseId, targetSemesterId]
+      );
+
+      if (itemRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Course registration item not found or batch is an unsubmitted draft', code: 'ITEM_NOT_FOUND' });
+      }
+
+      const item = itemRes.rows[0];
+
+      // Validate rejection: only reject items that are not already rejected
+      if (item.status === 'REJECTED') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Course registration item has already been rejected', code: 'ALREADY_REJECTED' });
+      }
+
+      // 3. Mark as REJECTED
+      await client.query(
+        `UPDATE course_registration_items 
+         SET status = 'REJECTED', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, approved_by = NULL, approved_at = NULL
+         WHERE id = $3`,
+        [lecturerId, reason.trim(), itemId]
+      );
+
+      // 4. Safely decrement course enrolled_count
+      await client.query(
+        `UPDATE courses SET enrolled_count = GREATEST(0, enrolled_count - 1) WHERE course_id = $1`,
+        [item.course_id]
+      );
+
+      // 5. Remove any tentative enrollment row
+      await client.query(
+        `DELETE FROM enrollments WHERE student_id = $1 AND course_id = $2 AND semester_id = $3`,
+        [item.student_id, item.course_id, item.semester_id]
+      );
+
+      // 5b. Purge any pending ENROLLMENT_SYNC outbox event to prevent post-rejection upstream sync
+      await client.query(
+        `DELETE FROM integration_outbox_events 
+         WHERE aggregate_type = 'COURSE_REGISTRATION'
+           AND event_type = 'ENROLLMENT_SYNC'
+           AND idempotency_key = $1
+           AND status = 'PENDING'`,
+        [`moodle_sync:${item.student_id}:${item.course_id}:${item.semester_id}`]
+      );
+
+      await client.query('COMMIT');
+
+      // 6. Post-commit Notification to Student
+      createNotification({
+        studentId: item.student_id,
+        category: 'REGISTRATION',
+        priority: 'URGENT',
+        title: `Registration Declined: ${item.course_code}`,
+        body: `Your course registration for ${item.course_code} (${item.course_title}) was rejected by course lecturer (${assignment.full_name}). Reason: "${reason.trim()}".`,
+        actionUrl: '/registration',
+        metadata: { courseId: item.course_id, status: 'REJECTED', reason: reason.trim(), rejectedBy: lecturerId },
+      }).catch((e) => logger.warn({ err: e?.message }, '[LecturerRegistration] Failed to notify student'));
+
+      return res.status(200).json({
+        status: 'SUCCESS',
+        message: `Successfully rejected registration for ${item.course_code}`,
+        itemId,
+        courseId,
+        studentId: item.student_id,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/lecturer/courses/:courseId/registrations/batch-accept
+ * Bulk accept pending registrations for an assigned course.
+ */
+router.post('/courses/:courseId/registrations/batch-accept', async (req, res, next) => {
+  const { courseId } = req.params;
+  const lecturerId = req.lecturerScope.advisor_id;
+  const { itemIds } = req.body || {};
+  const { semesterId } = req.query;
+
+  if (!Array.isArray(itemIds) || itemIds.length === 0) {
+    return res.status(400).json({ error: 'itemIds array is required', code: 'INVALID_PAYLOAD' });
+  }
+
+  try {
+    const termRes = await pool.query(
+      `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
+    );
+    const targetSemesterId = semesterId || termRes.rows[0]?.id || '2026_RAIN';
+
+    const assignment = await verifyAssignedCourseLecturer(courseId, lecturerId, targetSemesterId);
+    if (!assignment) {
+      return res.status(403).json({
+        error: 'Access denied: Only primary or secondary lecturers officially assigned to this course can accept student registrations.',
+        code: 'FORBIDDEN_NOT_ASSIGNED_LECTURER',
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const itemsRes = await client.query(
+        `SELECT cri.id, cri.batch_id, cri.course_id, b.student_id, b.semester_id, c.code AS course_code, c.title AS course_title
+         FROM course_registration_items cri
+         JOIN course_registration_batches b ON b.id = cri.batch_id
+         JOIN courses c ON c.course_id = cri.course_id
+         WHERE cri.id = ANY($1::uuid[]) 
+           AND cri.course_id = $2 
+           AND b.semester_id = $3
+           AND b.status != 'DRAFT'
+           AND cri.status = 'PENDING_LECTURER'
+         FOR UPDATE`,
+        [itemIds, courseId, targetSemesterId]
+      );
+
+      if (itemsRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'No pending registration items found for acceptance',
+          code: 'NO_PENDING_REGISTRATIONS',
+        });
+      }
+
+      for (const item of itemsRes.rows) {
+        await client.query(
+          `UPDATE course_registration_items 
+           SET status = 'APPROVED', approved_by = $1, approved_at = NOW(), rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL
+           WHERE id = $2`,
+          [lecturerId, item.id]
+        );
+
+        await client.query(
+          `INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status, approved_by_lecturer_id, enrolled_at)
+           VALUES ($1, $2, $3, $4, 'ENROLLED', $5, NOW())
+           ON CONFLICT (student_id, course_id, semester_id)
+           DO UPDATE SET status = 'ENROLLED', approved_by_lecturer_id = EXCLUDED.approved_by_lecturer_id, enrolled_at = NOW()`,
+          [item.student_id, item.course_id, item.course_code, item.semester_id, lecturerId]
+        );
+
+        await client.query(
+          `INSERT INTO integration_outbox_events (aggregate_type, aggregate_id, event_type, payload, idempotency_key)
+           VALUES ('COURSE_REGISTRATION', $1, 'ENROLLMENT_SYNC', $2, $3)
+           ON CONFLICT (idempotency_key) 
+           DO UPDATE SET status = 'PENDING', locked_until = NULL, last_error = NULL, updated_at = NOW()`,
+          [
+            item.batch_id,
+            JSON.stringify({ student_id: item.student_id, course_id: item.course_id, course_code: item.course_code, semester_id: item.semester_id }),
+            `moodle_sync:${item.student_id}:${item.course_id}:${item.semester_id}`
+          ]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      // Post-commit notify
+      for (const item of itemsRes.rows) {
+        createNotification({
+          studentId: item.student_id,
+          category: 'REGISTRATION',
+          priority: 'HIGH',
+          title: `Registration Accepted: ${item.course_code}`,
+          body: `Your course registration for ${item.course_code} (${item.course_title}) has been approved by your course lecturer (${assignment.full_name}).`,
+          actionUrl: '/registration',
+          metadata: { courseId: item.course_id, status: 'APPROVED', approvedBy: lecturerId },
+        }).catch(() => {});
+      }
+
+      return res.status(200).json({
+        status: 'SUCCESS',
+        acceptedCount: itemsRes.rows.length,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
   }
 });
 

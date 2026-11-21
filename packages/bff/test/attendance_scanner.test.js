@@ -52,24 +52,11 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
     // 2. Prepare test data in database
     await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'");
     await pool.query(`
-      INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status)
+      INSERT INTO students (student_id, matric_number, username, full_name, email, programme_id, level, account_status)
       VALUES 
-        ('student1', 'CSC204', '2026_RAIN', 'CSC 204', 'ENROLLED'),
-        ('student2', 'CSC204', '2026_RAIN', 'CSC 204', 'ENROLLED')
-      ON CONFLICT DO NOTHING;
-    `);
-
-    // Ensure student profile has a known matric number
-    await pool.query(`
-      UPDATE students
-      SET matric_number = '2021/CSC/001'
-      WHERE student_id = 'student1';
-    `);
-
-    await pool.query(`
-      UPDATE students
-      SET matric_number = '2021/CSC/002'
-      WHERE student_id = 'student2';
+        ('student1', '2021/00001', 'student1', 'Test Student 1', 'student1@focit.uniosun.edu.ng', 'BSC_CSC', 200, 'ACTIVE'),
+        ('student2', '2021/00002', 'student2', 'Test Student 2', 'student2@focit.uniosun.edu.ng', 'BSC_CSC', 200, 'ACTIVE')
+      ON CONFLICT (student_id) DO UPDATE SET matric_number = EXCLUDED.matric_number, level = 200, account_status = 'ACTIVE';
     `);
 
     // Appoint student1 as Course Rep and allocate lecturer1 to CSC204
@@ -77,6 +64,14 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
       `SELECT id FROM academic_semesters WHERE is_registration_open = TRUE LIMIT 1`
     );
     activeSemId = termRes.rows[0]?.id || '2026_RAIN';
+
+    await pool.query(`
+      INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status)
+      VALUES 
+        ('student1', 'CSC204', $1, 'CSC 204', 'ENROLLED'),
+        ('student2', 'CSC204', $1, 'CSC 204', 'ENROLLED')
+      ON CONFLICT DO NOTHING;
+    `, [activeSemId]);
 
     // Snapshot existing allocation state for CSC204 to preserve & restore during teardown
     const allocSnapshot = await pool.query(
@@ -104,31 +99,20 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
       INSERT INTO course_representatives (course_id, semester_id, student_id, appointed_by)
       VALUES ('CSC204', $1, 'student1', 'lecturer1')
       ON CONFLICT (course_id, semester_id, student_id) DO NOTHING;
-    `, [semId]);
-  });
+    `, [activeSemId]);
 
-  after(async () => {
-    if (server) {
-      server.close();
-    }
-    // Finding 11: Make test suite repeatable on a persistent database
-    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
-    await pool.query("DELETE FROM quizzes WHERE course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST'").catch(() => {});
-    await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
-
-    // Restore prior allocation state cleanly to preserve original database integrity
-    if (activeSemId) {
-      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [activeSemId]).catch(() => {});
-      for (const alloc of priorAllocations) {
-        await pool.query(
-          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
-           VALUES ('CSC204', $1, $2, $3, $4)
-           ON CONFLICT (course_id, semester_id, lecturer_id) 
-           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
-          [activeSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
-        ).catch(() => {});
-      }
-    }
+    // Ensure practice question bank exists for CSC204 so official test publishing can clone questions
+    await pool.query(`
+      INSERT INTO quizzes (quiz_id, course_id, title, duration_minutes, total_points, version, status, quiz_type, auto_zero, is_active_for_new_attempts)
+      VALUES ('practice_csc204', 'CSC204', 'CSC 204 Self-Practice Assessment', 30, 20.0, 1, 'ACTIVE', 'SELF_PRACTICE', false, true)
+      ON CONFLICT (quiz_id) DO UPDATE SET status = 'ACTIVE', is_active_for_new_attempts = true;
+    `);
+    await pool.query(`
+      INSERT INTO quiz_questions (question_id, quiz_id, question_number, type, prompt, options, correct_option_id, points)
+      VALUES 
+        ('qq_csc204_test_1', 'practice_csc204', 1, 'MCQ', 'What is an operating system kernel?', '[{"id":"opt_a","text":"Core"},{"id":"opt_b","text":"App"}]', 'opt_a', 2.0)
+      ON CONFLICT (question_id) DO NOTHING;
+    `);
   });
 
   test('Mode 4 Upload: Course Rep submits snapped sheet and OCR text', async () => {
@@ -141,7 +125,7 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
       body: JSON.stringify({
         weekNumber: 4,
         sheetImageUrls: ['https://example.com/attendance_week4_p1.jpg'],
-        rawExtractedText: 'Present attendees: 2021/CSC/001 signed at 10:15am. Student 2 absent.',
+        rawExtractedText: 'Present attendees: 2021/00001 signed at 10:15am. Student 2 absent.',
         notes: 'Held in ETF Hall 2. Verified by Course Rep.',
       }),
     });
@@ -316,13 +300,41 @@ describe('Mode 4 Physical Attendance Ledger & Two-Tier Assessment Architecture',
 
   after(async () => {
     if (server) {
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => server.close(resolve)).catch(() => {});
     }
+
+    // Teardown fixture data
+    await pool.query("DELETE FROM attendance_sessions WHERE course_id = 'CSC204'").catch(() => {});
+    await pool.query("DELETE FROM quiz_questions WHERE question_id = 'qq_csc204_test_1'").catch(() => {});
+    await pool.query("DELETE FROM quizzes WHERE quiz_id = 'practice_csc204' OR (course_id = 'CSC204' AND quiz_type = 'OFFICIAL_TEST')").catch(() => {});
+    await pool.query("DELETE FROM enrollments WHERE course_id = 'CSC204' AND student_id IN ('student1', 'student2')").catch(() => {});
+    await pool.query("DELETE FROM course_representatives WHERE course_id = 'CSC204' AND semester_id = $1 AND student_id = 'student1'", [activeSemId]).catch(() => {});
+
+    // Restore prior allocation state cleanly to preserve original database integrity
+    if (activeSemId) {
+      await pool.query("DELETE FROM hod_course_allocations WHERE course_id = 'CSC204' AND semester_id = $1", [activeSemId]).catch(() => {});
+      for (const alloc of priorAllocations) {
+        await pool.query(
+          `INSERT INTO hod_course_allocations (course_id, semester_id, lecturer_id, is_primary, allocated_by)
+           VALUES ('CSC204', $1, $2, $3, $4)
+           ON CONFLICT (course_id, semester_id, lecturer_id) 
+           DO UPDATE SET is_primary = EXCLUDED.is_primary, allocated_by = EXCLUDED.allocated_by`,
+          [activeSemId, alloc.lecturer_id, alloc.is_primary, alloc.allocated_by]
+        ).catch(() => {});
+      }
+    }
+
     try {
       const { redisSubscriber, redisPublisher } = await import('../src/routes/notifications.js');
       if (redisSubscriber?.disconnect) redisSubscriber.disconnect();
       if (redisPublisher?.disconnect) redisPublisher.disconnect();
     } catch {}
+
+    try {
+      const { redis } = await import('../src/lib/redis.js');
+      if (redis?.disconnect) redis.disconnect();
+    } catch {}
+
     await pool.end();
   });
 });

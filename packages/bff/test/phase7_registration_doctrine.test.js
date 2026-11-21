@@ -18,6 +18,21 @@ import { redis } from '../src/lib/redis.js';
 
 test.describe('Phase 7: Course Registration Governance & Approval Doctrine', { concurrency: 1 }, () => {
 
+  test.before(async () => {
+    await pool.query(`
+      INSERT INTO students (student_id, matric_number, username, full_name, email, programme_id, level, account_status)
+      VALUES 
+        ('student1', '2021/00001', 'student1', 'Test Student 1', 'student1@focit.uniosun.edu.ng', 'BSC_CSC', 200, 'ACTIVE'),
+        ('student2', '2021/00002', 'student2', 'Test Student 2', 'student2@focit.uniosun.edu.ng', 'BSC_CSC', 200, 'ACTIVE')
+      ON CONFLICT (student_id) DO UPDATE SET level = 200, programme_id = 'BSC_CSC', matric_number = EXCLUDED.matric_number;
+    `);
+    await pool.query(`
+      INSERT INTO enrollments (student_id, course_id, semester_id, course_code, status, grade)
+      VALUES ('student1', 'MTH101', '2026_HARMATTAN', 'MTH 101', 'COMPLETED', 86.00)
+      ON CONFLICT (student_id, course_id, semester_id) DO UPDATE SET status = 'COMPLETED', grade = 86.00;
+    `);
+  });
+
   // Test 1: Ingress Cardinality Sanitization (Duplicate Payload Injection Defense)
   test('Cardinality Invariant: Duplicate array elements deduped via DISTINCT unnest', async () => {
     const rawDuplicatePayload = ['CSC204', 'CSC204', 'CSC204', 'CSC202', 'CSC202'];
@@ -167,21 +182,24 @@ test.describe('Phase 7: Course Registration Governance & Approval Doctrine', { c
 
   // Test 5: Dijkstra Resource Ordering DAG on Bulk Advisor Approval
   test('Deadlock Immunity: Lexicographically sorted batch approval executes atomically', async () => {
-    // Ensure test batches for student2 and student5 are in SUBMITTED state
+    // Upsert two dedicated fixture batches in SUBMITTED state
     await pool.query(`
-      UPDATE course_registration_batches 
-      SET status = 'SUBMITTED' 
-      WHERE student_id IN ('student2', 'student5') AND semester_id = '2026_RAIN'
+      INSERT INTO course_registration_batches (id, student_id, semester_id, status, total_units, version)
+      VALUES 
+        ('11111111-1111-1111-1111-111111111111', 'student1', '2026_RAIN', 'SUBMITTED', 18, 1),
+        ('22222222-2222-2222-2222-222222222222', 'student2', '2026_RAIN', 'SUBMITTED', 18, 1)
+      ON CONFLICT (student_id, semester_id) 
+      DO UPDATE SET status = 'SUBMITTED', total_units = 18;
     `);
 
-    // Acquire batches for student2 and student5 (both in SUBMITTED state)
+    // Acquire batches for student1 and student2 (both in SUBMITTED state)
     const { rows: batches } = await pool.query(`
       SELECT id, student_id, status FROM course_registration_batches 
-      WHERE status = 'SUBMITTED'
+      WHERE status = 'SUBMITTED' AND student_id IN ('student1', 'student2')
       ORDER BY id ASC
     `);
 
-    assert.ok(batches.length >= 2, 'Must have at least 2 submitted batches in seed data');
+    assert.ok(batches.length >= 2, 'Must have at least 2 submitted fixture batches');
     const batchIds = batches.map(b => b.id).sort(); // Strict ascending sort
 
     const client = await pool.connect();

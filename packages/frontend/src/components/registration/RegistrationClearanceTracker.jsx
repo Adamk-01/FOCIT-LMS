@@ -97,7 +97,7 @@ export function RegistrationClearanceTracker({
           {selectedCourses.map((c) => (
             <div
               key={c.course_id}
-              className="py-3 flex items-center justify-between"
+              className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
             >
               <div>
                 <div className="flex items-center gap-2">
@@ -107,12 +107,35 @@ export function RegistrationClearanceTracker({
                   <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 uppercase tracking-wider font-sans">
                     {c.category}
                   </span>
+                  <span className="text-xs font-bold text-gray-800 dark:text-slate-200 font-display">
+                    • {c.units} Units
+                  </span>
                 </div>
-                <p className="text-xs text-gray-600 dark:text-slate-400 font-sans">{c.title}</p>
+                <p className="text-xs text-gray-600 dark:text-slate-400 font-sans mt-0.5">{c.title}</p>
               </div>
-              <span className="text-xs font-bold text-gray-800 dark:text-slate-200 font-display">
-                {c.units} Units
-              </span>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {c.status === 'APPROVED' ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    <CheckCircle2 size={12} /> Accepted by Lecturer {c.approved_by_name ? `(${c.approved_by_name})` : ''}
+                  </span>
+                ) : c.status === 'REJECTED' ? (
+                  <div className="text-right">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">
+                      Declined {c.rejected_by_name ? `by ${c.rejected_by_name}` : ''}
+                    </span>
+                    {c.rejection_reason && (
+                      <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 max-w-xs break-words" title={c.rejection_reason}>
+                        "{c.rejection_reason}"
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    <Clock size={12} /> Pending Lecturer Clearance
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Search, UserPlus, AlertCircle, Key } from 'lucide-react';
+import { Search, UserPlus, AlertCircle, Key, Edit3 } from 'lucide-react';
 import { useAdminDashboard } from '../../hooks/useAdminDashboard';
 import { UserProvisioningModal } from '../../components/admin/UserProvisioningModal';
 import { SuspendConfirmationModal } from '../../components/admin/SuspendConfirmationModal';
 import { ResetPasswordModal } from '../../components/admin/ResetPasswordModal';
+import { EditUserModal } from '../../components/admin/EditUserModal';
 
 /**
  * Faculty User Directory & Identity Management Page
@@ -14,11 +15,12 @@ export function AdminUsersPage() {
     users, isUsersLoading, userSearch, setUserSearch, userRoleFilter, setUserRoleFilter,
     toggleUserStatus, isTogglingStatus, statusError, isProvisionModalOpen, openProvisionModal,
     closeProvisionModal, provisionUser, isProvisioning, provisionError, provisionResult,
-    resetUserPassword, isResettingPassword,
+    resetUserPassword, isResettingPassword, updateUser, isUpdatingUser, updateUserError, resetUpdateUser,
   } = useAdminDashboard();
 
   const [userToSuspend, setUserToSuspend] = useState(null);
   const [userToResetPassword, setUserToResetPassword] = useState(null);
+  const [userToEdit, setUserToEdit] = useState(null);
 
   const handleConfirmSuspend = async () => {
     if (!userToSuspend) return;
@@ -56,13 +58,13 @@ export function AdminUsersPage() {
             className="w-full pl-9 pr-4 py-2.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0a1142]/20 focus:border-[#0a1142]"
           />
         </div>
-        <div className="inline-flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl shrink-0 w-full sm:w-auto">
-          {['ALL', 'STUDENT', 'LECTURER', 'LEVEL_ADVISOR', 'ADMIN'].map((r) => (
+        <div className="inline-flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl shrink-0 w-full sm:w-auto overflow-x-auto">
+          {['ALL', 'STUDENT', 'LECTURER', 'LEVEL_ADVISOR', 'HOD', 'ADMIN'].map((r) => (
             <button
               key={r} type="button" onClick={() => setUserRoleFilter(r)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${userRoleFilter === r ? 'bg-white text-[#0a1142] shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap ${userRoleFilter === r ? 'bg-white text-[#0a1142] shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
             >
-              {r === 'ALL' ? 'All Roles' : r === 'LEVEL_ADVISOR' ? 'Advisors' : r}
+              {r === 'ALL' ? 'All Roles' : r === 'LEVEL_ADVISOR' ? 'Advisors' : r === 'HOD' ? 'HOD' : r === 'STUDENT' ? 'Students' : r === 'LECTURER' ? 'Lecturers' : 'Admins'}
             </button>
           ))}
         </div>
@@ -88,6 +90,7 @@ export function AdminUsersPage() {
                 <tr className="text-[11px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-slate-50/50">
                   <th className="py-3 px-4">User & Contact</th>
                   <th className="py-3 px-4">ID / Matric</th>
+                  <th className="py-3 px-4">Course / Department</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -108,6 +111,16 @@ export function AdminUsersPage() {
                       </td>
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 text-xs">{displayIdentifier}</td>
                       <td className="py-3.5 px-4">
+                        <div className="font-extrabold text-slate-800 text-xs">
+                          {u.programmeName || u.departmentName || u.departmentId || '—'}
+                        </div>
+                        {u.level && (
+                          <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                            {u.level} Level
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-100">{u.role}</span>
                       </td>
                       <td className="py-3.5 px-4">
@@ -119,6 +132,14 @@ export function AdminUsersPage() {
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5">
+                          <button
+                            type="button" onClick={() => { resetUpdateUser?.(); setUserToEdit(u); }}
+                            title="Edit User Role / Position"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                          >
+                            <Edit3 size={12} className="text-blue-600" />
+                            <span>Edit</span>
+                          </button>
                           <button
                             type="button" onClick={() => setUserToResetPassword(u)}
                             title="Reset Temporary Password"
@@ -162,6 +183,25 @@ export function AdminUsersPage() {
         isOpen={Boolean(userToResetPassword)} user={userToResetPassword}
         onClose={() => setUserToResetPassword(null)} onReset={resetUserPassword}
         isSubmitting={isResettingPassword}
+      />
+      <EditUserModal
+        isOpen={Boolean(userToEdit)}
+        user={userToEdit}
+        onClose={() => {
+          resetUpdateUser?.();
+          setUserToEdit(null);
+        }}
+        onSave={async ({ userId, updates }) => {
+          try {
+            await updateUser(userId, updates);
+            resetUpdateUser?.();
+            setUserToEdit(null);
+          } catch (_err) {
+            // Error is captured in updateUserError and surfaced within EditUserModal UI
+          }
+        }}
+        isSubmitting={isUpdatingUser}
+        error={updateUserError}
       />
     </div>
   );

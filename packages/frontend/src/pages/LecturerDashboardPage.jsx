@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   useLecturerOverview,
   useLecturerCourses,
@@ -8,15 +8,35 @@ import {
 import { AttendanceLecturerPanel } from '../components/attendance/AttendanceLecturerPanel';
 import { AssignmentManagementPanel } from '../components/assignment/AssignmentManagementPanel';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileSpreadsheet } from 'lucide-react';
+import { FileSpreadsheet, UserCheck } from 'lucide-react';
 import { ContinuousAssessmentIngestModal } from '../components/roster/ContinuousAssessmentIngestModal';
+import { CourseRegistrationApprovalsPanel } from '../components/lecturer/CourseRegistrationApprovalsPanel';
+
+const VALID_TABS = ['courses', 'registrations', 'roster', 'assignments', 'attendance'];
 
 export function LecturerDashboardPage() {
-  const [activeTab, setActiveTab] = useState('courses');
-  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [searchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const initialTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'courses';
+  const initialCourseId = searchParams.get('courseId') || '';
+
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
 
   const { data: overview, isLoading: overviewLoading } = useLecturerOverview();
   const { data: courses = [], isLoading: coursesLoading } = useLecturerCourses();
+
+  // Sync state if URL search parameters change
+  React.useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const courseIdParam = searchParams.get('courseId');
+    if (tabParam && VALID_TABS.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+    if (courseIdParam && courseIdParam !== selectedCourseId) {
+      setSelectedCourseId(courseIdParam);
+    }
+  }, [searchParams]);
 
   // Automatically select first course when courses load if none selected
   React.useEffect(() => {
@@ -95,6 +115,21 @@ export function LecturerDashboardPage() {
           My Allocated Courses
         </button>
         <button
+          onClick={() => setActiveTab('registrations')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'registrations'
+              ? 'border-[#0a1142] text-[#0a1142]'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <span>Course Registrations</span>
+          {courses.reduce((sum, c) => sum + (c.pending_registrations_count || 0), 0) > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
+              {courses.reduce((sum, c) => sum + (c.pending_registrations_count || 0), 0)}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab('roster')}
           className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'roster'
@@ -135,6 +170,18 @@ export function LecturerDashboardPage() {
             setSelectedCourseId(id);
             setActiveTab('roster');
           }}
+          onOpenRegistrations={(id) => {
+            setSelectedCourseId(id);
+            setActiveTab('registrations');
+          }}
+        />
+      )}
+
+      {activeTab === 'registrations' && (
+        <CourseRegistrationApprovalsPanel
+          courses={courses}
+          selectedCourseId={selectedCourseId}
+          onSelectCourseId={setSelectedCourseId}
         />
       )}
 
@@ -165,7 +212,7 @@ export function LecturerDashboardPage() {
   );
 }
 
-function CoursesListPanel({ courses, isLoading, onSelectCourse }) {
+function CoursesListPanel({ courses, isLoading, onSelectCourse, onOpenRegistrations }) {
   if (isLoading) {
     return <div className="p-8 text-center text-gray-500">Loading assigned courses…</div>;
   }
@@ -199,21 +246,40 @@ function CoursesListPanel({ courses, isLoading, onSelectCourse }) {
               <span>Enrolled Students:</span>
               <span className="font-bold text-[#0a1142]">{course.verified_enrolled_students}</span>
             </div>
+
+            {course.pending_registrations_count > 0 && (
+              <div className="mt-2 flex items-center justify-between text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
+                <span>Pending Clearance:</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-600 text-white text-[10px]">
+                  {course.pending_registrations_count}
+                </span>
+              </div>
+            )}
           </div>
 
-          <div className="mt-5 pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+          <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col gap-2">
             <button
-              onClick={() => onSelectCourse(course.course_id)}
-              className="flex-1 bg-[#0a1142] text-white text-xs font-semibold py-2 px-3 rounded hover:bg-[#0a1142]/90 text-center"
+              onClick={() => onOpenRegistrations(course.course_id)}
+              className="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-colors"
             >
-              Class Roster
+              <UserCheck size={14} className="text-amber-700" />
+              <span>Review Registrations ({course.pending_registrations_count || 0})</span>
             </button>
-            <Link
-              to={`/courses/${course.course_id}/question-bank`}
-              className="flex-1 bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-3 rounded hover:bg-gray-200 text-center"
-            >
-              Question Bank
-            </Link>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => onSelectCourse(course.course_id)}
+                className="flex-1 bg-[#0a1142] text-white text-xs font-semibold py-2 px-3 rounded hover:bg-[#0a1142]/90 text-center"
+              >
+                Class Roster
+              </button>
+              <Link
+                to={`/courses/${course.course_id}/question-bank`}
+                className="flex-1 bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-3 rounded hover:bg-gray-200 text-center"
+              >
+                Question Bank
+              </Link>
+            </div>
           </div>
         </div>
       ))}

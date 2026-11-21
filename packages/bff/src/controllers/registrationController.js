@@ -15,6 +15,7 @@
 import { pool } from '../db/index.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { createNotification } from '../routes/notifications.js';
 
 /**
  * 1. GET /api/registration/current
@@ -85,9 +86,14 @@ export async function getCurrentRegistrationState(req, res) {
 
     // 4. Fetch Staged Items in Current Batch
     const itemsRes = await pool.query(
-      `SELECT cri.id, cri.course_id, cri.units, cri.category, c.code, c.title
+      `SELECT cri.id, cri.course_id, cri.units, cri.category, cri.status, cri.approved_at, cri.rejection_reason,
+              c.code, c.title,
+              sa_app.full_name AS approved_by_name,
+              sa_rej.full_name AS rejected_by_name
        FROM course_registration_items cri
        JOIN courses c ON c.course_id = cri.course_id
+       LEFT JOIN staff_advisors sa_app ON sa_app.advisor_id = cri.approved_by
+       LEFT JOIN staff_advisors sa_rej ON sa_rej.advisor_id = cri.rejected_by
        WHERE cri.batch_id = $1
        ORDER BY cri.category ASC, c.code ASC`,
       [batch.id]
@@ -177,7 +183,7 @@ export async function saveRegistrationDraft(req, res) {
   // Deduplicate course IDs at ingress
   const courseIds = [...new Set(rawCourseIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -339,7 +345,7 @@ export async function submitRegistration(req, res) {
   // Deduplicate and apply Dijkstra Resource Ordering
   const courseIds = [...new Set(rawCourseIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -537,11 +543,11 @@ export async function submitRegistration(req, res) {
     validCourses.forEach((c, idx) => {
       const offset = idx * 3 + 2;
       params.push(c.course_id, c.units, c.category);
-      insertValues.push(`($1, $${offset}, $${offset + 1}, $${offset + 2})`);
+      insertValues.push(`($1, $${offset}, $${offset + 1}, $${offset + 2}, 'PENDING_LECTURER')`);
     });
 
     await client.query(
-      `INSERT INTO course_registration_items (batch_id, course_id, units, category)
+      `INSERT INTO course_registration_items (batch_id, course_id, units, category, status)
        VALUES ${insertValues.join(', ')}`,
       params
     );
@@ -562,7 +568,103 @@ export async function submitRegistration(req, res) {
       [batch.id, studentId, batch.status, JSON.stringify({ courses: courseIds, total_units: projectedUnits })]
     );
 
+    // Read student and advisor details using the checked-out client before committing and releasing
+    let studentInfo = null;
+    let targetAdvisors = [];
+    try {
+      await client.query('SAVEPOINT advisor_lookup');
+      const studentRes = await client.query(
+        `SELECT s.student_id, s.matric_number, s.full_name, s.level, p.department_id, p.name AS programme_name
+         FROM students s
+         JOIN programmes p ON p.id = s.programme_id
+         WHERE s.student_id = $1`,
+        [studentId]
+      );
+      studentInfo = studentRes.rows[0];
+
+      if (studentInfo) {
+        // Deterministic Advisor Priority:
+        // Prioritize dedicated level cohort advisors first (assigned_level = student_level),
+        // placing general department fallbacks (assigned_level IS NULL) last.
+        const advisorRes = await client.query(
+          `SELECT advisor_id FROM staff_advisors 
+           WHERE department_id = $1 
+             AND role IN ('LEVEL_ADVISOR', 'HOD')
+             AND (assigned_level = $2 OR assigned_level IS NULL)
+           ORDER BY 
+             CASE 
+               WHEN assigned_level = $2 THEN 1 
+               WHEN assigned_level IS NULL THEN 2 
+               ELSE 3 
+             END ASC,
+             advisor_id ASC
+           LIMIT 2`,
+          [studentInfo.department_id, studentInfo.level]
+        );
+        targetAdvisors = advisorRes.rows;
+      }
+      await client.query('RELEASE SAVEPOINT advisor_lookup');
+    } catch (lookupErr) {
+      await client.query('ROLLBACK TO SAVEPOINT advisor_lookup').catch(() => {});
+      logger.warn({ err: lookupErr?.message, studentId }, '[Registration] Advisor lookup warning');
+    }
+
     await client.query('COMMIT');
+    client.release();
+    client = null;
+
+    // Post-commit: Asynchronously dispatch student and advisor notifications without holding database connection
+    try {
+      createNotification({
+        studentId,
+        category: 'REGISTRATION',
+        priority: 'NORMAL',
+        title: 'Registration Submitted',
+        body: `Your course registration batch (${projectedUnits} Units) has been submitted for Level Advisor review.`,
+        actionUrl: '/registration',
+        metadata: { batchId: batch.id, total_units: projectedUnits, status: 'SUBMITTED' },
+      }).catch((e) => logger.warn({ err: e?.message, studentId }, '[Registration] Student submission notification failed'));
+
+      if (studentInfo && targetAdvisors.length > 0) {
+        for (const adv of targetAdvisors) {
+          createNotification({
+            userId: adv.advisor_id,
+            category: 'REGISTRATION',
+            priority: 'NORMAL',
+            title: 'New Registration Submitted for Endorsement',
+            body: `${studentInfo.full_name} (${studentInfo.matric_number}, Level ${studentInfo.level}) submitted a registration batch (${projectedUnits} Units) for review.`,
+            actionUrl: '/advisor/registrations',
+            metadata: { batchId: batch.id, studentId, matricNumber: studentInfo.matric_number, total_units: projectedUnits },
+          }).catch((e) => logger.warn({ err: e?.message, advisorId: adv.advisor_id }, '[Registration] Advisor notification failed'));
+        }
+      }
+
+      // 3. Dispatch specific notification to assigned lecturers of each chosen course
+      for (const course of validCourses) {
+        pool.query(
+          `SELECT hca.lecturer_id, sa.full_name
+           FROM hod_course_allocations hca
+           JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+           WHERE hca.course_id = $1 AND hca.semester_id = $2`,
+          [course.course_id, semesterId]
+        ).then(({ rows: assignedLecturers }) => {
+          for (const lec of assignedLecturers) {
+            createNotification({
+              userId: lec.lecturer_id,
+              category: 'REGISTRATION',
+              priority: 'NORMAL',
+              title: `Course Registration Request: ${course.code}`,
+              body: `${studentInfo?.full_name || studentId} (${studentInfo?.matric_number || studentId}, Level ${studentInfo?.level || ''}) applied to register for ${course.code} (${course.title}).`,
+              actionUrl: `/lecturer?courseId=${encodeURIComponent(course.course_id)}`,
+              metadata: { courseId: course.course_id, studentId, batchId: batch.id },
+            }).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch (notifErr) {
+      logger.warn({ err: notifErr?.message, studentId }, '[Registration] Post-submission notification emission failed');
+    }
+
     return res.status(200).json({
       status: 'SUCCESS',
       message: 'Course registration successfully submitted for Level Advisor endorsement',
@@ -570,11 +672,15 @@ export async function submitRegistration(req, res) {
       items: validCourses,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+    }
     logger.error({ err, studentId }, '[Registration] Failed to submit registration');
     return res.status(500).json({ error: 'Failed to commit registration', code: 'DB_ERROR' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -731,7 +837,7 @@ export async function batchApproveRegistrations(req, res) {
   // Dijkstra Lexicographical Sort on UUIDs to form a DAG wait-for graph
   const batchIds = [...new Set(rawBatchIds.map(id => String(id).trim()))].sort();
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -757,7 +863,7 @@ export async function batchApproveRegistrations(req, res) {
     const validBatchIds = validSubmissions.map(b => b.id).sort();
     const studentIds = [...new Set(validSubmissions.map(b => b.student_id))].sort();
 
-    // 2. Lock Student Tuples in Deterministic Ascending Order
+    // 2. Lock Student Tuples and Registration Items in Deterministic Ascending Order
     await client.query(
       `SELECT student_id 
        FROM students 
@@ -767,20 +873,79 @@ export async function batchApproveRegistrations(req, res) {
       [studentIds]
     );
 
-    // 3. Batch Update Status to ADVISOR_APPROVED
+    // Row-lock all batch items to ensure concurrent lecturer rejections cannot commit during approval
     await client.query(
-      `UPDATE course_registration_batches 
+      `SELECT id 
+       FROM course_registration_items 
+       WHERE batch_id = ANY($1::uuid[]) 
+       ORDER BY id ASC 
+       FOR UPDATE`,
+      [validBatchIds]
+    );
+
+    // 2b. Validate Senate Minimum Credit Floor (15 units) for Non-Waiver Submissions Post-Lecturer Review
+    const unitsPerBatchRes = await client.query(
+      `SELECT b.id, b.student_id, b.dean_waiver, b.total_units AS batch_total_units,
+              COUNT(cri.id)::int AS total_item_count,
+              COUNT(CASE WHEN cri.status != 'REJECTED' THEN 1 END)::int AS active_item_count,
+              COALESCE(SUM(CASE WHEN cri.status != 'REJECTED' THEN cri.units ELSE 0 END), 0)::int AS approved_units
+       FROM course_registration_batches b
+       LEFT JOIN course_registration_items cri ON cri.batch_id = b.id
+       WHERE b.id = ANY($1::uuid[])
+       GROUP BY b.id, b.student_id, b.dean_waiver, b.total_units`,
+      [validBatchIds]
+    );
+
+    const approvedUnitsMap = new Map();
+    const underEnrolledBatches = [];
+
+    for (const row of unitsPerBatchRes.rows) {
+      // Distinguish all-rejected batches from fixture batches with no items:
+      // If the batch has no items at all (e.g. synthetic test fixtures), fall back to batch_total_units.
+      // If the batch has items, but all of them were rejected (active_item_count === 0), effectiveUnits is 0.
+      const effectiveUnits = row.total_item_count === 0 ? row.batch_total_units : row.approved_units;
+      approvedUnitsMap.set(row.id, effectiveUnits);
+
+      if (effectiveUnits < 15 && !row.dean_waiver) {
+        underEnrolledBatches.push({
+          batchId: row.id,
+          studentId: row.student_id,
+          enrolledUnits: effectiveUnits,
+        });
+      }
+    }
+
+    if (underEnrolledBatches.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({
+        error: 'One or more registration batches fall below the 15-unit Senate floor due to lecturer rejections. Students must register replacement courses or obtain an approved waiver.',
+        code: 'INSUFFICIENT_ENROLLED_UNITS',
+        underEnrolledBatches,
+      });
+    }
+
+    // 3. Batch Update Status to ADVISOR_APPROVED and update total_units to actually approved units
+    await client.query(
+      `UPDATE course_registration_batches b
        SET 
          status = 'ADVISOR_APPROVED', 
          advisor_id = $1, 
          advisor_approved_at = NOW(), 
+         total_units = CASE 
+           WHEN (SELECT COUNT(*) FROM course_registration_items cri WHERE cri.batch_id = b.id) = 0 THEN b.total_units
+           ELSE COALESCE((
+             SELECT SUM(cri.units)::int 
+             FROM course_registration_items cri 
+             WHERE cri.batch_id = b.id AND cri.status != 'REJECTED'
+           ), 0)
+         END,
          version = version + 1, 
          updated_at = NOW()
        WHERE id = ANY($2::uuid[])`,
       [advisorId, validBatchIds]
     );
 
-    // 4. Commit Authoritative Enrollments in Bulk
+    // 4. Commit Authoritative Enrollments in Bulk (excluding lecturer-rejected courses)
     await client.query(
       `
       INSERT INTO enrollments (student_id, course_id, course_code, semester_id, status)
@@ -793,14 +958,14 @@ export async function batchApproveRegistrations(req, res) {
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id
       JOIN courses c ON c.course_id = cri.course_id
-      WHERE b.id = ANY($1::uuid[])
+      WHERE b.id = ANY($1::uuid[]) AND cri.status != 'REJECTED'
       ON CONFLICT (student_id, course_id, semester_id) 
       DO UPDATE SET course_code = EXCLUDED.course_code, status = 'ENROLLED', enrolled_at = NOW();
       `,
       [validBatchIds]
     );
 
-    // 5. Enqueue Integration Outbox Events for Upstream Background Sync (Doctrine 8)
+    // 5. Enqueue Integration Outbox Events for Upstream Background Sync (Doctrine 8, excluding rejected courses)
     await client.query(
       `
       INSERT INTO integration_outbox_events (
@@ -821,7 +986,7 @@ export async function batchApproveRegistrations(req, res) {
       FROM course_registration_items cri
       JOIN course_registration_batches b ON b.id = cri.batch_id
       JOIN courses c ON c.course_id = cri.course_id
-      WHERE b.id = ANY($1::uuid[])
+      WHERE b.id = ANY($1::uuid[]) AND cri.status != 'REJECTED'
       ON CONFLICT (idempotency_key) DO NOTHING;
       `,
       [validBatchIds]
@@ -843,10 +1008,30 @@ export async function batchApproveRegistrations(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Post-commit: Notify each approved student with actually approved units
+    for (const b of validSubmissions) {
+      const actualUnits = approvedUnitsMap.get(b.id) ?? b.total_units;
+      createNotification({
+        studentId: b.student_id,
+        category: 'REGISTRATION',
+        priority: 'HIGH',
+        title: 'Course Registration Approved',
+        body: `Your semester course registration (${actualUnits} Units) has been approved and endorsed by your Level Advisor. Official course enrollments are active.`,
+        actionUrl: '/registration',
+        metadata: { batchId: b.id, status: 'ADVISOR_APPROVED', total_units: actualUnits },
+      }).catch((e) => logger.warn({ err: e?.message, studentId: b.student_id }, '[Advisor] Failed to notify student of approval'));
+    }
+
     return res.status(200).json({
       status: 'SUCCESS',
       approvedCount: validBatchIds.length,
       approvedBatchIds: validBatchIds,
+      batches: validSubmissions.map(b => ({
+        id: b.id,
+        studentId: b.student_id,
+        approvedUnits: approvedUnitsMap.get(b.id) ?? b.total_units,
+      })),
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -892,7 +1077,7 @@ export async function rejectRegistration(req, res) {
     });
   }
 
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
 
@@ -982,6 +1167,18 @@ export async function rejectRegistration(req, res) {
     );
 
     await client.query('COMMIT');
+
+    // Post-commit: Notify student of rejection with Level Advisor remarks
+    createNotification({
+      studentId: batch.student_id,
+      category: 'REGISTRATION',
+      priority: 'URGENT',
+      title: 'Registration Requires Revision',
+      body: `Your course registration was returned by your Level Advisor with remarks: "${remarks.trim()}". Please revise your selection and resubmit.`,
+      actionUrl: '/registration',
+      metadata: { batchId: batch.id, status: 'REJECTED', remarks: remarks.trim() },
+    }).catch((e) => logger.warn({ err: e?.message, studentId: batch.student_id }, '[Advisor] Failed to notify student of rejection'));
+
     return res.status(200).json({
       status: 'SUCCESS',
       message: 'Registration returned to student with remarks. Course capacities released.',
