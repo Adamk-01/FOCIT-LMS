@@ -23,6 +23,7 @@ const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage'));
 const AdminOutboxPage = lazy(() => import('./pages/admin/AdminOutboxPage'));
 const AdminAuditPage = lazy(() => import('./pages/admin/AdminAuditPage'));
 const AdminProfilePage = lazy(() => import('./pages/admin/AdminProfilePage'));
+const AdminLibraryPage = lazy(() => import('./pages/admin/AdminLibraryPage'));
 const HodDashboardPage = lazy(() => import('./pages/HodDashboardPage'));
 const LecturerDashboardPage = lazy(() => import('./pages/LecturerDashboardPage'));
 const LevelAdvisorDashboardPage = lazy(() => import('./pages/LevelAdvisorDashboardPage'));
@@ -136,6 +137,15 @@ export const router = createBrowserRouter([
         element: (
           <RoleRouteGuard allowedRoles={['ADMIN', 'SYSTEM_ADMIN']}>
             <LazyWrapper><AdminUsersPage /></LazyWrapper>
+          </RoleRouteGuard>
+        ),
+        errorElement: <RouteErrorBoundary />,
+      },
+      {
+        path: 'admin/library',
+        element: (
+          <RoleRouteGuard allowedRoles={['DEAN', 'HOD', 'ADMIN', 'SYSTEM_ADMIN']}>
+            <LazyWrapper><AdminLibraryPage /></LazyWrapper>
           </RoleRouteGuard>
         ),
         errorElement: <RouteErrorBoundary />,

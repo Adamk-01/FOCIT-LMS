@@ -668,9 +668,11 @@ router.get('/items/:id/stream', async (req, res, next) => {
     if (!isFastPath) {
       // Slow Path: Verify item existence and embargo in PostgreSQL metadata ledger
       const { rows } = await pool.query(`
-        SELECT id, title, file_url, file_size_bytes, mime_type, is_published, embargo_until
-        FROM library_items
-        WHERE id = $1 LIMIT 1;
+        SELECT i.id, i.title, i.file_url, i.file_size_bytes, i.mime_type, i.is_published, i.embargo_until,
+               i.file_hash, b.storage_path
+        FROM library_items i
+        LEFT JOIN library_storage_blobs b ON b.file_hash = i.file_hash
+        WHERE i.id = $1 LIMIT 1;
       `, [id]);
 
       const item = rows[0];
@@ -695,22 +697,51 @@ router.get('/items/:id/stream', async (req, res, next) => {
         });
       }
 
-      // Locate physical file on disk (.cache/library/${id}.pdf)
+      // Locate physical file on disk (CAS storage path or legacy .cache/library/${id}.pdf)
+      let resolvedPath = localPath;
+      if (item.storage_path) {
+        resolvedPath = path.isAbsolute(item.storage_path)
+          ? item.storage_path
+          : path.resolve(__dirname, '../../../uploads/library', item.storage_path);
+      }
+
       try {
-        const stat = await fs.stat(localPath);
+        const stat = await fs.stat(resolvedPath);
         fileSize = stat.size;
+        localPath = resolvedPath;
       } catch (fsErr) {
         if (fsErr.code === 'ENOENT') {
-          logger.warn({ id, localPath }, '[Library Stream] Physical binary missing from local cache');
-          return res.status(404).json({
-            type: 'https://focit.uniosun.edu.ng/errors/binary-missing',
-            title: 'File Content Missing',
-            status: 404,
-            detail: 'The physical binary file for this catalog item is missing from storage.',
-            code: 'FILE_NOT_FOUND'
-          });
+          // Fallback to localPath if resolvedPath was different
+          if (resolvedPath !== localPath) {
+            try {
+              const statFallback = await fs.stat(localPath);
+              fileSize = statFallback.size;
+            } catch (fallbackErr) {
+              if (fallbackErr.code === 'ENOENT') {
+                logger.warn({ id, resolvedPath, localPath }, '[Library Stream] Physical binary missing from storage');
+                return res.status(404).json({
+                  type: 'https://focit.uniosun.edu.ng/errors/binary-missing',
+                  title: 'File Content Missing',
+                  status: 404,
+                  detail: 'The physical binary file for this catalog item is missing from storage.',
+                  code: 'FILE_NOT_FOUND'
+                });
+              }
+              throw fallbackErr;
+            }
+          } else {
+            logger.warn({ id, localPath }, '[Library Stream] Physical binary missing from local cache');
+            return res.status(404).json({
+              type: 'https://focit.uniosun.edu.ng/errors/binary-missing',
+              title: 'File Content Missing',
+              status: 404,
+              detail: 'The physical binary file for this catalog item is missing from storage.',
+              code: 'FILE_NOT_FOUND'
+            });
+          }
+        } else {
+          throw fsErr;
         }
-        throw fsErr;
       }
 
       mimeType = item.mime_type || 'application/pdf';

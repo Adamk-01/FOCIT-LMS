@@ -208,6 +208,13 @@ export const Sidebar = ({
         screenNumber: '8A',
       },
       {
+        name: 'Library Curation',
+        to: '/admin/library',
+        icon: Library,
+        badge: 'CAS',
+        screenNumber: 'LIB',
+      },
+      {
         name: 'User Directory',
         to: '/admin/users',
         icon: Users,
@@ -265,6 +272,13 @@ export const Sidebar = ({
         icon: Sparkles,
         badge: 'AI',
         screenNumber: '5',
+      },
+      {
+        name: 'Library Curation',
+        to: '/admin/library',
+        icon: Library,
+        badge: 'CAS',
+        screenNumber: 'LIB',
       },
       {
         name: 'Profile & Security',

@@ -1,0 +1,9 @@
+**/node_modules
+**/.git
+**/.cache
+**/dist
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+test/

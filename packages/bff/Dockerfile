@@ -2,17 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package manifests for deterministic dependency resolution
+# Copy package manifests
 COPY package*.json ./
-COPY packages/bff/package*.json ./packages/bff/
 
-# Install BFF dependencies within monorepo context
-RUN npm install --workspace=packages/bff --include-workspace-root=false
+# Install dependencies
+RUN npm install --omit=dev
 
-# Copy BFF application code
-COPY packages/bff ./packages/bff
-
-WORKDIR /app/packages/bff
+# Copy application source code
+COPY . .
 
 ENV HOST=0.0.0.0
 EXPOSE 3000
