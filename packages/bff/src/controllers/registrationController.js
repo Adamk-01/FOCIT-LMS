@@ -703,7 +703,7 @@ export async function getAdvisorCohort(req, res) {
   );
   if (staffCheck.rows.length === 0 && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
     return res.status(403).json({
-      error: 'Forbidden: You must be an authorized academic advisor or administrator to reject registrations',
+      error: 'Forbidden: You must be an authorized academic advisor or administrator to view registrations',
       code: 'FORBIDDEN_STAFF_REQUIRED',
     });
   }
@@ -823,7 +823,7 @@ export async function batchApproveRegistrations(req, res) {
   );
   if (staffCheck.rows.length === 0 && !['ADMIN', 'SYSTEM_ADMIN'].includes(userRole)) {
     return res.status(403).json({
-      error: 'Forbidden: You must be an authorized academic advisor or administrator to reject registrations',
+      error: 'Forbidden: You must be an authorized academic advisor or administrator to approve registrations',
       code: 'FORBIDDEN_STAFF_REQUIRED',
     });
   }
@@ -1119,9 +1119,11 @@ export async function rejectRegistration(req, res) {
       });
     }
 
-    // 4. Fetch Associated Course IDs in Ascending Sort Order
+    // 4. Fetch Associated Course IDs in Ascending Sort Order (Excluding courses already rejected by lecturers)
+    // Avoid double-decrementing enrolled_count if a lecturer has already rejected a course item
     const itemsRes = await client.query(
-      `SELECT course_id FROM course_registration_items WHERE batch_id = $1`,
+      `SELECT course_id FROM course_registration_items 
+       WHERE batch_id = $1 AND status != 'REJECTED'`,
       [batchId]
     );
     const courseIds = [...new Set(itemsRes.rows.map(r => r.course_id))].sort();
@@ -1143,6 +1145,17 @@ export async function rejectRegistration(req, res) {
         [courseIds]
       );
     }
+
+    // 5b. Mark all remaining non-rejected items in this batch as REJECTED
+    await client.query(
+      `UPDATE course_registration_items 
+       SET status = 'REJECTED', 
+           rejected_by = $1, 
+           rejected_at = NOW(), 
+           rejection_reason = COALESCE(rejection_reason, $2)
+       WHERE batch_id = $3 AND status != 'REJECTED'`,
+      [advisorId, remarks.trim(), batchId]
+    );
 
     // 6. Transition Batch State to REJECTED
     const updatedBatch = await client.query(

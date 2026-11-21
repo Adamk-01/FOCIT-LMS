@@ -190,6 +190,7 @@ router.get('/', listRateLimit, async (req, res, next) => {
  */
 router.get(
   '/:courseId/shell',
+  enrollmentCheck('courseId'),
   async (req, res, next) => {
     const { courseId } = req.params;
     const studentId = req.user?.student_id || req.user?.id || req.user?.username;

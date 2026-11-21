@@ -36,9 +36,9 @@ function getInitialAuthState() {
       return { status: AuthState.PENDING, user: null, quarantineError: null };
     }
 
-    // Both the shadow credentials AND the ephemeral nonce must exist
-    const sessionNonce = sessionStorage.getItem('session_nonce') || localStorage.getItem('session_nonce');
-    const shadowStr = sessionStorage.getItem('shadow_auth') || localStorage.getItem('shadow_auth');
+    // Both the shadow credentials AND the ephemeral nonce must exist strictly in sessionStorage (F15 Hardening)
+    const sessionNonce = sessionStorage.getItem('session_nonce');
+    const shadowStr = sessionStorage.getItem('shadow_auth');
 
     if (!sessionNonce || !shadowStr) {
       sessionStorage.removeItem('session_nonce');
@@ -196,10 +196,9 @@ export const AuthProvider = ({ children }) => {
       authenticatedAt: effectiveServerEpoch,
     };
 
-    // Store ephemeral nonce in sessionStorage (never written to cookies)
+    // Store ephemeral nonce strictly in sessionStorage (F15 Hardening - never persisted to localStorage)
     if (data.sessionNonce) {
       sessionStorage.setItem('session_nonce', data.sessionNonce);
-      localStorage.setItem('session_nonce', data.sessionNonce);
     }
     sessionStorage.setItem('shadow_auth', JSON.stringify(shadowPayload));
 

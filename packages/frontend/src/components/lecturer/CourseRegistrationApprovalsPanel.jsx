@@ -125,6 +125,7 @@ export function CourseRegistrationApprovalsPanel({ courses = [], selectedCourseI
   });
 
   const pendingItemIds = registrations.filter(r => r.status === 'PENDING_LECTURER').map(r => r.item_id);
+  const filteredPendingItemIds = filteredRegistrations.filter(r => r.status === 'PENDING_LECTURER').map(r => r.item_id);
 
   return (
     <div className="space-y-6">
@@ -281,14 +282,14 @@ export function CourseRegistrationApprovalsPanel({ courses = [], selectedCourseI
             />
           </div>
 
-          {pendingItemIds.length > 0 && (
+          {filteredPendingItemIds.length > 0 && (
             <button
-              onClick={() => batchAcceptMutation.mutate(pendingItemIds)}
+              onClick={() => batchAcceptMutation.mutate(filteredPendingItemIds)}
               disabled={batchAcceptMutation.isPending}
               className="bg-green-700 hover:bg-green-800 text-white text-xs font-bold py-2 px-3 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
             >
               <CheckCheck size={14} />
-              <span>Accept All ({pendingItemIds.length})</span>
+              <span>Accept Pending ({filteredPendingItemIds.length})</span>
             </button>
           )}
         </div>

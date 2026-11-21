@@ -18,8 +18,9 @@ import { syncFocitQuizToMoodle } from '../integrations/moodle/moodle.quizzes.js'
 
 const router = express.Router();
 
-// Milestone 10.8: Strict Server-Side RBAC Barrier (Only Faculty/Lecturers allowed on Question Bank endpoints)
+// Milestone 10.8: Strict Server-Side RBAC Barrier (Only Faculty/Lecturers allowed on Question Bank & Tests endpoints)
 router.use('/:courseId/question-bank', requireRole(['LECTURER', 'FACULTY', 'ADMIN', 'SYSTEM_ADMIN', 'HOD', 'LEVEL_ADVISOR', 'ADVISOR']));
+router.use('/:courseId/tests', requireRole(['LECTURER', 'FACULTY', 'ADMIN', 'SYSTEM_ADMIN', 'HOD', 'LEVEL_ADVISOR', 'ADVISOR']));
 
 /**
  * Zero-Trust Authorization Barrier for Question Bank & Test Authoring:

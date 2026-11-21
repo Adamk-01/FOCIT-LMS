@@ -113,13 +113,10 @@ async function request(endpoint, options = {}) {
   // Defense-in-depth: Forces CORS preflight (OPTIONS) against untrusted origins
   headers.set('X-Requested-With', 'XMLHttpRequest');
 
-  // Ephemeral Session Nonce injection (Platform Phase 1 Proof with Cross-Tab Resilience)
+  // Ephemeral Session Nonce injection (F15 Hardening: strictly tab-scoped sessionStorage)
   let sessionNonce = null;
   if (typeof sessionStorage !== 'undefined') {
     sessionNonce = sessionStorage.getItem('session_nonce');
-  }
-  if (!sessionNonce && typeof localStorage !== 'undefined') {
-    sessionNonce = localStorage.getItem('session_nonce');
   }
   if (sessionNonce && !headers.has('X-Session-Nonce')) {
     headers.set('X-Session-Nonce', sessionNonce);
@@ -198,13 +195,6 @@ async function request(endpoint, options = {}) {
 
       await sleep(jitteredDelayMs, signal);
       continue; // Re-execute request transparently
-    }
-
-    // Auto-heal desynced tab nonce if server issued synchronization header
-    const syncNonce = response.headers?.get?.('x-session-nonce-sync');
-    if (syncNonce) {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('session_nonce', syncNonce);
-      if (typeof localStorage !== 'undefined') localStorage.setItem('session_nonce', syncNonce);
     }
 
     // Response Interception Pipeline

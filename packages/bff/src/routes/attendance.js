@@ -34,6 +34,33 @@ await fs.mkdir(SHEETS_DIR, { recursive: true }).catch(() => {});
 
 const router = Router();
 
+// ─── Cryptographic OTP Privacy Helpers (F9 Hardening) ───
+function encryptOtp(plainOtp, secretKey) {
+  const key = crypto.createHash('sha256').update(secretKey || 'focit_otp_secret_key').digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(plainOtp, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+function decryptOtp(encryptedStr, secretKey) {
+  try {
+    if (!encryptedStr || typeof encryptedStr !== 'string') return null;
+    const [ivHex, tagHex, encryptedHex] = encryptedStr.split(':');
+    if (!ivHex || !tagHex || !encryptedHex) return null;
+    const key = crypto.createHash('sha256').update(secretKey || 'focit_otp_secret_key').digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Access Control Barrier:
  * Verifies that the caller is either:
@@ -878,8 +905,10 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
 
     const authoritativeExpiresAt = Number(updateRes.rows[0]?.expires_at_ms) || expiresAt;
 
+    // F9: Store ONLY encrypted ciphertext in Redis and in-memory store (never plaintext OTP)
+    const encryptedOtp = encryptOtp(otp, config.jwt?.secret);
     const payload = JSON.stringify({
-      otp,
+      encryptedOtp,
       activeOtpHash,
       courseId,
       sessionId: session.session_id,
@@ -895,9 +924,9 @@ router.post('/courses/:courseId/sessions/otp/generate', async (req, res, next) =
       }
     } catch (_) {}
 
-    // In-memory fallback in case Redis is offline
+    // In-memory fallback in case Redis is offline (F9 Hardened: encrypted only)
     memoryOtpStore.set(courseId, {
-      otp,
+      encryptedOtp,
       activeOtpHash,
       courseId,
       sessionId: session.session_id,
@@ -1540,7 +1569,7 @@ router.get('/courses/:courseId/sessions/otp/status', async (req, res, next) => {
       };
 
       if (isStaffCaller) {
-        payload.otp = otpData.otp;
+        payload.otp = otpData.otp || (otpData.encryptedOtp ? decryptOtp(otpData.encryptedOtp, config.jwt?.secret) : null);
 
         let recordsQuery = '';
         let queryParams = [];

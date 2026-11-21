@@ -52,30 +52,34 @@ redisPublisher.on('error', (err) => {
   logger.warn({ err: err?.message }, '[Notification-Redis] Publisher connection offline');
 });
 
-// Resilient background subscription
-redisSubscriber.connect().then(() => {
-  redisSubscriber.subscribe('student_notifications', (err) => {
-    if (err) {
-      logger.error({ err }, '[Notification-Redis] Failed to subscribe to student_notifications channel');
-    } else {
-      logger.info('[Notification-Redis] Subscribed to student_notifications channel');
-    }
+// Resilient background subscription (deferred in test environment to avoid keeping event loops open)
+if (process.env.NODE_ENV !== 'test') {
+  redisSubscriber.connect().then(() => {
+    redisSubscriber.subscribe('student_notifications', (err) => {
+      if (err) {
+        logger.error({ err }, '[Notification-Redis] Failed to subscribe to student_notifications channel');
+      } else {
+        logger.info('[Notification-Redis] Subscribed to student_notifications channel');
+      }
+    });
+  }).catch(() => {
+    // Handled via on('error')
   });
-}).catch(() => {
-  // Handled via on('error')
-});
+}
 
 redisSubscriber.on('message', (channel, message) => {
   if (channel === 'student_notifications') {
     try {
       const payload = JSON.parse(message);
-      if (!payload.student_id) return;
+      const targetId = payload.student_id || payload.studentId;
+      if (!targetId) return;
 
-      const sockets = activeStudentSockets.get(payload.student_id);
+      const eventPayload = payload.payload || payload;
+      const sockets = activeStudentSockets.get(targetId);
       if (sockets && sockets.size > 0) {
-        const sseChunk = `id: ${payload.sequence_id}\ndata: ${JSON.stringify(payload)}\n\n`;
+        const sseChunk = `id: ${eventPayload.sequence_id || eventPayload.id}\ndata: ${JSON.stringify(eventPayload)}\n\n`;
         for (const res of sockets) {
-          const notifKey = String(payload.sequence_id || payload.id || '');
+          const notifKey = String(eventPayload.sequence_id || eventPayload.id || '');
           if (notifKey) {
             if (!res._deliveredNotifs) res._deliveredNotifs = new Set();
             if (res._deliveredNotifs.has(notifKey)) continue; // Deliver each notification once per SSE socket
@@ -88,7 +92,7 @@ redisSubscriber.on('message', (channel, message) => {
           try {
             res.write(sseChunk);
           } catch (writeErr) {
-            logger.warn({ writeErr: writeErr.message, studentId: payload.student_id }, '[SSE] Socket write error');
+            logger.warn({ writeErr: writeErr.message, studentId: targetId }, '[SSE] Socket write error');
           }
         }
       }
@@ -97,6 +101,16 @@ redisSubscriber.on('message', (channel, message) => {
     }
   }
 });
+
+/**
+ * Cleanly disconnects Redis notification clients on server teardown
+ */
+export async function closeNotificationRedis() {
+  try {
+    if (redisSubscriber.status !== 'end') await redisSubscriber.quit();
+    if (redisPublisher.status !== 'end') await redisPublisher.quit();
+  } catch (_) {}
+}
 
 /**
  * Creates and persists a notification with tenant advisory locking,

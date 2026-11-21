@@ -21,6 +21,29 @@ import config from '../config.js';
 const router = express.Router({ mergeParams: true });
 const IDEMPOTENCY_TTL_SECONDS = 86400; // 24 hours
 
+// ─── Submission URL Allowlist & SSRF Defense (F10 Hardening) ───
+const TRUSTED_SUBMISSION_DOMAINS = [
+  'github.com',
+  'gitlab.com',
+  'drive.google.com',
+  'focit-lms-indol.vercel.app'
+];
+
+function isValidSubmissionUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return true;
+  const clean = rawUrl.trim();
+  if (clean.startsWith('/') || clean.startsWith('/api/')) return true;
+  try {
+    const parsed = new URL(clean);
+    if (parsed.protocol !== 'https:') return false;
+    return TRUSTED_SUBMISSION_DOMAINS.some(
+      (d) => parsed.hostname === d || parsed.hostname.endsWith(`.${d}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 1. GET /api/courses/:courseId/assignments
  * Retrieves all published assignments for the course, including the authenticated student's submission status.
@@ -831,6 +854,15 @@ router.post(
     const submissionText = req.body?.submission_text?.trim() || null;
     const removeFile = req.body?.remove_file === true || req.body?.remove_file === 'true';
     let finalFileUrl = removeFile ? null : (req.body?.file_url?.trim() || null);
+    if (finalFileUrl && !isValidSubmissionUrl(finalFileUrl)) {
+      if (req.uploadedFile?.stagedPath) {
+        fs.promises.unlink(req.uploadedFile.stagedPath).catch(() => {});
+      }
+      return res.status(400).json({
+        error: 'Invalid file_url: Only secure HTTPS links to approved platforms (GitHub, GitLab, Google Drive) or internal uploads are accepted.',
+        code: 'INVALID_SUBMISSION_URL',
+      });
+    }
     let finalFileName = removeFile ? null : (req.body?.file_name?.trim() || null);
     let finalFileSize = removeFile ? null : (req.body?.file_size_bytes ? Number(req.body.file_size_bytes) : null);
 

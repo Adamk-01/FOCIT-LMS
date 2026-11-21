@@ -100,9 +100,8 @@ export function useNotifications({
     const connectSSE = () => {
       if (!isMounted) return;
 
-      // Ephemeral session nonce resolution: checks sessionStorage with localStorage fallback
-      const sessionNonce = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('session_nonce')) ||
-                           (typeof localStorage !== 'undefined' && localStorage.getItem('session_nonce')) || '';
+      // Ephemeral session nonce resolution (F15 Hardening: strictly tab-scoped sessionStorage)
+      const sessionNonce = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('session_nonce')) || '';
 
       // Fail-fast: If no session nonce exists, do not hammer the server with unauthenticated requests
       if (!sessionNonce) {
