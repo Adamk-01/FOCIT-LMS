@@ -35,14 +35,16 @@ async function requireHod(req, res, next) {
 
 router.use(requireHod);
 
-// ─── 0. Department Lecturers List ──────────────────────────────
+// ─── 0. Faculty Lecturers List (Prioritizes HOD's Department, Supports Cross-Department Allocation) ──────
 router.get('/lecturers', async (req, res, next) => {
   try {
     const { rows } = await db.query(
-      `SELECT advisor_id AS lecturer_id, staff_number, full_name, email, role
-       FROM staff_advisors
-       WHERE department_id = $1 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')
-       ORDER BY full_name ASC`,
+      `SELECT sa.advisor_id AS lecturer_id, sa.staff_number, sa.full_name, sa.email, sa.role,
+              sa.department_id, d.name AS department_name, d.code AS department_code
+       FROM staff_advisors sa
+       LEFT JOIN departments d ON d.id = sa.department_id
+       WHERE sa.role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')
+       ORDER BY (sa.department_id = $1) DESC, sa.full_name ASC`,
       [req.hodScope.department_id]
     );
     res.json({ lecturers: rows });
@@ -131,12 +133,13 @@ router.post('/allocations', async (req, res, next) => {
       }
       const courseRow = course.rows[0];
       const lecturer = await client.query(
-        `SELECT advisor_id, full_name, staff_number FROM staff_advisors
-         WHERE advisor_id = $1 AND department_id = $2 AND role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')`,
-        [lecturerId, req.hodScope.department_id]
+        `SELECT sa.advisor_id, sa.full_name, sa.staff_number, sa.department_id 
+         FROM staff_advisors sa
+         WHERE sa.advisor_id = $1 AND sa.role IN ('LECTURER', 'LEVEL_ADVISOR', 'HOD')`,
+        [lecturerId]
       );
       if (lecturer.rowCount === 0) {
-        const e = new Error('Lecturer not verified in your department'); e.status = 422; throw e;
+        const e = new Error('Lecturer not verified in faculty teaching registry'); e.status = 422; throw e;
       }
 
       // If assigning as Primary Lecturer (Course Coordinator), demote any existing primary lecturer for this course/semester

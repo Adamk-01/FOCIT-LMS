@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'react-toastify';
 import {
   useHodAllocations,
   useHodAnalytics,
@@ -80,6 +81,21 @@ export function HodDashboardPage() {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Course Allocation Matrix (Interactive Multi-Lecturer Allocation)
 // ─────────────────────────────────────────────────────────────────────────────
+const DEPARTMENT_NAMES = {
+  CSC: 'Department of Computer Science',
+  CYS: 'Department of Cybersecurity',
+  SEN: 'Department of Software Engineering',
+  DSC: 'Department of Data Science',
+  LIS: 'Department of Library & Information Science',
+};
+
+const getLecturerDeptLabel = (lec) => {
+  if (lec.department_name) return lec.department_name;
+  if (lec.department_id && DEPARTMENT_NAMES[lec.department_id]) return DEPARTMENT_NAMES[lec.department_id];
+  if (lec.department_code) return `Dept. of ${lec.department_code}`;
+  return 'Faculty';
+};
+
 function AllocationMatrix() {
   const [selectedSemester, setSelectedSemester] = useState('');
   const { data: allocations = [], isLoading, error } = useHodAllocations(selectedSemester || undefined);
@@ -90,6 +106,7 @@ function AllocationMatrix() {
   const [coLecturerModalCourse, setCoLecturerModalCourse] = useState(null);
   const [selectedCoLecturerId, setSelectedCoLecturerId] = useState('');
   const [isModalSaving, setIsModalSaving] = useState(false);
+  const [deallocateTarget, setDeallocateTarget] = useState(null);
 
   const activeSemester = selectedSemester || allocations.semesterId || '';
 
@@ -104,29 +121,37 @@ function AllocationMatrix() {
         lecturerId,
         isPrimary,
       });
-      setSuccessMsg(isPrimary ? 'Lead Course Coordinator allocated successfully!' : 'Co-Lecturer added successfully!');
+      const msg = isPrimary ? 'Lead Course Coordinator allocated successfully!' : 'Co-Lecturer added successfully!';
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to allocate lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to allocate lecturer';
+      toast.error(errMsg);
     } finally {
       setSavingCourseId(null);
     }
   };
 
-  const handleRemoveLecturer = async (allocationId, lecturerName, courseCode) => {
+  const handleRemoveLecturer = (allocationId, lecturerName, courseCode) => {
     if (!allocationId) return;
-    const confirmed = window.confirm(
-      `Remove ${lecturerName || 'this lecturer'} from teaching ${courseCode}?`
-    );
-    if (!confirmed) return;
+    setDeallocateTarget({ allocationId, lecturerName, courseCode });
+  };
 
+  const handleExecuteDeallocate = async () => {
+    if (!deallocateTarget?.allocationId) return;
+    const { allocationId, courseCode } = deallocateTarget;
+    setDeallocateTarget(null);
     setSuccessMsg(null);
     try {
       await deallocate.mutateAsync(allocationId);
-      setSuccessMsg(`Teaching allocation removed for ${courseCode}`);
+      const msg = `Teaching allocation removed for ${courseCode}`;
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to remove lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to remove lecturer';
+      toast.error(errMsg);
     }
   };
 
@@ -141,12 +166,15 @@ function AllocationMatrix() {
         lecturerId: selectedCoLecturerId,
         isPrimary: false,
       });
-      setSuccessMsg(`Co-Lecturer successfully added to ${coLecturerModalCourse.code}!`);
+      const msg = `Co-Lecturer successfully added to ${coLecturerModalCourse.code}!`;
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
       setCoLecturerModalCourse(null);
       setSelectedCoLecturerId('');
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to add co-lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to add co-lecturer';
+      toast.error(errMsg);
     } finally {
       setIsModalSaving(false);
     }
@@ -303,9 +331,20 @@ function AllocationMatrix() {
                                   {primaryLecturer.lecturer_name}
                                 </span>
                               </div>
-                              <span className="shrink-0 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-[#0a1142] text-white">
-                                Lead
-                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-[#0a1142] text-white">
+                                  Lead
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLecturer(primaryLecturer.allocation_id || row.allocation_id, primaryLecturer.lecturer_name, row.code)}
+                                  aria-label={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                                  title={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                                  className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
                             </div>
                           )}
 
@@ -356,19 +395,26 @@ function AllocationMatrix() {
                           aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
                           disabled={isSaving}
                           value={primaryLecturer?.lecturer_id || ''}
-                          onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
-                          className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium outline-none transition-all max-w-[170px] truncate ${
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val && (primaryLecturer?.allocation_id || row.allocation_id)) {
+                              handleRemoveLecturer(primaryLecturer?.allocation_id || row.allocation_id, primaryLecturer?.lecturer_name, row.code);
+                            } else if (val) {
+                              handleAssignLecturer(row.course_id, val, true);
+                            }
+                          }}
+                          className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium outline-none transition-all max-w-[200px] truncate ${
                             isSaving
                               ? 'bg-gray-100 text-gray-400 border-gray-200'
                               : 'bg-white border-gray-300 hover:border-[#0a1142] text-gray-800 focus:ring-1 focus:ring-[#0a1142]'
                           }`}
                         >
-                          <option value="" disabled>
-                            -- Set Lead --
+                          <option value="">
+                            {primaryLecturer ? '-- Unassign Lead --' : '-- Set Lead --'}
                           </option>
                           {lecturers.map((lec) => (
                             <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                              {lec.full_name} ({lec.role})
+                              {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                             </option>
                           ))}
                         </select>
@@ -449,9 +495,20 @@ function AllocationMatrix() {
                           {primaryLecturer.lecturer_name}
                         </span>
                       </div>
-                      <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase rounded bg-[#0a1142] text-white shrink-0">
-                        Lead
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase rounded bg-[#0a1142] text-white">
+                          Lead
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLecturer(primaryLecturer.allocation_id || row.allocation_id, primaryLecturer.lecturer_name, row.code)}
+                          aria-label={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                          title={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-gray-400 hover:text-red-600 rounded"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -492,19 +549,26 @@ function AllocationMatrix() {
                       aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
                       disabled={isSaving}
                       value={primaryLecturer?.lecturer_id || ''}
-                      onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val && (primaryLecturer?.allocation_id || row.allocation_id)) {
+                          handleRemoveLecturer(primaryLecturer?.allocation_id || row.allocation_id, primaryLecturer?.lecturer_name, row.code);
+                        } else if (val) {
+                          handleAssignLecturer(row.course_id, val, true);
+                        }
+                      }}
                       className={`w-full min-h-[44px] text-xs px-3 py-2 rounded-xl border font-medium outline-none transition-all ${
                         isSaving
                           ? 'bg-gray-100 text-gray-400 border-gray-200'
                           : 'bg-white border-gray-300 text-gray-800 focus:ring-2 focus:ring-[#0a1142]/20'
                       }`}
                     >
-                      <option value="" disabled>
-                        -- Set Lead Coordinator --
+                      <option value="">
+                        {primaryLecturer ? '-- Unassign Lead --' : '-- Set Lead Coordinator --'}
                       </option>
                       {lecturers.map((lec) => (
                         <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                          {lec.full_name} ({lec.role})
+                          {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                         </option>
                       ))}
                     </select>
@@ -557,7 +621,7 @@ function AllocationMatrix() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Select Co-Lecturer (Department Academic Staff)
+                  Select Co-Lecturer (Faculty Teaching Staff)
                 </label>
                 {eligibleCoLecturers.length > 0 ? (
                   <select
@@ -571,13 +635,13 @@ function AllocationMatrix() {
                     </option>
                     {eligibleCoLecturers.map((lec) => (
                       <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                        {lec.full_name} ({lec.role})
+                        {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                       </option>
                     ))}
                   </select>
                 ) : (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                    All departmental academic staff are already assigned to teach this course.
+                    All faculty academic staff are already assigned to teach this course.
                   </div>
                 )}
                 <p className="text-[11px] text-gray-400 mt-1.5">
@@ -603,6 +667,44 @@ function AllocationMatrix() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Institutional Deallocation Confirmation Modal */}
+      {deallocateTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white dark:bg-[#0c132c] rounded-2xl max-w-md w-full border border-gray-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#0a1142] dark:text-white">Revoke Teaching Allocation</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Institutional Governance & Course Management</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to remove <strong className="text-gray-900 dark:text-white">{deallocateTarget.lecturerName}</strong> from teaching <strong className="text-[#0a1142] dark:text-[#ffb81c]">{deallocateTarget.courseCode}</strong>? They will lose instructor privileges for this course.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeallocateTarget(null)}
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeallocate}
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm cursor-pointer"
+              >
+                Confirm Revocation
+              </button>
+            </div>
           </div>
         </div>
       )}

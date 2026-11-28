@@ -202,7 +202,11 @@ export async function authMiddleware(req, res, next) {
       moodleUserId: payload.moodleUserId,
       username: payload.username,
       email: payload.email,
+      fullName: payload.fullName,
       role: payload.role || 'STUDENT',
+      departmentId: payload.departmentId,
+      departmentName: payload.departmentName,
+      departmentCode: payload.departmentCode,
       enrolledCourses: payload.enrolledCourses ?? [],
     };
 

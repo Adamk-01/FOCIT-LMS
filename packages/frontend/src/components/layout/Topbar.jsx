@@ -73,9 +73,13 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
     setAvatarLoadError(false);
   }, [avatarUrl]);
 
-  const studentFullName = profile?.full_name || user?.full_name || user?.name || '';
-  const studentFirstName = studentFullName ? studentFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
-  const programmeName = profile?.programme_name || profile?.department_name || 'Computer Science';
+  const userFullName = user?.fullName || user?.full_name || profile?.full_name || user?.name || '';
+  const studentFirstName = userFullName ? userFullName.trim().split(/\s+/)[0] : (user?.username || 'John');
+  const displayName = isStudent ? studentFirstName : (userFullName || user?.username || 'Academic Staff');
+  const userInitials = userFullName
+    ? userFullName.split(/\s+/).filter(Boolean).map((n) => n.replace(/[^a-zA-Z]/g, '')).filter(Boolean).slice(0, 2).map((n) => n[0]?.toUpperCase()).join('')
+    : (user?.username ? user.username.slice(0, 2).toUpperCase() : 'US');
+  const programmeName = profile?.programme_name || profile?.department_name || user?.departmentName || 'Computer Science';
   const studentLevel = profile?.level || user?.level || 200;
   const isAdmin = ['ADMIN', 'SYSTEM_ADMIN'].includes(role);
   const isLecturer = role === 'LECTURER';
@@ -84,6 +88,8 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
 
   const rootCrumb = isAdmin
     ? { id: 'root-portal', name: 'Admin Portal', path: '/admin' }
+    : isHod
+    ? { id: 'root-portal', name: 'HOD Governance Desk', path: '/hod' }
     : isLecturer
     ? { id: 'root-portal', name: 'Lecturer Workspace', path: '/lecturer' }
     : isAdvisor
@@ -202,16 +208,24 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
 
         {/* Identity & Profile Chip */}
         <Link 
-          to={isAdmin ? '/admin/profile' : isAdvisor ? '/advisor/registrations' : '/profile'} 
-          aria-label={isAdmin ? 'View Admin Profile' : isAdvisor ? 'View Advisor Review' : isLecturer ? 'View Lecturer Profile' : 'View Student Profile & Settings'}
+          to={isAdmin ? '/admin/profile' : isHod ? '/hod' : isAdvisor ? '/advisor/registrations' : isLecturer ? '/lecturer' : '/profile'} 
+          aria-label={isAdmin ? 'View Admin Profile' : isHod ? 'View HOD Governance' : isAdvisor ? 'View Advisor Review' : isLecturer ? 'View Lecturer Profile' : 'View Student Profile & Settings'}
           className="flex items-center gap-3 pl-2 sm:pl-3 border-l border-gray-200 dark:border-slate-800 group hover:opacity-90 transition-opacity"
         >
           <div className="hidden lg:flex flex-col text-right">
             <span className="text-xs font-bold text-[#0a1142] dark:text-slate-100 group-hover:text-[#16258f] dark:group-hover:text-[#ffb81c] leading-tight transition-colors">
-              Welcome, {isAdmin || isLecturer || isAdvisor ? (user?.username || 'User') : studentFirstName}
+              Welcome, {displayName}
             </span>
             <span className="text-[11px] text-gray-500 dark:text-gray-400 font-medium leading-tight">
-              {isAdmin ? 'Faculty Administration • System Control Plane' : isLecturer ? 'Academic Staff • Lecturer' : isAdvisor ? 'Academic Staff • Faculty Registry' : `${programmeName} • Level ${studentLevel}`}
+              {isAdmin 
+                ? 'Faculty Administration • System Control Plane' 
+                : isHod 
+                ? `Head of Department • ${user?.departmentName || 'Academic Governance'}` 
+                : isLecturer 
+                ? `Academic Staff • ${user?.departmentName || 'Lecturer'}` 
+                : isAdvisor 
+                ? 'Academic Staff • Faculty Registry' 
+                : `${programmeName} • Level ${studentLevel}`}
             </span>
           </div>
 
@@ -222,12 +236,12 @@ export const Topbar = ({ onOpenMobileDrawer, user, isExamLocked = false }) => {
             {avatarUrl && !avatarLoadError ? (
               <img
                 src={avatarUrl}
-                alt={studentFullName || user?.username || 'Student Avatar'}
+                alt={userFullName || user?.username || 'User Avatar'}
                 className="w-full h-full object-cover"
                 onError={() => setAvatarLoadError(true)}
               />
             ) : (
-              studentFirstName ? studentFirstName.slice(0, 2).toUpperCase() : 'JD'
+              userInitials
             )}
           </div>
         </Link>
