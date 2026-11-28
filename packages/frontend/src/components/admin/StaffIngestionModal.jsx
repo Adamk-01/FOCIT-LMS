@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Users, Loader2 } from 'lucide-react';
 import { apiClient } from '../../lib/api';
@@ -14,6 +14,26 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
   const [parsedStaff, setParsedStaff] = useState([]);
   const [parseError, setParseError] = useState(null);
   const [submissionResult, setSubmissionResult] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Global window dragover/drop preventer: stops browser from downloading or navigating to dropped files
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const preventDefaults = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('dragover', preventDefaults);
+    window.addEventListener('drop', preventDefaults);
+
+    return () => {
+      window.removeEventListener('dragover', preventDefaults);
+      window.removeEventListener('drop', preventDefaults);
+    };
+  }, [isOpen]);
 
   const handleClose = () => {
     setSelectedFile(null);
@@ -22,6 +42,7 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
     setParsedStaff([]);
     setParseError(null);
     setSubmissionResult(null);
+    setIsDragging(false);
     onClose();
   };
 
@@ -30,6 +51,35 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
+      setParsedStaff([]);
+      setParseError(null);
+      setSubmissionResult(null);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+      setSelectedFile(e.dataTransfer.files[0]);
       setParsedStaff([]);
       setParseError(null);
       setSubmissionResult(null);
@@ -108,7 +158,7 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
   return createPortal(
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex min-h-full items-center justify-center p-4 sm:p-6">
       <div role="dialog" aria-modal="true" aria-labelledby="staff-modal-title"
-        className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-8 shadow-xl border border-gray-100 relative my-auto">
+        className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-8 shadow-xl border border-gray-100 relative my-auto animate-in fade-in zoom-in-95 duration-150">
         <button type="button" onClick={handleClose} aria-label="Close dialog"
           className="absolute top-5 right-5 p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
           <X size={18} />
@@ -142,19 +192,6 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
                 </div>
               ))}
             </div>
-            {submissionResult.errors?.length > 0 && (
-              <div className="mt-3 text-left">
-                <span className="text-[11px] font-bold text-rose-700">Failed Records ({submissionResult.errors.length}):</span>
-                <div className="mt-1 max-h-28 overflow-y-auto text-[10px] bg-rose-50/70 p-2.5 rounded-lg border border-rose-200 divide-y divide-rose-100 text-rose-800">
-                  {submissionResult.errors.map((err, idx) => (
-                    <div key={idx} className="py-1 flex items-start justify-between gap-2">
-                      <span className="font-semibold shrink-0">Row {err.row} ({err.identifier || 'N/A'}):</span>
-                      <span className="text-right text-rose-600">{err.error}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <button type="button" onClick={handleClose}
               className="mt-5 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0a1142] text-white hover:bg-blue-900 transition-colors">
               Close
@@ -162,12 +199,32 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
           </div>
         ) : (
           <div className="mt-5 flex flex-col gap-4">
-            <label className="border-2 border-dashed border-gray-300 hover:border-indigo-600 rounded-2xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center bg-slate-50/50">
-              <FileSpreadsheet size={32} className="text-gray-400 mb-2" />
-              <span className="text-xs font-bold text-gray-700">{selectedFile ? selectedFile.name : 'Choose staff CSV file or drag & drop'}</span>
-              <span className="text-[11px] text-gray-400 mt-1">Headers: StaffNumber, FullName, Email, Role (HOD/LECTURER), Department</span>
-              <input type="file" accept=".csv,text/csv" onChange={handleFileChange} className="hidden" />
-            </label>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center select-none ${isDragging ? 'border-indigo-600 bg-indigo-50/70' : 'border-gray-300 hover:border-indigo-600 bg-slate-50/50'}`}
+            >
+              <FileSpreadsheet size={32} className="text-gray-400 mb-2 pointer-events-none" />
+              <span className="text-xs font-bold text-gray-700 pointer-events-none">
+                {selectedFile ? selectedFile.name : 'Choose staff CSV file or drag & drop'}
+              </span>
+              <span className="text-[11px] text-gray-400 mt-1 pointer-events-none">
+                Headers: StaffNumber, FullName, Email, Role (HOD/LECTURER), Department
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </div>
 
             {parseError && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
@@ -199,13 +256,13 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
               </button>
               {parsedStaff.length === 0 ? (
                 <button type="button" onClick={handleValidateRoster} disabled={!selectedFile || isParsing}
-                  className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5">
+                  className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 min-h-[44px]">
                   {isParsing && <Loader2 size={13} className="animate-spin" />}
                   <span>Verify Roster</span>
                 </button>
               ) : (
                 <button type="button" onClick={handleCommitIngestion} disabled={isSubmitting}
-                  className="px-5 py-2 text-xs font-bold bg-[#0a1142] text-white rounded-xl hover:bg-blue-900 disabled:opacity-50 transition-colors flex items-center gap-1.5">
+                  className="px-5 py-2 text-xs font-bold bg-[#0a1142] text-white rounded-xl hover:bg-blue-900 disabled:opacity-50 transition-colors flex items-center gap-1.5 min-h-[44px]">
                   {isSubmitting && <Loader2 size={13} className="animate-spin" />}
                   <span>Provision {parsedStaff.length} Staff Records</span>
                 </button>
