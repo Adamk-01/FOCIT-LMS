@@ -95,7 +95,7 @@ export function AdminDashboardPage() {
         result={provisionResult}
       />
 
-      <CohortIngestionModal isOpen={isCohortModalOpen} onClose={() => setIsCohortModalOpen(false)} />
+      <CohortIngestionModal isOpen={isCohortModalOpen} onClose={() => setIsCohortModalOpen(false)} onSuccess={() => refetchAll()} />
       <StaffIngestionModal isOpen={isStaffModalOpen} onClose={() => setIsStaffModalOpen(false)} onSuccess={() => refetchAll()} />
     </div>
   );
