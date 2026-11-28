@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiClient } from '../../lib/api';
@@ -16,6 +16,25 @@ export function CohortIngestionModal({ isOpen, onClose, onSuccess }) {
   const [parseError, setParseError] = useState(null);
   const [ingestionResult, setIngestionResult] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Global window dragover/drop preventer: stops browser from downloading or navigating to dropped files
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const preventDefaults = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('dragover', preventDefaults);
+    window.addEventListener('drop', preventDefaults);
+
+    return () => {
+      window.removeEventListener('dragover', preventDefaults);
+      window.removeEventListener('drop', preventDefaults);
+    };
+  }, [isOpen]);
 
   const handleClose = () => {
     setSelectedFile(null);
@@ -221,18 +240,32 @@ export function CohortIngestionModal({ isOpen, onClose, onSuccess }) {
             </div>
           ) : (
             <div className="mt-5 flex flex-col gap-4">
-              <label
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
                 onDragOver={handleDragOver}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center ${isDragging ? 'border-[#0a1142] bg-blue-50/50' : 'border-gray-300 hover:border-[#0a1142] bg-slate-50/50'}`}
+                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center select-none ${isDragging ? 'border-[#0a1142] bg-blue-50/60' : 'border-gray-300 hover:border-[#0a1142] bg-slate-50/50'}`}
               >
-                <FileSpreadsheet size={32} className="text-gray-400 mb-2" />
-                <span className="text-xs font-bold text-gray-700">{selectedFile ? selectedFile.name : 'Choose a .csv file or drag & drop'}</span>
-                <span className="text-[11px] text-gray-400 mt-1">Required columns: MatricNumber, FullName, Email, Programme, Level</span>
-                <input type="file" accept=".csv,text/csv" onChange={handleFileChange} className="hidden" />
-              </label>
+                <FileSpreadsheet size={32} className="text-gray-400 mb-2 pointer-events-none" />
+                <span className="text-xs font-bold text-gray-700 pointer-events-none">
+                  {selectedFile ? selectedFile.name : 'Choose a .csv file or drag & drop'}
+                </span>
+                <span className="text-[11px] text-gray-400 mt-1 pointer-events-none">
+                  Required columns: MatricNumber, FullName, Email, Programme, Level
+                </span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </div>
 
               {parseError && (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
