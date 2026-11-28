@@ -21,6 +21,7 @@ router.get('/dashboard', adminController.getDashboardOverview);
 router.get('/users', adminController.listUsers);
 router.post('/users', adminController.createUser);
 router.post('/users/batch-staff', adminController.batchCreateStaff);
+router.post('/users/batch-students', adminController.batchCreateStudents);
 router.patch('/users/:id/status', adminController.updateUserStatus);
 router.patch('/users/:id/role', adminController.updateUserRole);
 router.post('/users/:id/reset-password', adminController.resetUserPassword);
