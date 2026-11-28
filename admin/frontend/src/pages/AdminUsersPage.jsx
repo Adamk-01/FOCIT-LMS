@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Search, UserPlus, AlertCircle, Key, Edit3 } from 'lucide-react';
-import { useAdminDashboard } from '../hooks/useAdminDashboard';
-import { UserProvisioningModal } from '../components/UserProvisioningModal';
-import { SuspendConfirmationModal } from '../components/SuspendConfirmationModal';
-import { ResetPasswordModal } from '../components/ResetPasswordModal';
-import { EditUserModal } from '../components/EditUserModal';
-import { StaffIngestionModal } from '../components/StaffIngestionModal';
+import { useAdminDashboard } from '../../hooks/useAdminDashboard';
+import { UserProvisioningModal } from '../../components/admin/UserProvisioningModal';
+import { SuspendConfirmationModal } from '../../components/admin/SuspendConfirmationModal';
+import { ResetPasswordModal } from '../../components/admin/ResetPasswordModal';
+import { EditUserModal } from '../../components/admin/EditUserModal';
+import { StaffIngestionModal } from '../../components/admin/StaffIngestionModal';
+import { CohortIngestionModal } from '../../components/admin/CohortIngestionModal';
 
 /**
  * Faculty User Directory & Identity Management Page
@@ -17,12 +18,14 @@ export function AdminUsersPage() {
     toggleUserStatus, isTogglingStatus, statusError, isProvisionModalOpen, openProvisionModal,
     closeProvisionModal, provisionUser, isProvisioning, provisionError, provisionResult,
     resetUserPassword, isResettingPassword, updateUser, isUpdatingUser, updateUserError, resetUpdateUser,
+    refetchAll, refetchUsers,
   } = useAdminDashboard();
 
   const [userToSuspend, setUserToSuspend] = useState(null);
   const [userToResetPassword, setUserToResetPassword] = useState(null);
   const [userToEdit, setUserToEdit] = useState(null);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isCohortModalOpen, setIsCohortModalOpen] = useState(false);
 
   const handleConfirmSuspend = async () => {
     if (!userToSuspend) return;
@@ -41,7 +44,13 @@ export function AdminUsersPage() {
           <h1 className="text-2xl font-black text-[#0a1142] font-display">User Directory & Accounts</h1>
           <p className="text-xs text-gray-500 mt-1">Search academic identities, view roles, and govern active/suspended statuses</p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button" onClick={() => setIsCohortModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl shadow-xs transition-all"
+          >
+            <span>Bulk Student Ingestion</span>
+          </button>
           <button
             type="button" onClick={() => setIsStaffModalOpen(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl shadow-xs transition-all"
@@ -216,7 +225,18 @@ export function AdminUsersPage() {
       <StaffIngestionModal
         isOpen={isStaffModalOpen}
         onClose={() => setIsStaffModalOpen(false)}
-        onSuccess={() => refetchAll?.()}
+        onSuccess={() => {
+          refetchUsers?.();
+          refetchAll?.();
+        }}
+      />
+      <CohortIngestionModal
+        isOpen={isCohortModalOpen}
+        onClose={() => setIsCohortModalOpen(false)}
+        onSuccess={() => {
+          refetchUsers?.();
+          refetchAll?.();
+        }}
       />
     </div>
   );
