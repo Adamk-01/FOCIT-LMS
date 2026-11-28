@@ -56,6 +56,7 @@ export const DashboardPage = () => {
   const metrics = dashboardData?.metrics;
   const courses = dashboardData?.courses || [];
   const upcomingActivities = dashboardData?.upcoming_activities || [];
+  const zoomSession = dashboardData?.zoom_session;
 
 
   // Invariant #2: URL SearchParams synchronization for persistent deep-link rehydration
@@ -223,7 +224,7 @@ export const DashboardPage = () => {
               Registered Courses
             </p>
             <p className="text-3xl font-extrabold text-[#0a1142]">
-              {isLoading ? '...' : metrics?.registered_courses || courses.length}
+              {isLoading ? '...' : (metrics?.registered_courses ?? courses.length ?? 0)}
             </p>
             <span className="text-xs text-gray-500 font-medium">Active this term</span>
           </div>
@@ -239,7 +240,7 @@ export const DashboardPage = () => {
               Completed Units
             </p>
             <p className="text-3xl font-extrabold text-emerald-600">
-              {isLoading ? '...' : metrics?.completed_units || 2}
+              {isLoading ? '...' : (metrics?.completed_units ?? 0)}
             </p>
             <span className="text-xs text-gray-500 font-medium">Completed courses/modules</span>
           </div>
@@ -255,9 +256,23 @@ export const DashboardPage = () => {
               Cumulative GPA
             </p>
             <p className="text-3xl font-extrabold text-[#0a1142]">
-              {isLoading ? '...' : (metrics?.current_gpa ? metrics.current_gpa.toFixed(2) : '3.60')}
+              {isLoading ? '...' : (
+                metrics?.gpa_exempt 
+                  ? '0.00' 
+                  : (metrics?.current_gpa != null ? Number(metrics.current_gpa).toFixed(2) : '0.00')
+              )}
             </p>
-            <span className="text-xs text-emerald-600 font-bold">First Class Standing</span>
+            <span className={`text-xs font-bold ${
+              metrics?.gpa_exempt 
+                ? 'text-gray-500' 
+                : Number(metrics?.current_gpa) >= 3.5 
+                  ? 'text-emerald-600' 
+                  : 'text-gray-500'
+            }`}>
+              {metrics?.gpa_exempt 
+                ? 'Foundational Level (100L/200L)' 
+                : (metrics?.standing_label || (Number(metrics?.current_gpa) > 0 ? 'Good Standing' : 'Not Graded Yet'))}
+            </span>
           </div>
           <div className="p-3.5 bg-amber-50 text-[#ffb81c] rounded-2xl">
             <GraduationCap size={26} />
@@ -316,25 +331,40 @@ export const DashboardPage = () => {
           <StudentAttendanceOverviewCard onOpenCheckIn={() => handleOpenCheckIn(courses[0] || true)} />
 
           {/* Zoom Meeting Action Card */}
-          <div className="bg-gradient-to-br from-[#0a1142] to-[#16258f] rounded-2xl p-6 text-white shadow-lg space-y-4">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#ffb81c]">
-              <Video size={16} />
-              <span>Live Virtual Classroom</span>
+          {zoomSession ? (
+            <div className="bg-gradient-to-br from-[#0a1142] to-[#16258f] rounded-2xl p-6 text-white shadow-lg space-y-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#ffb81c]">
+                <Video size={16} />
+                <span>Live Virtual Classroom</span>
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">{zoomSession.title}</h3>
+                <p className="text-xs text-gray-300 mt-1">{zoomSession.topic}</p>
+                {zoomSession.schedule && (
+                  <p className="text-[11px] text-[#ffb81c] font-medium mt-1">{zoomSession.schedule}</p>
+                )}
+              </div>
+              <a
+                href={zoomSession.join_url || "https://zoom.us"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2.5 px-4 bg-[#ffb81c] hover:bg-[#e5a200] text-[#0a1142] rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors shadow-md"
+              >
+                <span>Join Zoom Meeting</span>
+                <ExternalLink size={14} />
+              </a>
             </div>
-            <div>
-              <h3 className="font-bold text-base text-white">CSC 204 Live Lecture</h3>
-              <p className="text-xs text-gray-300 mt-1">Topic: Trees, AVL Rotations & Priority Heaps</p>
+          ) : (
+            <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-2 text-center py-6">
+              <div className="w-10 h-10 bg-gray-50 text-gray-400 rounded-xl flex items-center justify-center mx-auto mb-1">
+                <Video size={20} />
+              </div>
+              <h3 className="font-bold text-sm text-[#0a1142]">No Live Virtual Classes Today</h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Live timetable sessions will automatically appear here once courses are enrolled.
+              </p>
             </div>
-            <a
-              href="https://zoom.us"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 px-4 bg-[#ffb81c] hover:bg-[#e5a200] text-[#0a1142] rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors shadow-md"
-            >
-              <span>Join Zoom Meeting</span>
-              <ExternalLink size={14} />
-            </a>
-          </div>
+          )}
 
           {/* Upcoming Activities List */}
           <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
