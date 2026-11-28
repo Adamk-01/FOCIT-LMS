@@ -303,9 +303,20 @@ function AllocationMatrix() {
                                   {primaryLecturer.lecturer_name}
                                 </span>
                               </div>
-                              <span className="shrink-0 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-[#0a1142] text-white">
-                                Lead
-                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded bg-[#0a1142] text-white">
+                                  Lead
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLecturer(primaryLecturer.allocation_id || row.allocation_id, primaryLecturer.lecturer_name, row.code)}
+                                  aria-label={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                                  title={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                                  className="text-gray-400 hover:text-red-600 p-0.5 rounded transition-colors"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
                             </div>
                           )}
 
@@ -356,19 +367,26 @@ function AllocationMatrix() {
                           aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
                           disabled={isSaving}
                           value={primaryLecturer?.lecturer_id || ''}
-                          onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
-                          className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium outline-none transition-all max-w-[170px] truncate ${
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val && (primaryLecturer?.allocation_id || row.allocation_id)) {
+                              handleRemoveLecturer(primaryLecturer?.allocation_id || row.allocation_id, primaryLecturer?.lecturer_name, row.code);
+                            } else if (val) {
+                              handleAssignLecturer(row.course_id, val, true);
+                            }
+                          }}
+                          className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium outline-none transition-all max-w-[200px] truncate ${
                             isSaving
                               ? 'bg-gray-100 text-gray-400 border-gray-200'
                               : 'bg-white border-gray-300 hover:border-[#0a1142] text-gray-800 focus:ring-1 focus:ring-[#0a1142]'
                           }`}
                         >
-                          <option value="" disabled>
-                            -- Set Lead --
+                          <option value="">
+                            {primaryLecturer ? '-- Unassign Lead --' : '-- Set Lead --'}
                           </option>
                           {lecturers.map((lec) => (
                             <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                              {lec.full_name} ({lec.role})
+                              {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'})
                             </option>
                           ))}
                         </select>
@@ -449,9 +467,20 @@ function AllocationMatrix() {
                           {primaryLecturer.lecturer_name}
                         </span>
                       </div>
-                      <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase rounded bg-[#0a1142] text-white shrink-0">
-                        Lead
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase rounded bg-[#0a1142] text-white">
+                          Lead
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLecturer(primaryLecturer.allocation_id || row.allocation_id, primaryLecturer.lecturer_name, row.code)}
+                          aria-label={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                          title={`Unassign lead lecturer ${primaryLecturer.lecturer_name} from ${row.code}`}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-gray-400 hover:text-red-600 rounded"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -492,19 +521,26 @@ function AllocationMatrix() {
                       aria-label={`Assign primary lecturer for ${row.code}: ${row.title}`}
                       disabled={isSaving}
                       value={primaryLecturer?.lecturer_id || ''}
-                      onChange={(e) => handleAssignLecturer(row.course_id, e.target.value, true)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val && (primaryLecturer?.allocation_id || row.allocation_id)) {
+                          handleRemoveLecturer(primaryLecturer?.allocation_id || row.allocation_id, primaryLecturer?.lecturer_name, row.code);
+                        } else if (val) {
+                          handleAssignLecturer(row.course_id, val, true);
+                        }
+                      }}
                       className={`w-full min-h-[44px] text-xs px-3 py-2 rounded-xl border font-medium outline-none transition-all ${
                         isSaving
                           ? 'bg-gray-100 text-gray-400 border-gray-200'
                           : 'bg-white border-gray-300 text-gray-800 focus:ring-2 focus:ring-[#0a1142]/20'
                       }`}
                     >
-                      <option value="" disabled>
-                        -- Set Lead Coordinator --
+                      <option value="">
+                        {primaryLecturer ? '-- Unassign Lead --' : '-- Set Lead Coordinator --'}
                       </option>
                       {lecturers.map((lec) => (
                         <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                          {lec.full_name} ({lec.role})
+                          {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'})
                         </option>
                       ))}
                     </select>
@@ -557,7 +593,7 @@ function AllocationMatrix() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Select Co-Lecturer (Department Academic Staff)
+                  Select Co-Lecturer (Faculty Teaching Staff)
                 </label>
                 {eligibleCoLecturers.length > 0 ? (
                   <select
@@ -571,13 +607,13 @@ function AllocationMatrix() {
                     </option>
                     {eligibleCoLecturers.map((lec) => (
                       <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                        {lec.full_name} ({lec.role})
+                        {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'} • {lec.role})
                       </option>
                     ))}
                   </select>
                 ) : (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                    All departmental academic staff are already assigned to teach this course.
+                    All faculty academic staff are already assigned to teach this course.
                   </div>
                 )}
                 <p className="text-[11px] text-gray-400 mt-1.5">

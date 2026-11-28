@@ -78,9 +78,14 @@ router.post('/login', async (req, res) => {
         s.account_status,
         sp.password_hash,
         COALESCE(sp.must_change_password, FALSE) AS must_change_password,
-        'STUDENT' AS role
+        'STUDENT' AS role,
+        p.department_id,
+        d.name AS department_name,
+        d.code AS department_code
       FROM students s
       LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+      LEFT JOIN programmes p ON p.id = s.programme_id
+      LEFT JOIN departments d ON d.id = p.department_id
       WHERE s.student_id = $1
          OR s.matric_number = $1
          OR s.username = $1
@@ -108,34 +113,38 @@ router.post('/login', async (req, res) => {
       const exactStaffRes = await pool.query(
         `
         SELECT 
-          advisor_id AS student_id,
-          staff_number AS matric_number,
-          advisor_id AS username,
-          full_name,
-          email,
-          assigned_level AS level,
-          account_status,
-          password_hash,
-          COALESCE(must_change_password, FALSE) AS must_change_password,
-          role
-        FROM staff_advisors
-        WHERE advisor_id = $1
-           OR staff_number = $1
-           OR email = $1
-           OR UPPER(advisor_id) = UPPER($1)
-           OR UPPER(staff_number) = UPPER($1)
-           OR LOWER(email) = LOWER($1)
+          sa.advisor_id AS student_id,
+          sa.staff_number AS matric_number,
+          sa.advisor_id AS username,
+          sa.full_name,
+          sa.email,
+          sa.assigned_level AS level,
+          sa.account_status,
+          sa.password_hash,
+          COALESCE(sa.must_change_password, FALSE) AS must_change_password,
+          sa.role,
+          sa.department_id,
+          d.name AS department_name,
+          d.code AS department_code
+        FROM staff_advisors sa
+        LEFT JOIN departments d ON d.id = sa.department_id
+        WHERE sa.advisor_id = $1
+           OR sa.staff_number = $1
+           OR sa.email = $1
+           OR UPPER(sa.advisor_id) = UPPER($1)
+           OR UPPER(sa.staff_number) = UPPER($1)
+           OR LOWER(sa.email) = LOWER($1)
         ORDER BY
           CASE
-            WHEN advisor_id = $1 THEN 1
-            WHEN staff_number = $1 THEN 2
-            WHEN email = $1 THEN 3
-            WHEN UPPER(advisor_id) = UPPER($1) THEN 4
-            WHEN UPPER(staff_number) = UPPER($1) THEN 5
-            WHEN LOWER(email) = LOWER($1) THEN 6
+            WHEN sa.advisor_id = $1 THEN 1
+            WHEN sa.staff_number = $1 THEN 2
+            WHEN sa.email = $1 THEN 3
+            WHEN UPPER(sa.advisor_id) = UPPER($1) THEN 4
+            WHEN UPPER(sa.staff_number) = UPPER($1) THEN 5
+            WHEN LOWER(sa.email) = LOWER($1) THEN 6
             ELSE 7
           END ASC,
-          advisor_id ASC
+          sa.advisor_id ASC
         LIMIT 1
         `,
         [candidateId]
@@ -157,9 +166,14 @@ router.post('/login', async (req, res) => {
             s.account_status,
             sp.password_hash,
             COALESCE(sp.must_change_password, FALSE) AS must_change_password,
-            'STUDENT' AS role
+            'STUDENT' AS role,
+            p.department_id,
+            d.name AS department_name,
+            d.code AS department_code
           FROM students s
           LEFT JOIN student_profiles sp ON sp.student_id = s.student_id
+          LEFT JOIN programmes p ON p.id = s.programme_id
+          LEFT JOIN departments d ON d.id = p.department_id
           WHERE UPPER(s.matric_number) = $1
              OR UPPER(s.username) = $1
              OR UPPER(s.matric_number) = $2
@@ -189,30 +203,34 @@ router.post('/login', async (req, res) => {
           const normalizedStaffRes = await pool.query(
             `
             SELECT 
-              advisor_id AS student_id,
-              staff_number AS matric_number,
-              advisor_id AS username,
-              full_name,
-              email,
-              assigned_level AS level,
-              account_status,
-              password_hash,
-              COALESCE(must_change_password, FALSE) AS must_change_password,
-              role
-            FROM staff_advisors
-            WHERE UPPER(advisor_id) = $1
-               OR UPPER(staff_number) = $1
-               OR UPPER(staff_number) = $2
-               OR REGEXP_REPLACE(UPPER(advisor_id), '[^A-Z0-9]', '', 'g') = $3
-               OR REGEXP_REPLACE(UPPER(staff_number), '[^A-Z0-9]', '', 'g') = $3
+              sa.advisor_id AS student_id,
+              sa.staff_number AS matric_number,
+              sa.advisor_id AS username,
+              sa.full_name,
+              sa.email,
+              sa.assigned_level AS level,
+              sa.account_status,
+              sa.password_hash,
+              COALESCE(sa.must_change_password, FALSE) AS must_change_password,
+              sa.role,
+              sa.department_id,
+              d.name AS department_name,
+              d.code AS department_code
+            FROM staff_advisors sa
+            LEFT JOIN departments d ON d.id = sa.department_id
+            WHERE UPPER(sa.advisor_id) = $1
+               OR UPPER(sa.staff_number) = $1
+               OR UPPER(sa.staff_number) = $2
+               OR REGEXP_REPLACE(UPPER(sa.advisor_id), '[^A-Z0-9]', '', 'g') = $3
+               OR REGEXP_REPLACE(UPPER(sa.staff_number), '[^A-Z0-9]', '', 'g') = $3
             ORDER BY
               CASE
-                WHEN UPPER(advisor_id) = $1 THEN 1
-                WHEN UPPER(staff_number) = $1 THEN 2
-                WHEN UPPER(staff_number) = $2 THEN 3
+                WHEN UPPER(sa.advisor_id) = $1 THEN 1
+                WHEN UPPER(sa.staff_number) = $1 THEN 2
+                WHEN UPPER(sa.staff_number) = $2 THEN 3
                 ELSE 4
               END ASC,
-              advisor_id ASC
+              sa.advisor_id ASC
             LIMIT 1
             `,
             [cleanedId, normalizedSlashId, alphanumericOnly]
@@ -357,7 +375,11 @@ router.post('/login', async (req, res) => {
         sid: sessionId,
         username: user.username,
         email: user.email,
+        fullName: user.full_name,
         role: user.role,
+        departmentId: user.department_id,
+        departmentName: user.department_name,
+        departmentCode: user.department_code,
         scope: sessionScope,
         mustChangePassword: user.must_change_password,
       },
@@ -407,6 +429,9 @@ router.post('/login', async (req, res) => {
         email: user.email,
         fullName: user.full_name,
         role: user.role,
+        departmentId: user.department_id,
+        departmentName: user.department_name,
+        departmentCode: user.department_code,
       },
       sessionNonce, // Strict Zero-Token CSRF proof for client memory
       exp: expSec,
