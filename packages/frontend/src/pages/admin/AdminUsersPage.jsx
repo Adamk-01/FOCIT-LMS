@@ -5,6 +5,7 @@ import { UserProvisioningModal } from '../../components/admin/UserProvisioningMo
 import { SuspendConfirmationModal } from '../../components/admin/SuspendConfirmationModal';
 import { ResetPasswordModal } from '../../components/admin/ResetPasswordModal';
 import { EditUserModal } from '../../components/admin/EditUserModal';
+import { StaffIngestionModal } from '../../components/admin/StaffIngestionModal';
 
 /**
  * Faculty User Directory & Identity Management Page
@@ -21,6 +22,7 @@ export function AdminUsersPage() {
   const [userToSuspend, setUserToSuspend] = useState(null);
   const [userToResetPassword, setUserToResetPassword] = useState(null);
   const [userToEdit, setUserToEdit] = useState(null);
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
 
   const handleConfirmSuspend = async () => {
     if (!userToSuspend) return;
@@ -39,13 +41,21 @@ export function AdminUsersPage() {
           <h1 className="text-2xl font-black text-[#0a1142] font-display">User Directory & Accounts</h1>
           <p className="text-xs text-gray-500 mt-1">Search academic identities, view roles, and govern active/suspended statuses</p>
         </div>
-        <button
-          type="button" onClick={openProvisionModal}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0a1142] hover:bg-blue-900 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
-        >
-          <UserPlus size={16} />
-          <span>+ Provision New User</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button" onClick={() => setIsStaffModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl shadow-xs transition-all"
+          >
+            <span>Bulk Staff Ingestion</span>
+          </button>
+          <button
+            type="button" onClick={openProvisionModal}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0a1142] hover:bg-blue-900 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+          >
+            <UserPlus size={16} />
+            <span>+ Provision New User</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -202,6 +212,11 @@ export function AdminUsersPage() {
         }}
         isSubmitting={isUpdatingUser}
         error={updateUserError}
+      />
+      <StaffIngestionModal
+        isOpen={isStaffModalOpen}
+        onClose={() => setIsStaffModalOpen(false)}
+        onSuccess={() => refetchAll?.()}
       />
     </div>
   );

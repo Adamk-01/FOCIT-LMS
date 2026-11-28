@@ -14,6 +14,7 @@ import { ClipboardCheck, UploadCloud, ShieldAlert, Users, BookOpen, ChevronRight
  */
 export function AdminQuickActionsCard({
   onOpenCohortModal,
+  onOpenStaffModal,
   onOpenAuditModal,
   onOpenUserDirectory,
   onOpenCourseModal,
@@ -94,6 +95,28 @@ export function AdminQuickActionsCard({
               </h3>
               <p className="text-[11px] text-gray-500">
                 Import admission roster spreadsheet (CSV)
+              </p>
+            </div>
+          </div>
+          <ChevronRight size={16} className="text-gray-400 group-hover:text-[#0a1142] transition-transform group-hover:translate-x-0.5" />
+        </button>
+
+        {/* Action 3b: Bulk Staff Ingestion */}
+        <button
+          type="button"
+          onClick={onOpenStaffModal}
+          className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-indigo-600/40 hover:bg-slate-50/80 transition-all flex items-center justify-between group touch-manipulation min-h-[56px]"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-700 shrink-0 group-hover:bg-[#0a1142] group-hover:text-white transition-colors">
+              <Users size={20} aria-hidden="true" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-gray-900 group-hover:text-[#0a1142]">
+                Bulk Staff Ingestion
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                Import academic staff & HOD roster (CSV)
               </p>
             </div>
           </div>

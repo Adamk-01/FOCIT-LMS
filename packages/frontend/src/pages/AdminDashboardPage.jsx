@@ -8,6 +8,7 @@ import { AdminOutboxQueueCard } from '../components/admin/AdminOutboxQueueCard';
 import { AdminQuickActionsCard } from '../components/admin/AdminQuickActionsCard';
 import { UserProvisioningModal } from '../components/admin/UserProvisioningModal';
 import { CohortIngestionModal } from '../components/admin/CohortIngestionModal';
+import { StaffIngestionModal } from '../components/admin/StaffIngestionModal';
 import { CourseCatalogModal } from '../components/admin/CourseCatalogModal';
 import { ErrorStateView } from '../components/ErrorStateView';
 import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
@@ -19,6 +20,7 @@ import { ErrorAlertCallout } from '../components/ErrorAlertCallout';
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
 
   const {
     overview, outbox, isLoading, isError, error, refetchAll,
@@ -84,6 +86,7 @@ export function AdminDashboardPage() {
           <AdminQuickActionsCard
             onOpenCourseModal={() => setIsCourseModalOpen(true)}
             onOpenCohortModal={() => setIsCohortModalOpen(true)}
+            onOpenStaffModal={() => setIsStaffModalOpen(true)}
             onOpenAuditModal={() => navigate('/admin/audit')}
             onOpenUserDirectory={() => navigate('/admin/users')}
           />
@@ -106,6 +109,7 @@ export function AdminDashboardPage() {
       />
 
       <CohortIngestionModal isOpen={isCohortModalOpen} onClose={() => setIsCohortModalOpen(false)} />
+      <StaffIngestionModal isOpen={isStaffModalOpen} onClose={() => setIsStaffModalOpen(false)} onSuccess={() => refetchAll()} />
     </div>
   );
 }
