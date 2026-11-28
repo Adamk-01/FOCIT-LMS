@@ -249,8 +249,44 @@ export function useRegistrationWizard(studentId = 'student1') {
   // 4. Reactive Curriculum & Cumulative Unit Bounds
   const selectedCourses = useMemo(() => {
     const set = new Set(selectedCourseIds);
-    return eligibleCatalog.filter((c) => set.has(c.course_id));
-  }, [eligibleCatalog, selectedCourseIds]);
+    const itemMap = new Map((initialItems || []).map((item) => [item.course_id, item]));
+
+    // Map courses from eligible catalog with item clearance status and metadata
+    const catalogCourses = eligibleCatalog
+      .filter((c) => set.has(c.course_id))
+      .map((c) => {
+        const item = itemMap.get(c.course_id);
+        return {
+          ...c,
+          status: item?.status || 'PENDING_LECTURER',
+          approved_by_name: item?.approved_by_name || null,
+          rejected_by_name: item?.rejected_by_name || null,
+          rejection_reason: item?.rejection_reason || null,
+          approved_at: item?.approved_at || null,
+          assigned_lecturer_name: item?.assigned_lecturer_name || c.assigned_lecturer_name || null,
+        };
+      });
+
+    // Also include any items present in initialItems that might not be in eligibleCatalog
+    const catalogCourseIds = new Set(catalogCourses.map((c) => c.course_id));
+    const additionalItems = (initialItems || [])
+      .filter((item) => set.has(item.course_id) && !catalogCourseIds.has(item.course_id))
+      .map((item) => ({
+        course_id: item.course_id,
+        code: item.code,
+        title: item.title,
+        units: item.units,
+        category: item.category,
+        status: item.status || 'PENDING_LECTURER',
+        approved_by_name: item.approved_by_name || null,
+        rejected_by_name: item.rejected_by_name || null,
+        rejection_reason: item.rejection_reason || null,
+        approved_at: item.approved_at || null,
+        assigned_lecturer_name: item.assigned_lecturer_name || null,
+      }));
+
+    return [...catalogCourses, ...additionalItems];
+  }, [eligibleCatalog, selectedCourseIds, initialItems]);
 
   const totalSelectedUnits = useMemo(() => {
     return selectedCourses.reduce((sum, c) => sum + (c.units || 0), 0);

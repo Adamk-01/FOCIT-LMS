@@ -84,19 +84,28 @@ export async function getCurrentRegistrationState(req, res) {
       batch = initRes.rows[0];
     }
 
-    // 4. Fetch Staged Items in Current Batch
+    // 4. Fetch Staged Items in Current Batch with Approver and Lead Lecturer Context
     const itemsRes = await pool.query(
       `SELECT cri.id, cri.course_id, cri.units, cri.category, cri.status, cri.approved_at, cri.rejection_reason,
               c.code, c.title,
               sa_app.full_name AS approved_by_name,
-              sa_rej.full_name AS rejected_by_name
+              sa_rej.full_name AS rejected_by_name,
+              sa_lead.full_name AS assigned_lecturer_name
        FROM course_registration_items cri
        JOIN courses c ON c.course_id = cri.course_id
        LEFT JOIN staff_advisors sa_app ON sa_app.advisor_id = cri.approved_by
        LEFT JOIN staff_advisors sa_rej ON sa_rej.advisor_id = cri.rejected_by
+       LEFT JOIN LATERAL (
+         SELECT sa.full_name
+         FROM hod_course_allocations hca
+         JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+         WHERE hca.course_id = cri.course_id AND hca.semester_id = $2
+         ORDER BY hca.is_primary DESC, hca.created_at ASC
+         LIMIT 1
+       ) sa_lead ON TRUE
        WHERE cri.batch_id = $1
        ORDER BY cri.category ASC, c.code ASC`,
-      [batch.id]
+      [batch.id, semester.id]
     );
 
     // 5. Fetch Authoritative Eligible Course Catalog for Student Level & Cohort
@@ -113,6 +122,7 @@ export async function getCurrentRegistrationState(req, res) {
         c.enrolled_count,
         c.description,
         d.name AS department_name,
+        sa_lead.full_name AS assigned_lecturer_name,
         (c.level < $3) AS is_carryover,
         EXISTS (
           SELECT 1 FROM course_registration_items cri 
@@ -120,6 +130,14 @@ export async function getCurrentRegistrationState(req, res) {
         ) AS is_selected_in_batch
       FROM courses c
       JOIN departments d ON d.id = c.department_id
+      LEFT JOIN LATERAL (
+        SELECT sa.full_name
+        FROM hod_course_allocations hca
+        JOIN staff_advisors sa ON sa.advisor_id = hca.lecturer_id
+        WHERE hca.course_id = c.course_id AND hca.semester_id = $6
+        ORDER BY hca.is_primary DESC, hca.created_at ASC
+        LIMIT 1
+      ) sa_lead ON TRUE
       WHERE c.is_active = TRUE
         AND c.semester_number = $2
         AND c.level <= $3 -- Level Invariant: cannot take above current academic level
@@ -142,7 +160,7 @@ export async function getCurrentRegistrationState(req, res) {
         c.level DESC,
         c.code ASC
       `,
-      [batch.id, semester.semester_number, student.level, student.department_id, studentId]
+      [batch.id, semester.semester_number, student.level, student.department_id, studentId, semester.id]
     );
 
     return res.status(200).json({

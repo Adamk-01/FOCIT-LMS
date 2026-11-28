@@ -56,6 +56,7 @@ export const CourseRegistrationPage = () => {
         student={student}
         batch={batch}
         selectedCourses={selectedCourses}
+        onRefresh={refetch}
       />
     );
   }
