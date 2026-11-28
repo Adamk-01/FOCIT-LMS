@@ -90,6 +90,7 @@ function AllocationMatrix() {
   const [coLecturerModalCourse, setCoLecturerModalCourse] = useState(null);
   const [selectedCoLecturerId, setSelectedCoLecturerId] = useState('');
   const [isModalSaving, setIsModalSaving] = useState(false);
+  const [deallocateTarget, setDeallocateTarget] = useState(null);
 
   const activeSemester = selectedSemester || allocations.semesterId || '';
 
@@ -113,13 +114,15 @@ function AllocationMatrix() {
     }
   };
 
-  const handleRemoveLecturer = async (allocationId, lecturerName, courseCode) => {
+  const handleRemoveLecturer = (allocationId, lecturerName, courseCode) => {
     if (!allocationId) return;
-    const confirmed = window.confirm(
-      `Remove ${lecturerName || 'this lecturer'} from teaching ${courseCode}?`
-    );
-    if (!confirmed) return;
+    setDeallocateTarget({ allocationId, lecturerName, courseCode });
+  };
 
+  const handleExecuteDeallocate = async () => {
+    if (!deallocateTarget?.allocationId) return;
+    const { allocationId, courseCode } = deallocateTarget;
+    setDeallocateTarget(null);
     setSuccessMsg(null);
     try {
       await deallocate.mutateAsync(allocationId);
@@ -386,7 +389,7 @@ function AllocationMatrix() {
                           </option>
                           {lecturers.map((lec) => (
                             <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                              {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'})
+                              {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
                             </option>
                           ))}
                         </select>
@@ -540,7 +543,7 @@ function AllocationMatrix() {
                       </option>
                       {lecturers.map((lec) => (
                         <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                          {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'})
+                          {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
                         </option>
                       ))}
                     </select>
@@ -607,7 +610,7 @@ function AllocationMatrix() {
                     </option>
                     {eligibleCoLecturers.map((lec) => (
                       <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                        {lec.full_name} ({lec.department_code || lec.department_id || 'FAC'} • {lec.role})
+                        {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
                       </option>
                     ))}
                   </select>
@@ -639,6 +642,44 @@ function AllocationMatrix() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Institutional Deallocation Confirmation Modal */}
+      {deallocateTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white dark:bg-[#0c132c] rounded-2xl max-w-md w-full border border-gray-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[#0a1142] dark:text-white">Revoke Teaching Allocation</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Institutional Governance & Course Management</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to remove <strong className="text-gray-900 dark:text-white">{deallocateTarget.lecturerName}</strong> from teaching <strong className="text-[#0a1142] dark:text-[#ffb81c]">{deallocateTarget.courseCode}</strong>? They will lose instructor privileges for this course.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeallocateTarget(null)}
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeallocate}
+                className="min-h-[40px] px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm cursor-pointer"
+              >
+                Confirm Revocation
+              </button>
+            </div>
           </div>
         </div>
       )}
