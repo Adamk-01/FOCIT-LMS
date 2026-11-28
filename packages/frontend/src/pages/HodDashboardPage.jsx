@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { toast } from 'react-toastify';
 import {
   useHodAllocations,
   useHodAnalytics,
@@ -80,6 +81,21 @@ export function HodDashboardPage() {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Course Allocation Matrix (Interactive Multi-Lecturer Allocation)
 // ─────────────────────────────────────────────────────────────────────────────
+const DEPARTMENT_NAMES = {
+  CSC: 'Department of Computer Science',
+  CYS: 'Department of Cybersecurity',
+  SEN: 'Department of Software Engineering',
+  DSC: 'Department of Data Science',
+  LIS: 'Department of Library & Information Science',
+};
+
+const getLecturerDeptLabel = (lec) => {
+  if (lec.department_name) return lec.department_name;
+  if (lec.department_id && DEPARTMENT_NAMES[lec.department_id]) return DEPARTMENT_NAMES[lec.department_id];
+  if (lec.department_code) return `Dept. of ${lec.department_code}`;
+  return 'Faculty';
+};
+
 function AllocationMatrix() {
   const [selectedSemester, setSelectedSemester] = useState('');
   const { data: allocations = [], isLoading, error } = useHodAllocations(selectedSemester || undefined);
@@ -105,10 +121,13 @@ function AllocationMatrix() {
         lecturerId,
         isPrimary,
       });
-      setSuccessMsg(isPrimary ? 'Lead Course Coordinator allocated successfully!' : 'Co-Lecturer added successfully!');
+      const msg = isPrimary ? 'Lead Course Coordinator allocated successfully!' : 'Co-Lecturer added successfully!';
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to allocate lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to allocate lecturer';
+      toast.error(errMsg);
     } finally {
       setSavingCourseId(null);
     }
@@ -126,10 +145,13 @@ function AllocationMatrix() {
     setSuccessMsg(null);
     try {
       await deallocate.mutateAsync(allocationId);
-      setSuccessMsg(`Teaching allocation removed for ${courseCode}`);
+      const msg = `Teaching allocation removed for ${courseCode}`;
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to remove lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to remove lecturer';
+      toast.error(errMsg);
     }
   };
 
@@ -144,12 +166,15 @@ function AllocationMatrix() {
         lecturerId: selectedCoLecturerId,
         isPrimary: false,
       });
-      setSuccessMsg(`Co-Lecturer successfully added to ${coLecturerModalCourse.code}!`);
+      const msg = `Co-Lecturer successfully added to ${coLecturerModalCourse.code}!`;
+      setSuccessMsg(msg);
+      toast.success(msg);
       setTimeout(() => setSuccessMsg(null), 3500);
       setCoLecturerModalCourse(null);
       setSelectedCoLecturerId('');
     } catch (err) {
-      alert(err.response?.data?.error || err.message || 'Failed to add co-lecturer');
+      const errMsg = err.response?.data?.error || err.message || 'Failed to add co-lecturer';
+      toast.error(errMsg);
     } finally {
       setIsModalSaving(false);
     }
@@ -389,7 +414,7 @@ function AllocationMatrix() {
                           </option>
                           {lecturers.map((lec) => (
                             <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                              {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
+                              {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                             </option>
                           ))}
                         </select>
@@ -543,7 +568,7 @@ function AllocationMatrix() {
                       </option>
                       {lecturers.map((lec) => (
                         <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                          {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
+                          {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                         </option>
                       ))}
                     </select>
@@ -610,7 +635,7 @@ function AllocationMatrix() {
                     </option>
                     {eligibleCoLecturers.map((lec) => (
                       <option key={lec.lecturer_id} value={lec.lecturer_id}>
-                        {lec.full_name} — {lec.department_name ? `${lec.department_name}` : (lec.department_code || 'Faculty')} ({lec.role})
+                        {lec.full_name} — {getLecturerDeptLabel(lec)} ({lec.role})
                       </option>
                     ))}
                   </select>
