@@ -19,6 +19,24 @@ import { recordIdentityAuditLog } from '../lib/auditLogger.js';
 import { callMoodleAPI } from '../integrations/moodle/moodle.client.js';
 
 /**
+ * Resolves authoritative actor identity for admin actions (F3 Hardening).
+ * Fails fast with AUTH_REQUIRED instead of defaulting to a hardcoded 'admin1' string.
+ */
+function getAuthoritativeAdminActor(req) {
+  const actorId = req.user?.id || req.user?.student_id || req.user?.username;
+  if (!actorId) {
+    const error = new Error('Authoritative administrator identity required for privileged audit operations');
+    error.status = 401;
+    error.code = 'AUTH_REQUIRED';
+    throw error;
+  }
+  return {
+    actorId,
+    actorRole: req.user?.role || 'ADMIN'
+  };
+}
+
+/**
  * Safely and reliably purges all active Redis sessions belonging to a specific user.
  * Combines direct indexed set lookup (user_sessions:<userId>) and cursor-based SCAN fallback.
  *
@@ -580,6 +598,135 @@ export async function createUser(req, res, next) {
     if (client) {
       client.release();
     }
+  }
+}
+
+/**
+ * 3b. POST /api/admin/users/batch-staff
+ * Batch provision academic staff members (Lecturers, HODs, Level Advisors).
+ */
+export async function batchCreateStaff(req, res, next) {
+  const { staff } = req.body || {};
+  if (!Array.isArray(staff) || staff.length === 0) {
+    return res.status(400).json({
+      error: 'Payload must contain a non-empty "staff" array.',
+      code: 'INVALID_BATCH_PAYLOAD',
+    });
+  }
+
+  if (staff.length > 100) {
+    return res.status(400).json({
+      error: 'Batch size exceeds maximum limit of 100 staff members per request.',
+      code: 'BATCH_LIMIT_EXCEEDED',
+    });
+  }
+
+  // F3 Hardening: Enforce authoritative administrator actor identity
+  const auditActor = getAuthoritativeAdminActor(req);
+
+  const results = {
+    total: staff.length,
+    successCount: 0,
+    failedCount: 0,
+    created: [],
+    errors: [],
+  };
+
+  const client = await pool.connect();
+  try {
+    for (let i = 0; i < staff.length; i++) {
+      const item = staff[i];
+      const rowNum = i + 1;
+      const { staffNumber, identifier, fullName, email, role = 'LECTURER', departmentId = 'CSC', department, password } = item;
+      const effectiveId = String(staffNumber || identifier || '').trim();
+      const effectiveName = String(fullName || '').trim();
+      const effectiveEmail = String(email || '').trim().toLowerCase();
+      const effectiveDept = departmentId || department || 'CSC';
+
+      if (!effectiveId || !effectiveName || !effectiveEmail) {
+        results.failedCount++;
+        results.errors.push({ row: rowNum, identifier: effectiveId || 'N/A', error: 'Staff number, full name, and email are required.' });
+        continue;
+      }
+
+      const normalizedRole = String(role).toUpperCase();
+      const ALLOWED_STAFF_ROLES = ['LECTURER', 'HOD', 'LEVEL_ADVISOR', 'ADMIN'];
+      if (!ALLOWED_STAFF_ROLES.includes(normalizedRole)) {
+        results.failedCount++;
+        results.errors.push({ row: rowNum, identifier: effectiveId, error: `Invalid role "${role}". Allowed: ${ALLOWED_STAFF_ROLES.join(', ')}` });
+        continue;
+      }
+
+      const resolvedDeptId = resolveDepartmentId(effectiveDept);
+      const advisorId = `staff_${effectiveId.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+      const initialPassword = password && String(password).trim().length >= 8
+        ? String(password).trim()
+        : crypto.randomBytes(9).toString('base64url') + '!A1';
+      const passwordHash = await hashPassword(initialPassword);
+
+      try {
+        await client.query('BEGIN');
+        const insertRes = await client.query(
+          `INSERT INTO staff_advisors (
+            advisor_id, staff_number, full_name, email, department_id, assigned_level, role, password_hash, must_change_password, account_status
+          ) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, TRUE, 'ACTIVE')
+          ON CONFLICT (staff_number) DO UPDATE SET
+            full_name = EXCLUDED.full_name,
+            email = EXCLUDED.email,
+            department_id = EXCLUDED.department_id,
+            role = EXCLUDED.role
+          RETURNING (xmax = 0) AS is_insert`,
+          [advisorId, effectiveId, effectiveName, effectiveEmail, resolvedDeptId, normalizedRole, passwordHash]
+        );
+
+        const isInsert = insertRes.rows[0]?.is_insert ?? true;
+
+        await recordIdentityAuditLog(client, {
+          eventType: isInsert ? 'ADMIN_STAFF_BATCH_PROVISIONED' : 'ADMIN_STAFF_BATCH_UPDATED',
+          actorId: auditActor.actorId,
+          actorRole: auditActor.actorRole,
+          targetId: advisorId,
+          targetType: 'STAFF_ACCOUNT',
+          ipAddress: req.ip,
+          metadata: { role: normalizedRole, identifier: effectiveId, email: effectiveEmail, departmentId: resolvedDeptId, isInsert },
+        });
+
+        await client.query('COMMIT');
+        results.successCount++;
+        results.created.push({
+          staffNumber: effectiveId,
+          fullName: effectiveName,
+          email: effectiveEmail,
+          role: normalizedRole,
+          department: resolvedDeptId,
+          temporaryPassword: isInsert ? initialPassword : null,
+          isUpdated: !isInsert,
+        });
+      } catch (rowErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        results.failedCount++;
+        let friendlyError = rowErr.message;
+        if (rowErr.code === '23505') {
+          if (String(rowErr.detail || '').includes('email')) {
+            friendlyError = `Email '${effectiveEmail}' is already registered to another staff advisor.`;
+          } else {
+            friendlyError = `Staff record conflict on identifier '${effectiveId}'.`;
+          }
+        }
+        results.errors.push({ row: rowNum, identifier: effectiveId, error: friendlyError });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: results,
+      message: `Batch ingestion complete: ${results.successCount} provisioned, ${results.failedCount} failed.`,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err }, '[AdminController] Error during batch staff provisioning');
+    return next(err);
+  } finally {
+    client.release();
   }
 }
 

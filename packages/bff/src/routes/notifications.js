@@ -71,7 +71,7 @@ redisSubscriber.on('message', (channel, message) => {
   if (channel === 'student_notifications') {
     try {
       const payload = JSON.parse(message);
-      const targetId = payload.student_id || payload.studentId;
+      const targetId = payload.student_id || payload.studentId || payload.userId || payload.recipientId;
       if (!targetId) return;
 
       const eventPayload = payload.payload || payload;

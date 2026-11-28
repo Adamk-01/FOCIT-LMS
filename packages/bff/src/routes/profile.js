@@ -96,7 +96,7 @@ router.get('/profile', async (req, res) => {
       ).catch((err) => logger.warn({ err }, '[Profile] Lazy profile init collision ignored'));
     }
 
-    // Response DTO (F1 Hardening): Exclude sensitive academic standing, medical exemption, and internal GPA
+    // Response DTO (F1 Hardening): Exclude internal academic standing telemetry while preserving student's cumulative CGPA
     const safeProfile = {
       student_id: studentProfile.student_id,
       full_name: studentProfile.full_name,
@@ -109,6 +109,7 @@ router.get('/profile', async (req, res) => {
       programme_name: studentProfile.programme_name,
       department_name: studentProfile.department_name,
       level: studentProfile.level,
+      current_gpa: studentProfile.current_gpa !== undefined && studentProfile.current_gpa !== null ? Number(studentProfile.current_gpa) : null,
       completed_units: studentProfile.completed_units,
       avatar_url: studentProfile.avatar_url || null,
       bio: studentProfile.bio || '',
