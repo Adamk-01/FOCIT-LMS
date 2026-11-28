@@ -142,6 +142,19 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
                 </div>
               ))}
             </div>
+            {submissionResult.errors?.length > 0 && (
+              <div className="mt-3 text-left">
+                <span className="text-[11px] font-bold text-rose-700">Failed Records ({submissionResult.errors.length}):</span>
+                <div className="mt-1 max-h-28 overflow-y-auto text-[10px] bg-rose-50/70 p-2.5 rounded-lg border border-rose-200 divide-y divide-rose-100 text-rose-800">
+                  {submissionResult.errors.map((err, idx) => (
+                    <div key={idx} className="py-1 flex items-start justify-between gap-2">
+                      <span className="font-semibold shrink-0">Row {err.row} ({err.identifier || 'N/A'}):</span>
+                      <span className="text-right text-rose-600">{err.error}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <button type="button" onClick={handleClose}
               className="mt-5 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0a1142] text-white hover:bg-blue-900 transition-colors">
               Close

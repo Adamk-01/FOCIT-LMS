@@ -35,8 +35,12 @@ function isValidSubmissionUrl(rawUrl) {
   if (clean.startsWith('/') || clean.startsWith('/api/')) return true;
   try {
     const parsed = new URL(clean);
-    if (parsed.protocol !== 'https:') return false;
+    const isDevLocal = config.nodeEnv !== 'production' && parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !isDevLocal) return false;
     const allowed = [...TRUSTED_SUBMISSION_DOMAINS];
+    if (isDevLocal) {
+      allowed.push('localhost', '127.0.0.1');
+    }
     if (config.frontendOrigin) {
       try {
         const configuredHost = new URL(config.frontendOrigin).hostname;
