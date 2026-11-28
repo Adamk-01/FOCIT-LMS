@@ -740,6 +740,160 @@ export async function batchCreateStaff(req, res, next) {
 }
 
 /**
+ * 3c. POST /api/admin/users/batch-students
+ * Batch ingest and provision student cohort records into the database.
+ * Standard: The 8-8-8 Architectural Doctrine & Zero-Trust Governance.
+ */
+export async function batchCreateStudents(req, res, next) {
+  const { students } = req.body || {};
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({
+      error: 'Payload must contain a non-empty "students" array.',
+      code: 'INVALID_BATCH_PAYLOAD',
+    });
+  }
+
+  if (students.length > 500) {
+    return res.status(400).json({
+      error: 'Batch size exceeds maximum limit of 500 students per request.',
+      code: 'BATCH_LIMIT_EXCEEDED',
+    });
+  }
+
+  const auditActor = getAuthoritativeAdminActor(req);
+
+  const results = {
+    total: students.length,
+    successCount: 0,
+    failedCount: 0,
+    created: [],
+    errors: [],
+  };
+
+  const client = await pool.connect();
+  try {
+    for (let i = 0; i < students.length; i++) {
+      const item = students[i];
+      const rowNum = i + 1;
+      const { matricNumber, matric, identifier, fullName, name, email, programme, programmeId, level } = item;
+      const effectiveMatric = String(matricNumber || matric || identifier || '').trim();
+      const effectiveName = String(fullName || name || '').trim();
+      const effectiveEmail = String(email || '').trim().toLowerCase();
+      const rawProg = String(programme || programmeId || 'CSC').trim().toUpperCase();
+      const cleanDept = rawProg.replace(/^BSC_/, '').replace(/^D-/, '');
+      const resolvedDept = resolveDepartmentId(cleanDept);
+      const resolvedProg = `BSC_${resolvedDept}`;
+
+      if (!effectiveMatric || !effectiveName || !effectiveEmail) {
+        results.failedCount++;
+        results.errors.push({ row: rowNum, error: 'Matric number, full name, and email are required.' });
+        continue;
+      }
+
+      let candidateLevel = 200;
+      if (level !== undefined && level !== null && level !== '') {
+        const parsedLvl = parseInt(level, 10);
+        if ([100, 200, 300, 400].includes(parsedLvl)) {
+          candidateLevel = parsedLvl;
+        }
+      }
+
+      const studentId = `student_${effectiveMatric.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
+      const initialPassword = crypto.randomBytes(9).toString('base64url') + '!A1';
+      const passwordHash = await hashPassword(initialPassword);
+
+      try {
+        await client.query('BEGIN');
+
+        const existingRes = await client.query('SELECT student_id FROM students WHERE matric_number = $1', [effectiveMatric]);
+        const isInsert = existingRes.rowCount === 0;
+
+        await client.query(
+          `INSERT INTO students (
+            student_id, matric_number, username, full_name, email, programme_id, level, account_status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE')
+          ON CONFLICT (matric_number) DO UPDATE SET
+            full_name = EXCLUDED.full_name,
+            email = EXCLUDED.email,
+            programme_id = EXCLUDED.programme_id,
+            level = EXCLUDED.level`,
+          [studentId, effectiveMatric, effectiveMatric, effectiveName, effectiveEmail, resolvedProg, candidateLevel]
+        );
+
+        if (isInsert) {
+          await client.query(
+            `INSERT INTO student_profiles (student_id, password_hash, must_change_password)
+             VALUES ($1, $2, TRUE)
+             ON CONFLICT (student_id) DO NOTHING`,
+            [studentId, passwordHash]
+          );
+
+          await client.query(
+            `INSERT INTO integration_outbox_events (
+              aggregate_type, aggregate_id, event_type, payload, idempotency_key
+            ) VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (idempotency_key) DO NOTHING`,
+            [
+              'STUDENT',
+              studentId,
+              'USER_PROVISION_REQUESTED',
+              JSON.stringify({
+                student_id: studentId,
+                matric_number: effectiveMatric,
+                full_name: effectiveName,
+                email: effectiveEmail,
+              }),
+              `moodle_provision:${studentId}`,
+            ]
+          );
+        }
+
+        await recordIdentityAuditLog(client, {
+          eventType: isInsert ? 'ADMIN_STUDENT_BATCH_PROVISIONED' : 'ADMIN_STUDENT_BATCH_UPDATED',
+          actorId: auditActor.actorId,
+          actorRole: auditActor.actorRole,
+          targetId: studentId,
+          targetType: 'STUDENT_ACCOUNT',
+          ipAddress: req.ip,
+          metadata: { identifier: effectiveMatric, email: effectiveEmail, programmeId: resolvedProg, level: candidateLevel, isInsert },
+        });
+
+        await client.query('COMMIT');
+        results.successCount++;
+        results.created.push({
+          matricNumber: effectiveMatric,
+          fullName: effectiveName,
+          email: effectiveEmail,
+          programme: resolvedProg,
+          level: candidateLevel,
+          temporaryPassword: isInsert ? initialPassword : null,
+          isUpdated: !isInsert,
+        });
+      } catch (rowErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        results.failedCount++;
+        let friendlyErr = rowErr.message;
+        if (rowErr.code === '23505') {
+          friendlyErr = `Conflict on email or matriculation number '${effectiveMatric}'.`;
+        }
+        results.errors.push({ row: rowNum, identifier: effectiveMatric, error: friendlyErr });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: results,
+      message: `Batch student ingestion complete: ${results.successCount} provisioned, ${results.failedCount} failed.`,
+    });
+  } catch (err) {
+    logger.error({ err: err?.message || err }, '[AdminController] Error during batch student ingestion');
+    return next(err);
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * 4. PATCH /api/admin/users/:id/status
  * Toggle account status between ACTIVE and SUSPENDED.
  */
