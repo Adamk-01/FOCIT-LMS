@@ -128,7 +128,7 @@ export function StaffIngestionModal({ isOpen, onClose, onSuccess }) {
           throw new Error(`Row ${i + 2}: Staff number, full name, and email cannot be blank.`);
         }
 
-        records.push({ staffNumber, fullName, email, role, department });
+        records.push({ staffNumber, fullName, email, role, department, departmentId: department });
       });
 
       setParsedStaff(records);

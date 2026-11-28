@@ -637,7 +637,7 @@ export async function batchCreateStaff(req, res, next) {
     for (let i = 0; i < staff.length; i++) {
       const item = staff[i];
       const rowNum = i + 1;
-      const { staffNumber, identifier, fullName, email, role = 'LECTURER', departmentId = 'CSC', department, password } = item;
+      const { staffNumber, identifier, fullName, email, role = 'LECTURER', departmentId, department, password } = item;
       const effectiveId = String(staffNumber || identifier || '').trim();
       const effectiveName = String(fullName || '').trim();
       const effectiveEmail = String(email || '').trim().toLowerCase();
